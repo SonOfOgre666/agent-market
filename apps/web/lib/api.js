@@ -1,4 +1,17 @@
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4010'
+
+function isNgrokUrl(url) {
+  try {
+    const host = new URL(url).hostname
+    return host.endsWith('ngrok-free.dev') || host.endsWith('ngrok.io') || host.endsWith('ngrok.app')
+  } catch {
+    return false
+  }
+}
+
+const NGROK_SKIP_WARNING_HEADERS = isNgrokUrl(API_URL)
+  ? { 'ngrok-skip-browser-warning': 'true' }
+  : {}
 
 function getToken() {
   if (typeof window === 'undefined') return null
@@ -7,7 +20,7 @@ function getToken() {
 
 async function request(method, path, body, options = {}, attempt = 0) {
   const token = getToken()
-  const headers = {}
+  const headers = { ...NGROK_SKIP_WARNING_HEADERS }
   if (token) headers['Authorization'] = `Bearer ${token}`
   if (body !== undefined && body !== null) headers['Content-Type'] = 'application/json'
 
@@ -97,7 +110,9 @@ export const api = {
     form.append('file', file)
     const res = await fetch(`${API_URL}/api/media/upload`, {
       method: 'POST',
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      headers: token
+        ? { ...NGROK_SKIP_WARNING_HEADERS, Authorization: `Bearer ${token}` }
+        : { ...NGROK_SKIP_WARNING_HEADERS },
       body: form,
     })
     const data = await res.json()
@@ -124,7 +139,6 @@ export const api = {
   // Services
   services: () => request('GET', '/services'),
   saveService: (name, data) => request('PUT', `/services/${name}`, data),
-  createMastodonApp: (server_url) => request('POST', '/services/mastodon/create-app', { server_url }),
 
   // Profile
   profile: () => request('GET', '/profile'),
@@ -148,13 +162,41 @@ export const api = {
   // Ads — Leads
   leads: (params = {}) => request('GET', `/ads/leads?${new URLSearchParams(params)}`),
 
-  // Ads — Budget summary
+  // Ads — Budget summary & Google Ads
   budgetSummary: () => request('GET', '/ads/budget-summary'),
   syncGoogleAdsCampaigns: () => request('POST', '/ads/google-ads/sync'),
   googleAdsCustomers: () => request('GET', '/ads/google-ads/customers'),
+
+  // Ads — AI campaign actions
+  generateCampaignAssets: (id) => request('POST', `/ads/campaigns/${id}/generate-assets`),
+  generateLandingPage: (id) => request('POST', `/ads/campaigns/${id}/generate-landing-page`),
+  optimizeCampaign: (id) => request('POST', `/ads/campaigns/${id}/optimize`),
+
+  // Ads — Keywords
+  suggestKeywords: (topic, language, country) => request('POST', '/ads/keywords/suggest', { topic, language, country }),
+
+  // Social posts (README-style, userId-based)
+  socialPosts: (userId, params = {}) => request('GET', `/social/posts?userId=${userId}&${new URLSearchParams(params)}`),
+  socialPostDraft: (userId, channel, text, media) => request('POST', '/social/posts/draft', { userId, channel, text, media }),
+  socialPostSchedule: (userId, channel, text, scheduledAt, media) => request('POST', '/social/posts/schedule', { userId, channel, text, scheduledAt, media }),
+  publishNow: (postId) => request('POST', `/social/posts/${postId}/publish-now`),
+
+  // Integrations (OAuth — userId-based)
+  integrationProviders: () => request('GET', '/integrations/providers'),
+  integrationConnect: (provider, userId) => request('GET', `/integrations/${provider}/connect?userId=${userId}`),
+  integrationStatus: (provider, userId) => request('GET', `/integrations/${provider}/status?userId=${userId}`),
+  integrationDiagnostics: (userId) => request('GET', `/integrations/diagnostics?userId=${userId}`),
+  googleAdsRefreshToken: (userId) => request('GET', `/integrations/google-ads/refresh-token?userId=${userId}`),
+
+  // Dashboard overview (README-style, userId-based)
+  dashboardOverview: (userId) => request('GET', `/dashboard/overview?userId=${userId}`),
 
   // System
   systemStatus: () => request('GET', '/system/status'),
   systemLogs: () => request('GET', '/system/logs'),
   clearLogs: () => request('DELETE', '/system/logs'),
+
+  // AI Post Creator
+  aiGeneratePost: (data) => request('POST', '/ai/generate-post', data),
+  aiGenerateImage: (data) => request('POST', '/ai/generate-image', data),
 }

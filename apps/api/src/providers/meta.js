@@ -26,13 +26,16 @@ export class MetaProvider {
     this.appSecret = config.app_secret
     this.apiVersion = config.api_version || 'v25.0'
     this.base = `${GRAPH_API}/${this.apiVersion}`
-    const base = process.env.API_URL || 'http://localhost:3001'
+    const base = process.env.API_URL || 'http://localhost:4010'
     // callbackType is set by the provider subclass — facebook_page or instagram
-    const callbackPath = config.callbackType === 'instagram' ? '/callback/instagram' : '/callback/facebook_page'
-    this.callbackUrl = process.env[`META_CALLBACK_URL_${(config.callbackType || 'facebook_page').toUpperCase()}`]
+    const callbackType = config.callbackType || 'facebook_page'
+    const callbackPath = callbackType === 'instagram' ? '/callback/instagram' : '/callback/facebook_page'
+    const fallbackInstagramCallback = callbackType === 'instagram' ? process.env.INSTAGRAM_CALLBACK_URL : undefined
+    this.callbackUrl = process.env[`META_CALLBACK_URL_${callbackType.toUpperCase()}`]
+      || fallbackInstagramCallback
       || `${base}${callbackPath}`
     // Which entity types to expose for this provider
-    this.entityType = config.callbackType === 'instagram' ? 'instagram' : 'facebook_page'
+    this.entityType = callbackType === 'instagram' ? 'instagram' : 'facebook_page'
   }
 
   async getAuthUrl() {

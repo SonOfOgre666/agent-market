@@ -31,11 +31,6 @@ const SERVICE_FIELDS = {
     { key: 'client_secret', label: 'OAuth2 Client Secret', type: 'password' },
     { key: 'developer_token', label: 'Developer Token', type: 'password' },
   ],
-  mastodon: [
-    { key: 'server_url', label: 'Server URL', type: 'text', placeholder: 'https://mastodon.social' },
-    { key: 'client_id', label: 'Client ID', type: 'text' },
-    { key: 'client_secret', label: 'Client Secret', type: 'password' },
-  ],
   unsplash: [
     { key: 'access_key', label: 'Access Key', type: 'text' },
   ],
@@ -51,7 +46,6 @@ const SERVICE_LABELS = {
   tiktok: 'TikTok',
   linkedin: 'LinkedIn',
   google_ads: 'Google Ads',
-  mastodon: 'Mastodon',
   unsplash: 'Unsplash',
   giphy: 'Giphy GIFs',
 }
@@ -59,7 +53,6 @@ const SERVICE_LABELS = {
 export default function ServicesPage() {
   const [configs, setConfigs] = useState({})
   const [saving, setSaving] = useState({})
-  const [mastodonServer, setMastodonServer] = useState('')
   const toast = useToast()
 
   useEffect(() => {
@@ -79,17 +72,6 @@ export default function ServicesPage() {
       toast.error(err.message)
     } finally {
       setSaving(s => ({ ...s, [name]: false }))
-    }
-  }
-
-  const createMastodonApp = async () => {
-    if (!mastodonServer) return toast.error('Enter a server URL first')
-    try {
-      const data = await api.createMastodonApp(mastodonServer)
-      setConfigs(c => ({ ...c, mastodon: { ...c.mastodon, ...data } }))
-      toast.success('Mastodon app created')
-    } catch (err) {
-      toast.error(err.message)
     }
   }
 
@@ -116,12 +98,6 @@ export default function ServicesPage() {
                 )}
               </div>
             ))}
-            {name === 'mastodon' && (
-              <div className="flex gap-2" style={{ marginBottom: '1rem' }}>
-                <input className="form-input" placeholder="https://mastodon.social" value={mastodonServer} onChange={e => setMastodonServer(e.target.value)} />
-                <button className="btn btn-secondary" onClick={createMastodonApp}>Create App</button>
-              </div>
-            )}
             <button className="btn btn-primary btn-sm" onClick={() => saveService(name)} disabled={saving[name]}>
               {saving[name] ? <span className="spinner" /> : 'Save'}
             </button>

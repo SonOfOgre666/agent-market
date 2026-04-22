@@ -19,7 +19,7 @@ export async function importAccountJob({ account_id }) {
       }
     }
 
-    // Import posts (Twitter/Mastodon)
+    // Import posts (Twitter)
     if (typeof provider.getRecentPosts === 'function') {
       const posts = await provider.getRecentPosts()
       for (const post of posts) {

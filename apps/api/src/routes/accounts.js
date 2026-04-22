@@ -17,7 +17,7 @@ export default async function accountRoutes(app) {
     const { provider } = request.params
     const body = request.body || {}
     try {
-      const providerInstance = await getSocialProvider(provider, body)
+      const providerInstance = await getSocialProvider(provider, { ...body, workspace_id: request.workspace_id })
       const authUrl = await providerInstance.getAuthUrl()
 
       // Persist workspace_id for the duration of the OAuth round-trip (10 min TTL)
@@ -75,10 +75,10 @@ export default async function accountRoutes(app) {
     if (!raw) return reply.code(410).send({ error: 'Session expired — please reconnect your account' })
 
     try {
-      const { accountData } = JSON.parse(raw)
+      const { accountData, workspaceId } = JSON.parse(raw)
       // Build a temporary account-like object with just the token so getEntities() can call the API
       const tempAccount = { provider: accountData.provider, access_token: accountData.access_token }
-      const providerInstance = await getSocialProvider(provider, {}, tempAccount)
+      const providerInstance = await getSocialProvider(provider, { workspace_id: workspaceId || request.workspace_id }, tempAccount)
       const entities = await providerInstance.getEntities()
       return reply.send(entities)
     } catch (err) {
@@ -101,7 +101,7 @@ export default async function accountRoutes(app) {
       // Delete the Redis key — one-time use
       await getRedis().del(`oauth_parent:${parent_key}`)
 
-      const providerInstance = await getSocialProvider(provider, {})
+      const providerInstance = await getSocialProvider(provider, { workspace_id: workspaceId || request.workspace_id })
       const saved = await providerInstance.saveEntity(entity, userId || request.user.id, workspaceId || request.workspace_id)
       getRedis().publish('agentmarket:account_added', JSON.stringify({ account_id: saved._id.toString() }))
       return reply.code(201).send(Account.serialize(saved))

@@ -8,9 +8,6 @@ import {
   dispatchImportTwitterFollowers,
   dispatchImportTwitterPosts,
   dispatchProcessTwitterMetrics,
-  dispatchImportMastodonFollowers,
-  dispatchImportMastodonPosts,
-  dispatchProcessMastodonMetrics,
   dispatchImportFacebookFollowers,
   dispatchImportFacebookInsights,
   dispatchImportInstagramFollowers,
@@ -40,7 +37,6 @@ export async function startScheduler() {
       for (const account of accounts) {
         if (!account.authorized) continue
         if (account.provider === 'twitter')   await dispatchImportTwitterFollowers(account._id.toString())
-        if (account.provider === 'mastodon')  await dispatchImportMastodonFollowers(account._id.toString())
         if (account.provider === 'facebook')  await dispatchImportFacebookFollowers(account._id.toString())
         if (account.provider === 'instagram') await dispatchImportInstagramFollowers(account._id.toString())
       }
@@ -57,7 +53,6 @@ export async function startScheduler() {
       for (const account of accounts) {
         if (!account.authorized) continue
         if (account.provider === 'twitter')  await dispatchImportTwitterPosts(account._id.toString())
-        if (account.provider === 'mastodon') await dispatchImportMastodonPosts(account._id.toString())
       }
     } catch (err) {
       console.error('[Scheduler] import-posts error:', err.message)
@@ -72,7 +67,6 @@ export async function startScheduler() {
       for (const account of accounts) {
         if (!account.authorized) continue
         if (account.provider === 'twitter')  await dispatchProcessTwitterMetrics(account._id.toString())
-        if (account.provider === 'mastodon') await dispatchProcessMastodonMetrics(account._id.toString())
         if (account.provider === 'facebook') {
           await dispatchImportFacebookFollowers(account._id.toString())
           await dispatchImportFacebookInsights(account._id.toString())

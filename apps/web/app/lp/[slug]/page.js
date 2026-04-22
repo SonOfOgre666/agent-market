@@ -3,7 +3,20 @@ import { useEffect, useState } from 'react'
 import { useParams, useSearchParams } from 'next/navigation'
 import { Suspense } from 'react'
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4010'
+
+function isNgrokUrl(url) {
+  try {
+    const host = new URL(url).hostname
+    return host.endsWith('ngrok-free.dev') || host.endsWith('ngrok.io') || host.endsWith('ngrok.app')
+  } catch {
+    return false
+  }
+}
+
+const NGROK_SKIP_WARNING_HEADERS = isNgrokUrl(API_URL)
+  ? { 'ngrok-skip-browser-warning': 'true' }
+  : {}
 
 function LandingPageContent() {
   const params = useParams()
@@ -28,7 +41,9 @@ function LandingPageContent() {
   }
 
   useEffect(() => {
-    fetch(`${API_URL}/api/ads/landing-pages/slug/${slug}`)
+    fetch(`${API_URL}/api/ads/landing-pages/${slug}`, {
+      headers: { ...NGROK_SKIP_WARNING_HEADERS },
+    })
       .then(res => {
         if (res.status === 404) { setNotFound(true); setLoading(false); return null }
         return res.json()
@@ -48,7 +63,10 @@ function LandingPageContent() {
     try {
       const res = await fetch(`${API_URL}/api/ads/landing-pages/${slug}/lead`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          ...NGROK_SKIP_WARNING_HEADERS,
+          'Content-Type': 'application/json',
+        },
         body: JSON.stringify({ data: form, utm }),
       })
       const json = await res.json()

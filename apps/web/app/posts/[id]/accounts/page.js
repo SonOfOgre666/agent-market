@@ -9,13 +9,13 @@ import { useToast } from '../../../../components/Toast.js'
 const PROVIDER_COLOR = {
   facebook: '#1877f2', instagram: '#e1306c', instagram_login: '#c13584',
   twitter: '#1d9bf0', tiktok: '#ff0050', linkedin: '#0a66c2',
-  mastodon: '#6364ff', google_ads: '#4285f4',
+  google_ads: '#4285f4',
 }
 
 const PROVIDER_LABEL = {
   facebook: 'Facebook', instagram: 'Instagram', instagram_login: 'Instagram',
   twitter: 'Twitter / X', tiktok: 'TikTok', linkedin: 'LinkedIn',
-  mastodon: 'Mastodon', google_ads: 'Google Ads',
+  google_ads: 'Google Ads',
 }
 
 function timeAgo(date) {

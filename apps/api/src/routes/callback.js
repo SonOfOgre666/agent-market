@@ -93,7 +93,7 @@ export default async function callbackRoutes(app) {
       }
 
       try {
-        const providerInstance = await getSocialProvider(provider, {})
+        const providerInstance = await getSocialProvider(provider, { workspace_id: workspaceId })
         const accountData = await providerInstance.handleCallback(query)
 
         // Store token in Redis temporarily — MongoDB is never touched until the user picks an entity
@@ -112,7 +112,7 @@ export default async function callbackRoutes(app) {
     })
   }
 
-  // GET /callback/:provider  — generic OAuth callback for non-Meta providers (Twitter, Mastodon)
+  // GET /callback/:provider  — generic OAuth callback for non-Meta providers
   app.get('/callback/:provider', async (request, reply) => {
     const { provider } = request.params
     const query = request.query
@@ -128,7 +128,7 @@ export default async function callbackRoutes(app) {
     }
 
     try {
-      const providerInstance = await getSocialProvider(provider, {})
+      const providerInstance = await getSocialProvider(provider, { workspace_id: workspaceId })
       const accountData = await providerInstance.handleCallback(query)
       const saved = await Account.upsertAccount({ ...accountData, workspace_id: workspaceId })
       getRedis().publish('agentmarket:account_added', JSON.stringify({ account_id: saved._id.toString() }))

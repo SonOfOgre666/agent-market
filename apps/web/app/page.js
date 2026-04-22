@@ -6,7 +6,7 @@ import Link from 'next/link'
 
 const STATUS_LABEL = { 0: 'Draft', 1: 'Scheduled', 2: 'Published', 3: 'Failed' }
 const STATUS_BADGE = { 0: 'badge-draft', 1: 'badge-scheduled', 2: 'badge-published', 3: 'badge-failed' }
-const PROVIDER_ICON = { twitter: '𝕏', facebook: 'f', instagram: '⊙', mastodon: 'M' }
+const PROVIDER_ICON = { twitter: '𝕏', facebook: 'f', instagram: '⊙' }
 
 export default function DashboardPage() {
   const [data, setData] = useState(null)

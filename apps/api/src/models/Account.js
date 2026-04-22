@@ -5,7 +5,7 @@ import { nanoid } from 'nanoid'
 export const COLLECTION = 'accounts'
 
 // Supported providers
-export const PROVIDERS = ['twitter', 'facebook', 'instagram', 'instagram_login', 'mastodon', 'tiktok', 'linkedin']
+export const PROVIDERS = ['twitter', 'facebook', 'instagram', 'instagram_login', 'tiktok', 'linkedin']
 
 // Providers that require at least one media item to publish
 export const MEDIA_REQUIRED_PROVIDERS = ['instagram', 'instagram_login', 'tiktok']

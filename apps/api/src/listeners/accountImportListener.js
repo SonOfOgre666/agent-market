@@ -9,9 +9,6 @@ import {
   dispatchImportTwitterFollowers,
   dispatchImportTwitterPosts,
   dispatchProcessTwitterMetrics,
-  dispatchImportMastodonFollowers,
-  dispatchImportMastodonPosts,
-  dispatchProcessMastodonMetrics,
   dispatchImportFacebookFollowers,
   dispatchImportFacebookInsights,
   dispatchImportInstagramFollowers,
@@ -38,10 +35,6 @@ export function startAccountImportListener() {
         await dispatchImportTwitterFollowers(account_id)
         await dispatchImportTwitterPosts(account_id)
         await dispatchProcessTwitterMetrics(account_id)
-      } else if (provider === 'mastodon') {
-        await dispatchImportMastodonFollowers(account_id)
-        await dispatchImportMastodonPosts(account_id)
-        await dispatchProcessMastodonMetrics(account_id)
       } else if (provider === 'facebook') {
         await dispatchImportFacebookFollowers(account_id)
         await dispatchImportFacebookInsights(account_id)

@@ -11,7 +11,7 @@ export class TwitterProvider {
     this.appKey = config.client_id || config.app_key
     this.appSecret = config.client_secret || config.app_secret
     this.tier = config.tier || 'free'
-    this.callbackUrl = process.env.TWITTER_CALLBACK_URL || `${process.env.API_URL || 'http://localhost:3001'}/callback/twitter`
+    this.callbackUrl = process.env.TWITTER_CALLBACK_URL || `${process.env.API_URL || 'http://localhost:4010'}/callback/twitter`
     
     console.log('[TwitterProvider] Initialized with:', {
       hasAppKey: !!this.appKey,

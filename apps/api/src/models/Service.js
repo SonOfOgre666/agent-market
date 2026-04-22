@@ -5,7 +5,7 @@ import crypto from 'crypto'
 export const COLLECTION = 'services'
 
 // Service names matching Laravel's ServiceGroup
-export const SERVICE_NAMES = ['twitter', 'facebook', 'mastodon', 'tiktok', 'linkedin', 'instagram_login', 'unsplash', 'giphy', 'google_ads']
+export const SERVICE_NAMES = ['twitter', 'facebook', 'tiktok', 'linkedin', 'instagram_login', 'unsplash', 'giphy', 'google_ads']
 
 const ENCRYPT_KEY = (process.env.APP_KEY || 'agentmarket-default-key-32bytes!!').slice(0, 32)
 const IV_LEN = 16

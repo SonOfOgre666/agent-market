@@ -8,7 +8,7 @@ import { format } from 'date-fns'
 
 const PROVIDER_LIMITS = {
   twitter: 280, facebook: 5000, instagram: 2200,
-  instagram_login: 2200, mastodon: 500, tiktok: 150, linkedin: 3000,
+  instagram_login: 2200, tiktok: 150, linkedin: 3000,
 }
 
 const PLATFORM_INFO = {
@@ -16,7 +16,6 @@ const PLATFORM_INFO = {
   instagram:       { label: 'Instagram',       color: '#e1306c', icon: 'ig', mediaRequired: true,  supportsLink: false, supportsTargeting: false, supportsStory: true  },
   instagram_login: { label: 'Instagram',       color: '#e1306c', icon: 'ig', mediaRequired: true,  supportsLink: false, supportsTargeting: false, supportsStory: true  },
   twitter:         { label: 'X / Twitter',     color: '#1d9bf0', icon: 'x',  mediaRequired: false, supportsLink: true,  supportsTargeting: false, supportsStory: false },
-  mastodon:        { label: 'Mastodon',        color: '#6364ff', icon: 'm',  mediaRequired: false, supportsLink: true,  supportsTargeting: false, supportsStory: false },
   tiktok:          { label: 'TikTok',          color: '#ff0050', icon: 'tt', mediaRequired: true,  supportsLink: false, supportsTargeting: false, supportsStory: false, videoOnly: true },
   linkedin:        { label: 'LinkedIn',        color: '#0a66c2', icon: 'in', mediaRequired: false, supportsLink: true,  supportsTargeting: false, supportsStory: false },
 }
@@ -260,7 +259,10 @@ export default function PostEditor({ postId }) {
       if (isEdit) {
         await api.updatePost(postId, payload)
         if (scheduleNow) {
-          try { await api.schedulePost(postId, scheduleTime) } catch (schedErr) { toast.error(schedErr.message) }
+          await api.schedulePost(postId, scheduleTime)
+          toast.success('Post queued for publishing')
+          router.push('/posts')
+          return
         }
         toast.success('Post updated')
       } else {
@@ -274,6 +276,7 @@ export default function PostEditor({ postId }) {
       }
     } catch (err) {
       toast.error(err.message)
+    } finally {
       setSaving(false)
     }
   }

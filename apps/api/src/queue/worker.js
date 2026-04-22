@@ -8,9 +8,6 @@ import { processMetricsJob } from '../jobs/ProcessMetrics.js'
 import { importTwitterFollowersJob } from '../jobs/ImportTwitterFollowers.js'
 import { importTwitterPostsJob } from '../jobs/ImportTwitterPosts.js'
 import { processTwitterMetricsJob } from '../jobs/ProcessTwitterMetrics.js'
-import { importMastodonFollowersJob } from '../jobs/ImportMastodonFollowers.js'
-import { importMastodonPostsJob } from '../jobs/ImportMastodonPosts.js'
-import { processMastodonMetricsJob } from '../jobs/ProcessMastodonMetrics.js'
 import { importFacebookFollowersJob } from '../jobs/ImportFacebookFollowers.js'
 import { importFacebookInsightsJob } from '../jobs/ImportFacebookInsights.js'
 import { importInstagramFollowersJob } from '../jobs/ImportInstagramFollowers.js'
@@ -26,9 +23,6 @@ const JOB_MAP = {
   ImportTwitterFollowers:  importTwitterFollowersJob,
   ImportTwitterPosts:      importTwitterPostsJob,
   ProcessTwitterMetrics:   processTwitterMetricsJob,
-  ImportMastodonFollowers: importMastodonFollowersJob,
-  ImportMastodonPosts:     importMastodonPostsJob,
-  ProcessMastodonMetrics:  processMastodonMetricsJob,
   ImportFacebookFollowers:  importFacebookFollowersJob,
   ImportFacebookInsights:   importFacebookInsightsJob,
   ImportInstagramFollowers: importInstagramFollowersJob,

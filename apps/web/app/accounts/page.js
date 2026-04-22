@@ -12,11 +12,10 @@ const CONNECT_OPTIONS = [
   { id: 'tiktok',          label: 'TikTok',                   sub: 'Connect a TikTok account',                        color: '#010101' },
   { id: 'linkedin',        label: 'LinkedIn',                  sub: 'Connect a LinkedIn personal or company page',     color: '#0a66c2' },
   { id: 'twitter',         label: 'Twitter / X',              sub: 'Connect a Twitter/X account',                     color: '#1d9bf0' },
-  { id: 'mastodon',        label: 'Mastodon',                 sub: 'Connect a Mastodon account',                      color: '#6364ff' },
   { id: 'google_ads',      label: 'Google Ads',               sub: 'Connect a Google Ads account to sync campaigns',  color: '#4285f4' },
 ]
 
-const PROVIDER_ICON = { twitter: '𝕏', facebook: 'f', instagram: '⊙', instagram_login: '⊙', tiktok: '♪', linkedin: 'in', mastodon: 'M', google_ads: 'G' }
+const PROVIDER_ICON = { twitter: '𝕏', facebook: 'f', instagram: '⊙', instagram_login: '⊙', tiktok: '♪', linkedin: 'in', google_ads: 'G' }
 
 export default function AccountsPage() {
   const [accounts, setAccounts] = useState([])

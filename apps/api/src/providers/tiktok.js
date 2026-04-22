@@ -14,7 +14,7 @@ export class TikTokProvider {
     this.account = account
     this.clientKey = config.client_key || process.env.TIKTOK_CLIENT_KEY
     this.clientSecret = config.client_secret || process.env.TIKTOK_CLIENT_SECRET
-    this.callbackUrl = process.env.TIKTOK_CALLBACK_URL || `${process.env.API_URL || 'http://localhost:3001'}/callback/tiktok`
+    this.callbackUrl = process.env.TIKTOK_CALLBACK_URL || `${process.env.API_URL || 'http://localhost:4010'}/callback/tiktok`
   }
 
   async getAuthUrl() {

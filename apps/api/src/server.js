@@ -32,6 +32,8 @@ import callbackRoutes from './routes/callback.js'
 import socialRoutes from './routes/social.js'
 import workspaceRoutes from './routes/workspace.js'
 import adsRoutes from './routes/ads.js'
+import integrationsRoutes from './routes/integrations.js'
+import aiRoutes from './routes/ai.js'
 
 if (!process.env.JWT_SECRET) {
   console.error('[API] JWT_SECRET environment variable is required')
@@ -56,6 +58,7 @@ await app.register(rateLimit, {
 await app.register(cors, {
   origin: true, // Accept any origin — API is protected by JWT auth
   credentials: true,
+  allowedHeaders: ['Content-Type', 'Authorization', 'Cookie', 'ngrok-skip-browser-warning'],
 })
 await app.register(cookie)
 await app.register(jwt, {
@@ -105,6 +108,8 @@ app.register(callbackRoutes, { prefix: '' }) // OAuth callbacks at root
 app.register(socialRoutes, { prefix: '/api' })
 app.register(workspaceRoutes, { prefix: '/api' })
 app.register(adsRoutes, { prefix: '/api' })
+app.register(integrationsRoutes, { prefix: '/api' })
+app.register(aiRoutes, { prefix: '/api' })
 
 // TikTok domain verification
 app.get('/tiktokP1WpivbX114kIZl7T5p8D0ZMm6kDH9uO.txt', async (_request, reply) => {
@@ -114,14 +119,14 @@ app.get('/tiktokP1WpivbX114kIZl7T5p8D0ZMm6kDH9uO.txt', async (_request, reply) =
 // Root endpoint
 app.get('/', async (_request, reply) => {
   return reply.code(200).send({
-    message: 'Mixpost API',
+    message: 'Agent Market API',
     version: '1.0.0',
     status: 'running',
   })
 })
 
 // Health check — verifies MongoDB and Redis connectivity
-app.get('/health', async (_request, reply) => {
+app.get('/api/health', async (_request, reply) => {
   let mongoOk = false
   let redisOk = false
   try {
@@ -148,8 +153,8 @@ const start = async () => {
   getRedis() // initialise connection
   startAccountImportListener()
   await startScheduler()
-  await app.listen({ port: parseInt(process.env.PORT || '3001'), host: '0.0.0.0' })
-  console.log(`[API] Listening on port ${process.env.PORT || 3001}`)
+  await app.listen({ port: parseInt(process.env.PORT || '4010'), host: '0.0.0.0' })
+  console.log(`[API] Listening on port ${process.env.PORT || 4010}`)
 }
 
 start().catch((err) => {

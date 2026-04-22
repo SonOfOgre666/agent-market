@@ -71,6 +71,7 @@ export default function PostsPage() {
         <h1 className="page-title">Posts</h1>
         <div className="flex gap-2">
           {selected.length > 0 && <button className="btn btn-danger btn-sm" onClick={deleteSelected}>Delete ({selected.length})</button>}
+          <Link href="/posts/ai" className="btn btn-secondary" style={{ background: 'linear-gradient(135deg, hsl(262 68% 60% / 0.18), hsl(152 68% 50% / 0.12))', borderColor: 'hsl(262 68% 60% / 0.4)' }}>✨ AI Create</Link>
           <Link href="/posts/new" className="btn btn-primary">+ New Post</Link>
         </div>
       </div>

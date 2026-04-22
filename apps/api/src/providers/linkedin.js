@@ -16,7 +16,7 @@ export class LinkedInProvider {
     this.account = account
     this.clientId = config.client_id || process.env.LINKEDIN_CLIENT_ID
     this.clientSecret = config.client_secret || process.env.LINKEDIN_CLIENT_SECRET
-    this.callbackUrl = process.env.LINKEDIN_CALLBACK_URL || `${process.env.API_URL || 'http://localhost:3001'}/callback/linkedin`
+    this.callbackUrl = process.env.LINKEDIN_CALLBACK_URL || `${process.env.API_URL || 'http://localhost:4010'}/callback/linkedin`
   }
 
   async getAuthUrl() {

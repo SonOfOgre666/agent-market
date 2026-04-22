@@ -9,10 +9,16 @@ export default async function adsRoutes(app) {
 
   // ─── CAMPAIGNS ──────────────────────────────────────────────────────────────
 
-  // GET /api/ads/campaigns
-  app.get('/ads/campaigns', { preHandler: [authenticate] }, async (request, reply) => {
+  // GET /api/ads/campaigns?userId=wetaxi  (or JWT auth)
+  app.get('/ads/campaigns', async (request, reply) => {
+    const { userId } = request.query
+    // Try JWT first, fall back to userId param
+    let workspaceId = userId
+    if (!userId) {
+      try { await request.jwtVerify(); workspaceId = request.workspace_id } catch { return reply.code(401).send({ error: 'userId query param or auth token required' }) }
+    }
     const { status, platform, page, per_page } = request.query
-    const result = await Campaign.findAll(request.workspace_id, { status, platform, page: parseInt(page || 1), per_page: parseInt(per_page || 20) })
+    const result = await Campaign.findAll(workspaceId, { status, platform, page: parseInt(page || 1), per_page: parseInt(per_page || 20) })
     return reply.send({ ...result, items: result.items.map(Campaign.serialize) })
   })
 
@@ -24,11 +30,37 @@ export default async function adsRoutes(app) {
   })
 
   // POST /api/ads/campaigns
-  app.post('/ads/campaigns', { preHandler: [authenticate] }, async (request, reply) => {
-    const { name, platform, type, budget, start_date, end_date, keywords, targeting } = request.body || {}
+  // Accepts README format: { userId, name, goal, budgetDaily }
+  // Also accepts full format: { name, platform, type, budget, ... } with JWT auth
+  app.post('/ads/campaigns', async (request, reply) => {
+    const body = request.body || {}
+    const { userId, name, goal, budgetDaily, platform, type, budget, start_date, end_date, keywords, targeting } = body
+
     if (!name) return reply.code(422).send({ error: 'name is required' })
-    if (!platform) return reply.code(422).send({ error: 'platform is required' })
-    const c = await Campaign.createCampaign({ workspace_id: request.workspace_id, name, platform, type, budget, start_date, end_date, keywords, targeting })
+
+    let workspaceId = userId
+    if (!userId) {
+      try { await request.jwtVerify(); workspaceId = request.workspace_id } catch { return reply.code(401).send({ error: 'userId in body or auth token required' }) }
+    }
+
+    // Map README fields (goal, budgetDaily) to internal fields
+    const resolvedPlatform = platform || (goal ? 'google_ads' : null)
+    if (!resolvedPlatform) return reply.code(422).send({ error: 'platform or goal is required' })
+
+    const resolvedBudget = budget || (budgetDaily ? { amount: budgetDaily, period: 'daily', currency: 'EUR' } : undefined)
+
+    const c = await Campaign.createCampaign({
+      workspace_id: workspaceId,
+      name,
+      platform: resolvedPlatform,
+      goal: goal || null,
+      type,
+      budget: resolvedBudget,
+      start_date,
+      end_date,
+      keywords,
+      targeting,
+    })
     return reply.code(201).send(Campaign.serialize(c))
   })
 
@@ -50,23 +82,21 @@ export default async function adsRoutes(app) {
 
   // ─── LANDING PAGES ──────────────────────────────────────────────────────────
 
-  // GET /api/ads/landing-pages
-  app.get('/ads/landing-pages', { preHandler: [authenticate] }, async (request, reply) => {
-    const { status, page, per_page } = request.query
-    const result = await LandingPage.findAll(request.workspace_id, { status, page: parseInt(page || 1), per_page: parseInt(per_page || 20) })
+  // GET /api/ads/landing-pages?userId=wetaxi  (or JWT auth)
+  app.get('/ads/landing-pages', async (request, reply) => {
+    const { userId, status, page, per_page } = request.query
+    let workspaceId = userId
+    if (!userId) {
+      try { await request.jwtVerify(); workspaceId = request.workspace_id } catch { return reply.code(401).send({ error: 'userId query param or auth token required' }) }
+    }
+    const result = await LandingPage.findAll(workspaceId, { status, page: parseInt(page || 1), per_page: parseInt(per_page || 20) })
     return reply.send({ ...result, items: result.items.map(LandingPage.serialize) })
   })
 
-  // GET /api/ads/landing-pages/slug/:slug  — public, no auth required
-  app.get('/ads/landing-pages/slug/:slug', async (request, reply) => {
+  // GET /api/ads/landing-pages/:slug  — public: slug lookup (no auth)
+  // Also accessible with ?userId= for context
+  app.get('/ads/landing-pages/:slug', async (request, reply) => {
     const p = await LandingPage.findBySlug(request.params.slug)
-    if (!p) return reply.code(404).send({ error: 'Landing page not found' })
-    return reply.send(LandingPage.serialize(p))
-  })
-
-  // GET /api/ads/landing-pages/:id
-  app.get('/ads/landing-pages/:id', { preHandler: [authenticate] }, async (request, reply) => {
-    const p = await LandingPage.findById(request.params.id, request.workspace_id)
     if (!p) return reply.code(404).send({ error: 'Landing page not found' })
     return reply.send(LandingPage.serialize(p))
   })
@@ -79,17 +109,17 @@ export default async function adsRoutes(app) {
     return reply.code(201).send(LandingPage.serialize(p))
   })
 
-  // PATCH /api/ads/landing-pages/:id
-  app.patch('/ads/landing-pages/:id', { preHandler: [authenticate] }, async (request, reply) => {
-    const p = await LandingPage.findById(request.params.id, request.workspace_id)
+  // PATCH /api/ads/landing-pages/:slug
+  app.patch('/ads/landing-pages/:slug', { preHandler: [authenticate] }, async (request, reply) => {
+    const p = await LandingPage.findBySlug(request.params.slug) || await LandingPage.findById(request.params.slug, request.workspace_id)
     if (!p) return reply.code(404).send({ error: 'Landing page not found' })
     const updated = await LandingPage.updateLandingPage(p._id.toString(), request.body || {})
     return reply.send(LandingPage.serialize(updated))
   })
 
-  // DELETE /api/ads/landing-pages/:id
-  app.delete('/ads/landing-pages/:id', { preHandler: [authenticate] }, async (request, reply) => {
-    const p = await LandingPage.findById(request.params.id, request.workspace_id)
+  // DELETE /api/ads/landing-pages/:slug
+  app.delete('/ads/landing-pages/:slug', { preHandler: [authenticate] }, async (request, reply) => {
+    const p = await LandingPage.findBySlug(request.params.slug) || await LandingPage.findById(request.params.slug, request.workspace_id)
     if (!p) return reply.code(404).send({ error: 'Landing page not found' })
     await LandingPage.deleteLandingPage(p._id.toString())
     return reply.code(204).send()
@@ -102,7 +132,6 @@ export default async function adsRoutes(app) {
 
     const { data = {}, utm = {} } = request.body || {}
 
-    // Basic validation: check required fields
     const requiredFields = (page.form_fields || []).filter(f => f.required).map(f => f.name)
     for (const field of requiredFields) {
       if (!data[field]) return reply.code(422).send({ error: `${field} is required` })
@@ -125,10 +154,14 @@ export default async function adsRoutes(app) {
 
   // ─── LEADS ──────────────────────────────────────────────────────────────────
 
-  // GET /api/ads/leads
-  app.get('/ads/leads', { preHandler: [authenticate] }, async (request, reply) => {
-    const { landing_page_id, campaign_id, page, per_page } = request.query
-    const result = await Lead.findAll(request.workspace_id, { landing_page_id, campaign_id, page: parseInt(page || 1), per_page: parseInt(per_page || 30) })
+  // GET /api/ads/leads?userId=wetaxi  (or JWT auth)
+  app.get('/ads/leads', async (request, reply) => {
+    const { userId, landing_page_id, campaign_id, page, per_page } = request.query
+    let workspaceId = userId
+    if (!userId) {
+      try { await request.jwtVerify(); workspaceId = request.workspace_id } catch { return reply.code(401).send({ error: 'userId query param or auth token required' }) }
+    }
+    const result = await Lead.findAll(workspaceId, { landing_page_id, campaign_id, page: parseInt(page || 1), per_page: parseInt(per_page || 30) })
     return reply.send({ ...result, items: result.items.map(Lead.serialize) })
   })
 
@@ -179,11 +212,8 @@ export default async function adsRoutes(app) {
   // ─── GOOGLE ADS SYNC ─────────────────────────────────────────────────────────
 
   // POST /api/ads/google-ads/sync
-  // Pulls campaigns + metrics from Google Ads API and upserts them locally
   app.post('/ads/google-ads/sync', { preHandler: [authenticate] }, async (request, reply) => {
     const wid = request.workspace_id
-
-    // Find connected Google Ads account for this workspace
     const allAccounts = await Account.findAll(wid)
     const gadsAccount = allAccounts.find(a => a.provider === 'google_ads' && a.authorized)
     if (!gadsAccount) {
@@ -193,52 +223,28 @@ export default async function adsRoutes(app) {
     try {
       const provider = await getSocialProvider('google_ads', {}, gadsAccount)
       const remoteCampaigns = await provider.syncCampaigns()
-
       const db = (await import('../db/mongodb.js')).getDb()
       let upserted = 0
 
       for (const rc of remoteCampaigns) {
-        // Upsert by google_campaign_id + workspace_id
         const filter = { workspace_id: wid, google_campaign_id: rc.google_campaign_id }
         const existing = await db.collection('ads_campaigns').findOne(filter)
-
         if (existing) {
           await db.collection('ads_campaigns').updateOne(filter, {
-            $set: {
-              name: rc.name,
-              status: rc.status,
-              budget: rc.budget,
-              start_date: rc.start_date,
-              end_date: rc.end_date,
-              metrics: rc.metrics,
-              updated_at: new Date(),
-            },
+            $set: { name: rc.name, status: rc.status, budget: rc.budget, start_date: rc.start_date, end_date: rc.end_date, metrics: rc.metrics, updated_at: new Date() },
           })
         } else {
           const { nanoid } = await import('nanoid')
           await db.collection('ads_campaigns').insertOne({
-            uuid: nanoid(),
-            workspace_id: wid,
-            google_campaign_id: rc.google_campaign_id,
-            name: rc.name,
-            platform: 'google_ads',
-            type: rc.type,
-            status: rc.status,
-            budget: rc.budget,
-            start_date: rc.start_date,
-            end_date: rc.end_date,
-            metrics: rc.metrics,
-            keywords: [],
-            targeting: {},
-            assets: {},
-            deleted_at: null,
-            created_at: new Date(),
-            updated_at: new Date(),
+            uuid: nanoid(), workspace_id: wid, google_campaign_id: rc.google_campaign_id,
+            name: rc.name, platform: 'google_ads', type: rc.type, status: rc.status,
+            budget: rc.budget, start_date: rc.start_date, end_date: rc.end_date,
+            metrics: rc.metrics, keywords: [], targeting: {}, assets: {},
+            deleted_at: null, created_at: new Date(), updated_at: new Date(),
           })
         }
         upserted++
       }
-
       return reply.send({ synced: upserted, account: gadsAccount.name })
     } catch (err) {
       app.log.error(err)
@@ -247,16 +253,117 @@ export default async function adsRoutes(app) {
   })
 
   // GET /api/ads/google-ads/customers
-  // Lists accessible Google Ads customer IDs for the connected account
   app.get('/ads/google-ads/customers', { preHandler: [authenticate] }, async (request, reply) => {
     const allAccounts = await Account.findAll(request.workspace_id)
     const gadsAccount = allAccounts.find(a => a.provider === 'google_ads' && a.authorized)
     if (!gadsAccount) return reply.code(422).send({ error: 'No connected Google Ads account' })
+    return reply.send({ customer_id: gadsAccount.data?.customer_id || null, name: gadsAccount.name, email: gadsAccount.data?.email || null })
+  })
 
-    return reply.send({
-      customer_id: gadsAccount.data?.customer_id || null,
-      name: gadsAccount.name,
-      email: gadsAccount.data?.email || null,
+  // ─── KEYWORDS ───────────────────────────────────────────────────────────────
+
+  // POST /api/ads/keywords/suggest
+  app.post('/ads/keywords/suggest', async (request, reply) => {
+    const { topic, language = 'fr', country = 'FR' } = request.body || {}
+    if (!topic) return reply.code(422).send({ error: 'topic is required' })
+
+    const base = topic.toLowerCase().replace(/\s+/g, '-')
+    const suggestions = [
+      { keyword: topic, avgMonthlySearches: 1200, competition: 'MEDIUM', cpcMin: 0.45, cpcMax: 1.20 },
+      { keyword: `${topic} prix`, avgMonthlySearches: 880, competition: 'HIGH', cpcMin: 0.80, cpcMax: 2.10 },
+      { keyword: `${topic} avis`, avgMonthlySearches: 720, competition: 'LOW', cpcMin: 0.30, cpcMax: 0.90 },
+      { keyword: `meilleur ${topic}`, avgMonthlySearches: 590, competition: 'MEDIUM', cpcMin: 0.55, cpcMax: 1.40 },
+      { keyword: `${topic} pas cher`, avgMonthlySearches: 430, competition: 'LOW', cpcMin: 0.20, cpcMax: 0.70 },
+      { keyword: `${base}-en-ligne`, avgMonthlySearches: 310, competition: 'LOW', cpcMin: 0.15, cpcMax: 0.60 },
+    ]
+    return reply.send({ topic, language, country, suggestions, source: 'stub' })
+  })
+
+  // ─── CAMPAIGN AI ACTIONS ──────────────────────────────────────────────────
+
+  // POST /api/ads/campaigns/:campaignId/generate-assets
+  app.post('/ads/campaigns/:campaignId/generate-assets', async (request, reply) => {
+    const c = await Campaign.findByUuid(request.params.campaignId) || await Campaign.findById(request.params.campaignId)
+    if (!c) return reply.code(404).send({ error: 'Campaign not found' })
+
+    const { getRedis: redis } = await import('../db/redis.js')
+    const { nanoid: uid } = await import('nanoid')
+    const taskId = uid()
+    await redis().lpush('celery', JSON.stringify({
+      id: taskId,
+      task: 'tasks.generate_campaign_assets',
+      args: [c._id.toString(), c.name, c.keywords || []],
+      kwargs: {}, retries: 0, eta: null, expires: null, utc: true,
+      callbacks: null, errbacks: null, timelimit: [null, null], taskset: null, chord: null,
+    }))
+
+    const assets = {
+      headlines: [`Découvrez ${c.name}`, `${c.name} — Offre Exclusive`, `Profitez de ${c.name} Maintenant`],
+      descriptions: [`${c.name} vous offre la meilleure solution. Contactez-nous dès aujourd'hui.`, `Rejoignez des milliers de clients satisfaits. Essayez ${c.name} gratuitement.`],
+    }
+    await Campaign.updateCampaign(c._id.toString(), { assets })
+    return reply.send({ campaignId: c._id.toString(), assets, taskId, status: 'queued' })
+  })
+
+  // POST /api/ads/campaigns/:campaignId/generate-landing-page
+  app.post('/ads/campaigns/:campaignId/generate-landing-page', async (request, reply) => {
+    const c = await Campaign.findByUuid(request.params.campaignId) || await Campaign.findById(request.params.campaignId)
+    if (!c) return reply.code(404).send({ error: 'Campaign not found' })
+
+    const { nanoid: uid } = await import('nanoid')
+    const slug = `${c.name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${uid(6)}`
+
+    const landingPage = await LandingPage.createLandingPage({
+      workspace_id: c.workspace_id,
+      campaign_id: c._id.toString(),
+      title: c.name,
+      slug,
+      headline: `Bienvenue sur ${c.name}`,
+      subheadline: 'La solution idéale pour booster votre croissance',
+      body: `Découvrez comment ${c.name} peut transformer votre activité. Nos experts sont à votre disposition pour vous accompagner.`,
+      cta_text: 'Commencer maintenant',
+      cta_url: '',
+      form_fields: [
+        { name: 'name', label: 'Nom complet', type: 'text', required: true },
+        { name: 'email', label: 'Email', type: 'email', required: true },
+        { name: 'phone', label: 'Téléphone', type: 'tel', required: false },
+      ],
+      meta: { generated: true, campaignName: c.name },
     })
+
+    const { getRedis: redis } = await import('../db/redis.js')
+    const taskId = uid()
+    await redis().lpush('celery', JSON.stringify({
+      id: taskId,
+      task: 'tasks.generate_landing_page_content',
+      args: [landingPage._id.toString(), c.name],
+      kwargs: {}, retries: 0, eta: null, expires: null, utc: true,
+      callbacks: null, errbacks: null, timelimit: [null, null], taskset: null, chord: null,
+    }))
+
+    return reply.code(201).send({ landingPageId: landingPage._id.toString(), slug, url: `/lp/${slug}`, taskId, status: 'queued' })
+  })
+
+  // POST /api/ads/campaigns/:campaignId/optimize
+  app.post('/ads/campaigns/:campaignId/optimize', async (request, reply) => {
+    const c = await Campaign.findByUuid(request.params.campaignId) || await Campaign.findById(request.params.campaignId)
+    if (!c) return reply.code(404).send({ error: 'Campaign not found' })
+
+    const { getRedis: redis } = await import('../db/redis.js')
+    const { nanoid: uid } = await import('nanoid')
+    const taskId = uid()
+
+    await redis().lpush('celery', JSON.stringify({
+      id: taskId,
+      task: 'tasks.optimize_campaign',
+      args: [c._id.toString()],
+      kwargs: {}, retries: 0, eta: null, expires: null, utc: true,
+      callbacks: null, errbacks: null, timelimit: [null, null], taskset: null, chord: null,
+    }))
+
+    const eventsChannel = process.env.EVENTS_CHANNEL || 'agent_market:events'
+    redis().publish(eventsChannel, JSON.stringify({ event: 'campaign.optimize_requested', campaignId: c._id.toString() }))
+
+    return reply.send({ campaignId: c._id.toString(), taskId, status: 'optimization_queued', message: 'Optimization task queued for AI worker' })
   })
 }

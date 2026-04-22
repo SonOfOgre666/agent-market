@@ -1,6 +1,5 @@
 import { TwitterProvider } from './twitter.js'
 import { MetaProvider } from './meta.js'
-import { MastodonProvider } from './mastodon.js'
 import { TikTokProvider } from './tiktok.js'
 import { LinkedInProvider } from './linkedin.js'
 import { InstagramLoginProvider } from './instagram_login.js'
@@ -14,7 +13,6 @@ const PROVIDERS = {
   facebook_page:   { Class: MetaProvider,           configKey: 'facebook',        callbackType: 'facebook_page' },
   instagram:       { Class: MetaProvider,           configKey: 'facebook',        callbackType: 'instagram' },
   facebook:        { Class: MetaProvider,           configKey: 'facebook',        callbackType: 'facebook_page' }, // legacy alias
-  mastodon:        { Class: MastodonProvider,       configKey: 'mastodon',        callbackType: null },
   tiktok:          { Class: TikTokProvider,         configKey: 'tiktok',          callbackType: null },
   linkedin:        { Class: LinkedInProvider,       configKey: 'linkedin',        callbackType: null },
   instagram_login: { Class: InstagramLoginProvider, configKey: 'instagram_login', callbackType: null },
@@ -25,7 +23,9 @@ export async function getSocialProvider(providerName, options = {}, account = nu
   const entry = PROVIDERS[providerName]
   if (!entry) throw new Error(`Unknown provider: ${providerName}`)
 
-  const config = await Service.getDecryptedConfig(entry.configKey)
+  const workspaceId = options.workspace_id || account?.workspace_id || null
+  const config = await Service.getDecryptedConfig(entry.configKey, workspaceId)
   const merged = { ...config, ...options, ...(entry.callbackType ? { callbackType: entry.callbackType } : {}) }
+  delete merged.workspace_id
   return new entry.Class(merged, account)
 }

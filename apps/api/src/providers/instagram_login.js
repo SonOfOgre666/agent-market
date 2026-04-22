@@ -26,8 +26,8 @@ export class InstagramLoginProvider {
     this.account = account
     this.appId = config.app_id || process.env.INSTAGRAM_APP_ID
     this.appSecret = config.app_secret || process.env.INSTAGRAM_APP_SECRET
-    this.callbackUrl = process.env.INSTAGRAM_CALLBACK_URL
-      || `${process.env.API_URL || 'http://localhost:3001'}/callback/instagram_login`
+    this.callbackUrl = process.env.INSTAGRAM_LOGIN_CALLBACK_URL
+      || `${process.env.API_URL || 'http://localhost:4010'}/callback/instagram_login`
   }
 
   // ─── OAuth ───────────────────────────────────────────────────────────────────

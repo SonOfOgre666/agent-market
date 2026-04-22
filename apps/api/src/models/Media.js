@@ -71,7 +71,7 @@ export async function deleteMediaItems(ids) {
 
 export function getPublicUrl(media) {
   if (!media) return null
-  const base = process.env.API_URL || 'http://localhost:3001'
+  const base = process.env.API_URL || 'http://localhost:4010'
   return `${base}/uploads/${media.path}`
 }
 
@@ -88,7 +88,7 @@ export function serialize(media) {
     size_total: media.size_total,
     conversions: (media.conversions || []).map(c => ({
       ...c,
-      url: `${process.env.API_URL || 'http://localhost:3001'}/uploads/${c.path}`,
+      url: `${process.env.API_URL || 'http://localhost:4010'}/uploads/${c.path}`,
     })),
     created_at: media.created_at,
   }

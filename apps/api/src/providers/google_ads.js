@@ -18,7 +18,8 @@ export class GoogleAdsProvider {
     this.clientId = config.client_id || process.env.GOOGLE_ADS_CLIENT_ID
     this.clientSecret = config.client_secret || process.env.GOOGLE_ADS_CLIENT_SECRET
     this.developerToken = config.developer_token || process.env.GOOGLE_ADS_DEVELOPER_TOKEN
-    this.callbackUrl = `${process.env.API_URL || 'http://localhost:3001'}/callback/google_ads`
+    this.callbackUrl = process.env.GOOGLE_ADS_CALLBACK_URL
+      || `${process.env.API_URL || 'http://localhost:4010'}/api/integrations/google-ads/callback`
   }
 
   async getAuthUrl() {
