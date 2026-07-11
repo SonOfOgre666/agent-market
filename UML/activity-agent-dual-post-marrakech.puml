@@ -1,0 +1,131 @@
+@startuml activity-agent-dual-post-marrakech
+!theme plain
+title Diagramme d'activité — Agent AI\n« 2 posts Marrakech · Facebook · publish now + schedule +15 min »\n(intent: social_content · 10 étapes · scénario nominal réussi)
+
+skinparam ActivityBackgroundColor #FEFEFE
+skinparam ActivityBorderColor #333333
+skinparam ArrowColor #333333
+
+|Utilisateur|
+start
+:Demande chat\n« create 2 posts about traveling to Marrakech\npublish one for now, the other after 15 min »\n(cible: Facebook page);
+
+|Frontend Next.js|
+:POST /api/agent/chat\n{ message, conversation_id? };
+note right
+  Module /modules/agent
+  Polling GET /api/agent/jobs/:id
+end note
+
+|API Node.js|
+:Créer / charger AgentConversation;
+:AgentWorkflow.create\nstatus = **planning**;
+:publishEvent(workflow.started);
+:enqueuePlanWorkflow\n→ Celery tasks.agent.plan_workflow;
+:Réponse 202 { job_id, workflow_id };
+
+|Planner Celery|
+:build_planner_context(workspace);
+:Parser la demande\n• actionable social ✓\n• post_count = 2\n• dual publish+schedule ✓\n• schedule_mins = 15\n• platform = facebook;
+if (Graphe LLM < 10 étapes ?) then (oui)
+  :**Fallback déterministe**\n_build_dual_image_publish_schedule();
+else (non)
+  :Valider graphe LLM\nvalidate_workflow_graph();
+endif
+:Intent = **social_content**\nSummary + assistant_message;
+:Graph 10 steps · approval_gates = [step_5];
+:PATCH workflow\nstatus = **awaiting_approval**;
+:emit workflow.planned;
+
+|Frontend Next.js|
+:Afficher timeline + message assistant\n« post 1 → publish now,\npost 2 → schedule in 15 minutes »;
+
+|Utilisateur|
+:Approuver le workflow;
+
+|Frontend Next.js|
+:POST /api/agent/workflows/:id/approve;
+
+|API Node.js|
+:validatePlannedGraph();
+:status = approved · approved_at;
+:enqueueExecuteWorkflow\n→ tasks.agent.execute_workflow;
+
+|Executor Runtime|
+:execute_workflow_steps(approved=true);
+note right
+  Ordre par depends_on
+  resolve_step_payload(ref step_N.output.*)
+  dispatch_tool via registry
+end note
+
+partition "Post 1 — Marrakech souks (publish immédiat)" {
+
+  |Executor Runtime|
+  :**step_1** generate_social_post\n(Gemini: caption, hashtags, hooks, ctas);
+  note right
+    Angle « post 1 of 2 » · souks
+    Output: caption + hashtags + hooks + ctas
+  end note
+
+  :**step_2** generate_image_script\n(input: step_1.output);
+  :Output image_prompt\n(scène souk, épices, lanternes);
+
+  :**step_3** generate_image\n(prompt ← step_2.output.image_prompt);
+  :Output image\n(base64 → sanitizé en log Mongo);
+
+  :**step_4** create_draft_post\n(caption, hashtags, image, account_ids);
+  |API Node.js|
+  :postCreate → Mongo Post\nstatus draft (0);
+  |Executor Runtime|
+  :Output post_id · uuid · account_ids;
+
+  :**step_5** publish_post\n(post_id ← step_4);
+  |Worker social|
+  :Celery tasks.social.publish_post\n→ connector Facebook Page;
+  |Facebook|
+  :Publication immédiate\nsur la page connectée;
+  |Executor Runtime|
+  :Output { dispatched: true,\ntask: tasks.social.publish_post };
+}
+
+partition "Post 2 — Marrakech jardins & palais (schedule +15 min)" {
+
+  |Executor Runtime|
+  :**step_6** generate_social_post\n(angle distinct « post 2 of 2 »);
+  note right
+    Jardins Majorelle, Bahia Palace, etc.
+  end note
+
+  :**step_7** generate_image_script;
+  :Output image_prompt\n(jardins / palais);
+
+  :**step_8** generate_image;
+  :Output image;
+
+  :**step_9** create_draft_post;
+  |API Node.js|
+  :Nouveau Post Mongo\n(draft);
+  |Executor Runtime|
+  :Output post_id · uuid;
+
+  :**step_10** schedule_post\npost_id + schedule_in_minutes=15;
+  |API Node.js|
+  :schedulePostForWorkspace\nscheduled_at = now + 15 min\nstatus = scheduled (1);
+  |Executor Runtime|
+  :Output post_id · scheduled_at;
+}
+
+|Executor Runtime|
+:status workflow = **completed**\n(toutes étapes OK);
+:PATCH step_results (média tronqués);
+:emit workflow.completed;
+
+|Frontend Next.js|
+:StepResultViewer · timeline verte\n10/10 completed;
+
+|Utilisateur|
+:Post 1 live sur Facebook\nPost 2 programmé dans 15 minutes;
+stop
+
+@enduml

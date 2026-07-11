@@ -2,7 +2,10 @@
 import { useEffect, useState, useRef } from 'react'
 import AppLayout from '../../components/AppLayout.js'
 import { api } from '../../lib/api.js'
+import { getMediaPreviewUrl } from '../../lib/mediaPreview.js'
 import { useToast } from '../../components/Toast.js'
+import { useConfirmDialog } from '../../lib/useConfirmDialog.js'
+import { Image, Upload, Trash2, Check } from 'lucide-react'
 
 export default function MediaPage() {
   const [data, setData] = useState(null)
@@ -10,6 +13,7 @@ export default function MediaPage() {
   const [selected, setSelected] = useState([])
   const [page, setPage] = useState(1)
   const toast = useToast()
+  const { confirm, ConfirmDialogHost } = useConfirmDialog()
   const fileRef = useRef()
 
   const load = () => {
@@ -22,7 +26,13 @@ export default function MediaPage() {
   const toggle = (id) => setSelected(s => s.includes(id) ? s.filter(x => x !== id) : [...s, id])
 
   const deleteSelected = async () => {
-    if (!selected.length || !confirm(`Delete ${selected.length} media item(s)?`)) return
+    if (!selected.length) return
+    const ok = await confirm({
+      title: 'Delete media?',
+      message: `Delete ${selected.length} media item(s)? Files will be removed from storage.`,
+      confirmLabel: 'Delete',
+    })
+    if (!ok) return
     try {
       await api.deleteMedia(selected)
       setSelected([])
@@ -48,22 +58,38 @@ export default function MediaPage() {
 
   return (
     <AppLayout>
-      <div className="page-header">
-        <h1 className="page-title">Media Library</h1>
+      <div className="page-header-enhanced">
+        <div className="page-header-content">
+          <div className="page-header-title">
+            <div className="page-header-icon">
+              <Image size={18} strokeWidth={2.5} />
+            </div>
+            <h1 className="page-title">Media Library</h1>
+          </div>
+          <p className="page-header-desc">Manage your images and videos</p>
+        </div>
         <div className="flex gap-2">
-          {selected.length > 0 && <button className="btn btn-danger btn-sm" onClick={deleteSelected}>Delete ({selected.length})</button>}
+          {selected.length > 0 && <button className="btn btn-danger btn-sm" onClick={deleteSelected}>
+            <Trash2 size={12} strokeWidth={2} /> Delete ({selected.length})
+          </button>}
           <input type="file" ref={fileRef} onChange={upload} accept="image/*,video/*" multiple hidden />
-          <button className="btn btn-primary" onClick={() => fileRef.current.click()}>Upload</button>
+          <button className="btn btn-primary" onClick={() => fileRef.current.click()}>
+            <Upload size={14} strokeWidth={2} /> Upload
+          </button>
         </div>
       </div>
 
       {loading ? (
         <div className="media-grid">{[1,2,3,4,5,6].map(i => <div key={i} className="skeleton" style={{ aspectRatio: 1 }} />)}</div>
       ) : !data?.items?.length ? (
-        <div className="empty-state">
-          <div className="empty-icon">⬚</div>
-          <div className="empty-title">No media yet</div>
-          <button className="btn btn-primary" onClick={() => fileRef.current.click()}>Upload Files</button>
+        <div className="empty-state-enhanced">
+          <div className="empty-state-icon">
+            <Image size={32} strokeWidth={1.5} />
+          </div>
+          <div className="empty-state-title">No media yet</div>
+          <button className="btn btn-primary" onClick={() => fileRef.current.click()}>
+            <Upload size={14} strokeWidth={2} /> Upload Files
+          </button>
         </div>
       ) : (
         <>
@@ -71,9 +97,13 @@ export default function MediaPage() {
             {data.items.map(item => (
               <div key={item.id} className={`media-item${selected.includes(item.id) ? ' selected' : ''}`} onClick={() => toggle(item.id)}>
                 {item.mime_type?.startsWith('video')
-                  ? <video src={item.url} muted />
-                  : <img src={item.conversions?.find(c => c.name === 'thumbnail')?.url || item.url} alt={item.name} loading="lazy" />}
-                {selected.includes(item.id) && <div className="media-check">✓</div>}
+                  ? <video src={getMediaPreviewUrl(item)} muted />
+                  : <img src={getMediaPreviewUrl(item)} alt="" loading="lazy" />}
+                {selected.includes(item.id) && (
+                  <div className="media-check">
+                    <Check size={12} strokeWidth={3} />
+                  </div>
+                )}
               </div>
             ))}
           </div>
@@ -89,6 +119,7 @@ export default function MediaPage() {
           )}
         </>
       )}
+      <ConfirmDialogHost />
     </AppLayout>
   )
 }

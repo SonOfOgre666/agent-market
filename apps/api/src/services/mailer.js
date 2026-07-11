@@ -118,7 +118,15 @@ export async function sendWeeklyReport({ to, workspaceName, weekLabel, stats }) 
     { label: 'Active Campaigns', value: fmtN(stats.active_campaigns) },
     { label: 'Posts Published', value: fmtN(stats.posts_published) },
     { label: 'Posts Scheduled', value: fmtN(stats.posts_scheduled) },
+    { label: 'Leads (7d)', value: fmtN(stats.leads_this_week) },
   ]
+
+  if (Array.isArray(stats.attribution_top_sources) && stats.attribution_top_sources.length) {
+    const top = stats.attribution_top_sources
+      .map((r) => `${r.key} (${r.credit ?? r.count})`)
+      .join(', ')
+    kpiRows.push({ label: 'Top lead sources', value: top })
+  }
 
   const rowsHtml = kpiRows.map(r => `
     <tr>

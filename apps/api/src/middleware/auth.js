@@ -30,3 +30,20 @@ export async function authenticateWorkspace(request, reply) {
     reply.code(401).send({ error: 'Unauthorized' })
   }
 }
+
+/** Requires authenticate first — owner or admin only. */
+export async function requireWorkspaceAdmin(request, reply) {
+  const workspaceId = request.workspace_id || request.user?.workspace_id
+  if (!workspaceId) return reply.code(403).send({ error: 'No workspace selected' })
+
+  const workspace = await Workspace.findById(workspaceId)
+  if (!workspace) return reply.code(403).send({ error: 'Workspace not found' })
+
+  const member = Workspace.getMember(workspace, request.user.id)
+  if (!member || (member.role !== 'owner' && member.role !== 'admin')) {
+    return reply.code(403).send({ error: 'Admin access required' })
+  }
+
+  request.workspace = workspace
+  request.workspace_role = member.role
+}

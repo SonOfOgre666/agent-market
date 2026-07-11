@@ -30,6 +30,13 @@ export function RealtimeProvider({ children }) {
         case 'post.publish_requested':
           toast.info('Publishing post…')
           break
+        case 'comment.analyzed':
+          toast.info('Comment analyzed')
+          window.dispatchEvent(new CustomEvent('inbox:refresh'))
+          break
+        case 'comment.synced':
+          window.dispatchEvent(new CustomEvent('inbox:refresh'))
+          break
 
         // Campaigns
         case 'campaign.assets_generated':
@@ -46,6 +53,27 @@ export function RealtimeProvider({ children }) {
         case 'landing_page.content_generated':
           toast.success('Landing page content generated')
           break
+        case 'landing_page.published':
+          toast.success('Landing page published')
+          break
+        case 'budget.pacing_analyzed':
+          toast.info('Budget pacing snapshot saved')
+          break
+        case 'budget.reallocation_applied':
+          toast.info('Budget reallocation applied')
+          break
+        case 'ads.bid_optimization_applied':
+          toast.info('Bid optimizations applied')
+          break
+        case 'ads.asset_ab_applied':
+          toast.info('A/B test: underperforming ads paused')
+          break
+        case 'ads.competitive_analysis_complete':
+          toast.success('Competitive analysis ready')
+          break
+        case 'ads.negative_keywords_suggested':
+          toast.success(`Negative keyword suggestions ready (${data.count ?? 0})`)
+          break
 
         // Integrations
         case 'integration.connected':
@@ -55,6 +83,32 @@ export function RealtimeProvider({ children }) {
         // Budget alerts
         case 'budget_alert':
           toast.error(`Budget alert: campaign "${data.campaign_name}" has reached ${data.percent}% of budget`)
+          break
+
+        case 'workflow.planned':
+          toast.info('Assistant planned a workflow')
+          break
+        case 'workflow.running':
+          toast.info('Workflow execution started')
+          break
+        case 'workflow.completed':
+          toast.success('Workflow completed')
+          break
+        case 'workflow.failed':
+          toast.error(`Workflow failed${data.error ? `: ${data.error}` : ''}`)
+          break
+        case 'approval.required':
+          toast.info('Workflow requires your approval')
+          break
+        case 'approval.granted':
+          toast.success('Workflow approved')
+          break
+        case 'step.running':
+          break
+        case 'step.completed':
+          break
+        case 'step.failed':
+          toast.error(`Workflow step failed${data.error ? `: ${data.error}` : ''}`)
           break
 
         // Account events (legacy compatibility)

@@ -2,7 +2,7 @@
  * Rate limiter utility — mirrors HasSocialProviderJobRateLimit trait from Laravel.
  * Supports app-level and account-level rate limit tracking via Redis.
  */
-import { getRedis } from '../db/redis.js'
+import { getRedis } from '../lib/redis.js'
 
 /**
  * @param {string} provider  e.g. 'twitter', 'facebook', 'mastodon'

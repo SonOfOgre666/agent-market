@@ -9,7 +9,8 @@ function formatLabel(val) {
   return String(val)
 }
 
-function formatDate(dateStr) {
+function formatDate(dateStr, formatDateLabel) {
+  if (formatDateLabel) return formatDateLabel(dateStr)
   try {
     const d = new Date(dateStr)
     return d.toLocaleDateString('en', { month: 'short', day: 'numeric' })
@@ -27,7 +28,7 @@ function formatDate(dateStr) {
  *  - height?: number
  *  - title?: string
  */
-export default function LineChart({ data = [], series = [], height = 220, title }) {
+export default function LineChart({ data = [], series = [], height = 220, title, formatDateLabel }) {
   const [tooltip, setTooltip] = useState(null) // { x, y, point }
   const svgRef = useRef(null)
 
@@ -145,7 +146,7 @@ export default function LineChart({ data = [], series = [], height = 220, title 
               textAnchor="middle"
               style={{ fontSize: 10, fill: 'var(--fg-muted)' }}
             >
-              {formatDate(data[i]?.date)}
+              {formatDate(data[i]?.date, formatDateLabel)}
             </text>
           ))}
 
@@ -214,7 +215,7 @@ export default function LineChart({ data = [], series = [], height = 220, title 
             boxShadow: '0 4px 16px rgba(0,0,0,0.4)',
           }}>
             <div style={{ color: 'var(--fg-muted)', marginBottom: '0.35rem', fontWeight: 500 }}>
-              {formatDate(tooltip.point.date)}
+              {formatDate(tooltip.point.date, formatDateLabel)}
             </div>
             {series.map((s, si) => (
               <div key={s.key} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginTop: '0.2rem' }}>

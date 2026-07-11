@@ -1,0 +1,72 @@
+@startuml agent-market-sequence-agent-workflow
+!theme plain
+title Séquence — Assistant agent (chat, plan, exécution)
+
+actor Utilisateur
+participant "Next.js\n/modules/agent" as Web
+participant "API\n/routes/agent.js" as API
+participant "Redis\nCelery bridge" as Redis
+participant "Celery\nagents/planner" as Planner
+participant "Gemini / LLM\n(lib/llm)" as LLM
+database "MongoDB" as DB
+
+== Nouvelle commande ==
+
+Utilisateur -> Web : Message chat marketing
+Web -> API : POST /api/agent/chat\n{message, conversation_id?}
+API -> API : validateChatRequest()
+alt Nouvelle conversation
+  API -> DB : AgentConversation.create()
+else Conversation existante
+  API -> DB : AgentConversation.findById()
+end
+API -> DB : AgentWorkflow.create(status=planning)
+API -> DB : AgentConversation.appendMessage(user)
+API -> Redis : enqueuePlanWorkflow(workflow_id)
+API --> Web : { job_id, workflow_id, conversation_id }
+
+== Polling job ==
+
+loop Jusqu'à complete
+  Web -> API : GET /api/agent/jobs/:jobId
+  API -> Redis : état résultat Celery
+  API --> Web : { status: pending | complete, data }
+end
+
+== Planification (worker) ==
+
+Redis -> Planner : tasks.agent.plan_workflow
+Planner -> DB : (lecture contexte via API si besoin)
+Planner -> LLM : génération graphe d'étapes
+LLM --> Planner : intent, graph, approval_gates
+Planner -> API : PATCH workflow (internal ou modèle)
+API -> DB : AgentWorkflow.patch(graph, status=awaiting_approval)
+API -> DB : appendMessage(assistant)
+API --> Redis : job result
+
+Web --> Utilisateur : Workflow planifié (timeline UI)
+
+== Approbation & exécution ==
+
+Utilisateur -> Web : Approuver workflow
+Web -> API : POST /api/agent/workflows/:id/approve
+API -> API : validatePlannedGraph()
+API -> DB : status = approved
+API -> Redis : enqueueExecuteWorkflow()
+API --> Web : { job_id }
+
+Redis -> Planner : tasks.agent.execute_workflow
+loop Chaque étape du graphe
+  Planner -> Planner : outil ads / social / API
+  Planner -> API : callbacks worker_internal (si persistance)
+  API -> DB : step_results, events
+end
+Planner -> API : AgentWorkflow.patch(completed|failed)
+API -> DB : mise à jour finale
+API --> Redis : job result
+
+Web -> API : GET /api/agent/workflows/:id
+API --> Web : workflow + step_results
+Web --> Utilisateur : StepResultViewer
+
+@enduml

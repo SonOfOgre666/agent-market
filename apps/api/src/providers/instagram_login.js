@@ -4,7 +4,11 @@
  * Uses graph.instagram.com (not graph.facebook.com).
  *
  * Scopes: instagram_business_basic, instagram_business_content_publish,
- *         instagram_business_manage_comments
+ *         instagram_business_manage_comments, instagram_business_manage_insights
+ *
+ * Layer (Rules/CLEAN_ARCHITECTURE_ROADMAP.md P1):
+ * - OAuth (API): getAuthUrl, handleCallback (token exchange + profile read for connect).
+ * - Execution: getAccount (+ token refresh). **Publishing and comments** — worker only (`tasks.social.publish_post` for publish).
  */
 import axios from 'axios'
 
@@ -18,6 +22,7 @@ const SCOPES = [
   'instagram_business_basic',            // read profile & media
   'instagram_business_content_publish',  // publish images / videos / reels / stories
   'instagram_business_manage_comments',  // post & read comments
+  'instagram_business_manage_insights',  // account & media insights (reach, views)
 ].join(',')
 
 export class InstagramLoginProvider {
@@ -34,7 +39,7 @@ export class InstagramLoginProvider {
 
   async getAuthUrl() {
     const { nanoid } = await import('nanoid')
-    const { getRedis } = await import('../db/redis.js')
+    const { getRedis } = await import('../lib/redis.js')
     const state = nanoid()
     await getRedis().setex(`oauth_state:${state}`, 600, 'instagram_login')
 
@@ -107,128 +112,26 @@ export class InstagramLoginProvider {
     }
   }
 
-  // ─── Publishing ──────────────────────────────────────────────────────────────
+  // ─── Publishing (worker) ───────────────────────────────────────────────────
 
-  _validateMedia(allMedia) {
-    const MAX_SIZE = 8 * 1024 * 1024
-    const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/jpg']
-    const ALLOWED_VIDEO_TYPES = ['video/mp4', 'video/quicktime']
-    const MIN_RATIO = 0.8
-    const MAX_RATIO = 1.91
-    for (const m of allMedia) {
-      const isVideo = m.mime_type?.startsWith('video')
-      if (isVideo) {
-        if (!ALLOWED_VIDEO_TYPES.includes(m.mime_type)) {
-          throw new Error(`Instagram does not support video format "${m.mime_type}". Use MP4 or MOV.`)
-        }
-      } else {
-        if (!ALLOWED_IMAGE_TYPES.includes(m.mime_type)) {
-          throw new Error(`Instagram does not support image format "${m.mime_type}". Convert to JPEG before uploading.`)
-        }
-        if (m.size && m.size > MAX_SIZE) {
-          throw new Error(`Image "${m.name}" is ${(m.size / 1024 / 1024).toFixed(1)} MB — Instagram's limit is 8 MB.`)
-        }
-        if (m.width && m.height) {
-          const ratio = m.width / m.height
-          if (ratio < MIN_RATIO || ratio > MAX_RATIO) {
-            throw new Error(`Image "${m.name}" has aspect ratio ${ratio.toFixed(2)}:1 — Instagram requires between 4:5 (0.8) and 1.91:1.`)
-          }
-        }
-      }
-    }
+  async publishPost() {
+    throw new Error(
+      'Instagram Login publishing runs in the worker (tasks.social.publish_post → publish_native). Do not call publishPost from apps/api.',
+    )
   }
 
-  async publishPost(version) {
-    const token = await this._freshToken()
-    const igId = this.account.provider_id
-    const content = version.content || []
-    const textBlock = content.find(b => b.type === 'text')
-    const mediaBlocks = content.filter(b => b.type === 'media')
-    const caption = textBlock?.body || ''
-    const isStory = version.is_story === true
-    const allMedia = mediaBlocks.flatMap(b => b.media || [])
+  // ─── Comments (worker — not wired from routes yet) ───────────────────────────
 
-    if (allMedia.length === 0) throw new Error('Instagram requires at least one media item')
-    this._validateMedia(allMedia)
-
-    // Story
-    if (isStory) {
-      const item = allMedia[0]
-      const isVideo = item.mime_type?.startsWith('video')
-      const containerRes = await axios.post(`${API_BASE}/${igId}/media`, {
-        [isVideo ? 'video_url' : 'image_url']: item.url,
-        media_type: 'STORIES',
-        access_token: token,
-      })
-      await this._waitForContainer(containerRes.data.id, token)
-      const publishRes = await axios.post(`${API_BASE}/${igId}/media_publish`, {
-        creation_id: containerRes.data.id,
-        access_token: token,
-      })
-      return { provider_post_id: publishRes.data.id }
-    }
-
-    // Single image or reel
-    if (allMedia.length === 1) {
-      const isVideo = allMedia[0].mime_type?.startsWith('video')
-      const containerRes = await axios.post(`${API_BASE}/${igId}/media`, {
-        [isVideo ? 'video_url' : 'image_url']: allMedia[0].url,
-        caption,
-        media_type: isVideo ? 'REELS' : 'IMAGE',
-        access_token: token,
-      })
-      await this._waitForContainer(containerRes.data.id, token)
-      const publishRes = await axios.post(`${API_BASE}/${igId}/media_publish`, {
-        creation_id: containerRes.data.id,
-        access_token: token,
-      })
-      return { provider_post_id: publishRes.data.id }
-    }
-
-    // Carousel (multiple images/videos)
-    const itemIds = await Promise.all(allMedia.map(async m => {
-      const isVideo = m.mime_type?.startsWith('video')
-      const r = await axios.post(`${API_BASE}/${igId}/media`, {
-        [isVideo ? 'video_url' : 'image_url']: m.url,
-        is_carousel_item: true,
-        media_type: isVideo ? 'VIDEO' : 'IMAGE',
-        access_token: token,
-      })
-      await this._waitForContainer(r.data.id, token)
-      return r.data.id
-    }))
-
-    const carouselRes = await axios.post(`${API_BASE}/${igId}/media`, {
-      media_type: 'CAROUSEL',
-      caption,
-      children: itemIds,
-      access_token: token,
-    })
-    const publishRes = await axios.post(`${API_BASE}/${igId}/media_publish`, {
-      creation_id: carouselRes.data.id,
-      access_token: token,
-    })
-    return { provider_post_id: publishRes.data.id }
+  async getComments() {
+    throw new Error(
+      'Instagram Login comment reads belong in the worker when exposed via API. No apps/api route calls this today.',
+    )
   }
 
-  // ─── Comments ─────────────────────────────────────────────────────────────────
-
-  async postComment(providerPostId, text) {
-    const token = await this._freshToken()
-    await axios.post(`${API_BASE}/${providerPostId}/comments`, { text, access_token: token })
-  }
-
-  async getComments(providerPostId) {
-    const token = await this._freshToken()
-    const res = await axios.get(`${API_BASE}/${providerPostId}/comments`, {
-      params: { fields: 'id,text,username,timestamp', access_token: token },
-    })
-    return (res.data?.data || []).map(c => ({
-      id: c.id,
-      text: c.text,
-      author: c.username,
-      created_at: c.timestamp,
-    }))
+  async postComment() {
+    throw new Error(
+      'Instagram Login comment writes belong in the worker when exposed via API. No apps/api route calls this today.',
+    )
   }
 
   // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -252,17 +155,6 @@ export class InstagramLoginProvider {
       // Non-fatal — use the stored token as-is
     }
     return this.account.access_token.token
-  }
-
-  async _waitForContainer(containerId, token, retries = 10) {
-    for (let i = 0; i < retries; i++) {
-      const res = await axios.get(`${API_BASE}/${containerId}`, {
-        params: { fields: 'status_code', access_token: token },
-      })
-      if (res.data.status_code === 'FINISHED') return
-      await new Promise(r => setTimeout(r, 3000))
-    }
-    throw new Error('Instagram media container timed out')
   }
 
   hasEntities() { return false }

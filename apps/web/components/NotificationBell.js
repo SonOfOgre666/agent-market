@@ -1,60 +1,117 @@
 'use client'
 import { useEffect, useRef, useState } from 'react'
 import { subscribe } from '../lib/socket.js'
+import { useWorkspaceSettings } from './WorkspaceSettingsProvider.js'
+import { Bell, Check, X, AlertTriangle } from 'lucide-react'
 
 const MAX = 50
 
-function timeAgo(date) {
-  const secs = Math.floor((Date.now() - new Date(date)) / 1000)
-  if (secs < 60) return 'just now'
-  if (secs < 3600) return `${Math.floor(secs / 60)}m ago`
-  if (secs < 86400) return `${Math.floor(secs / 3600)}h ago`
-  return `${Math.floor(secs / 86400)}d ago`
-}
-
-function buildNotification(channel, data) {
+/** Payloads from Redis ``EVENTS_CHANNEL`` → realtime SC channel ``events`` (``{ event, ... }``). */
+function notificationFromEnvelope(msg) {
   const ts = new Date().toISOString()
-  if (channel === 'agentmarket:post_published') {
-    const failed = data.errors?.length > 0
+  const ev = msg?.event
+  if (!ev || typeof ev !== 'string') return null
+
+  if (ev === 'post.published') {
+    const errors = msg.errors || []
+    const published = msg.published || []
+    const hasErrors = errors.length > 0
+    const pid = msg.post_id || msg.postId
     return {
-      id: `${channel}-${ts}`,
-      type: failed ? 'error' : 'success',
-      icon: failed ? '✕' : '✓',
-      title: failed ? 'Post publish failed' : 'Post published',
-      body: failed
-        ? `${data.errors?.length} account(s) failed`
-        : `Published to ${data.published?.length ?? '?'} account(s)`,
-      post_id: data.post_id,
+      id: `${ev}-${pid}-${ts}`,
+      type: hasErrors ? 'warning' : 'success',
+      iconType: hasErrors ? 'warning' : 'success',
+      title: hasErrors ? 'Post published with errors' : 'Post published',
+      body: hasErrors
+        ? `${errors.length} account(s) failed, ${published.length} succeeded`
+        : `Published to ${published.length || '?'} account(s)`,
+      post_id: pid,
       ts,
     }
   }
-  if (channel === 'agentmarket:post_scheduled') {
-    return { id: `${channel}-${ts}`, type: 'info', icon: '⊟', title: 'Post scheduled', body: 'A post has been queued for publishing', post_id: data.post_id, ts }
-  }
-  if (channel === 'agentmarket:account_added') {
-    return { id: `${channel}-${ts}`, type: 'success', icon: '⊙', title: 'Account connected', body: 'A new social account was added', ts }
-  }
-  if (channel === 'agentmarket:account_unauthorized') {
-    return { id: `${channel}-${ts}`, type: 'error', icon: '⚠', title: 'Account disconnected', body: 'An account token expired — reconnect it', ts }
-  }
-  if (channel === 'agentmarket:budget_alert') {
-    const pct = data.percent
-    const level = pct >= 100 ? 'error' : pct >= 90 ? 'warning' : 'warning'
+  if (ev === 'post.failed') {
+    const pid = msg.post_id || msg.postId
     return {
-      id: `${channel}-${data.campaign_id}-${pct}-${ts}`,
+      id: `${ev}-${pid}-${ts}`,
+      type: 'error',
+      iconType: 'error',
+      title: 'Post failed',
+      body: typeof msg.error === 'string' ? msg.error : 'Publish error',
+      post_id: pid,
+      ts,
+    }
+  }
+  if (ev === 'post.scheduled') {
+    const pid = msg.post_id || msg.postId
+    return {
+      id: `${ev}-${pid}-${ts}`,
+      type: 'info',
+      iconType: 'info',
+      title: 'Post scheduled',
+      body: 'A post has been queued for publishing',
+      post_id: pid,
+      ts,
+    }
+  }
+  if (ev === 'post.drafted') {
+    const pid = msg.postId || msg.post_id
+    return {
+      id: `${ev}-${pid}-${ts}`,
+      type: 'info',
+      iconType: 'info',
+      title: 'Draft saved',
+      body: 'A new draft was created',
+      post_id: pid,
+      ts,
+    }
+  }
+  if (ev === 'integration.connected') {
+    const name = msg.provider || 'Provider'
+    return {
+      id: `${ev}-${msg.account_id || ''}-${ts}`,
+      type: 'success',
+      iconType: 'success',
+      title: 'Account connected',
+      body: `${name} connected successfully`,
+      ts,
+    }
+  }
+  if (ev === 'account_unauthorized') {
+    return {
+      id: `${ev}-${msg.account_id || ''}-${ts}`,
+      type: 'error',
+      iconType: 'warning',
+      title: 'Account disconnected',
+      body: 'An account token expired — reconnect it',
+      ts,
+    }
+  }
+  if (ev === 'budget_alert') {
+    const pct = msg.percent
+    const level = pct >= 100 ? 'error' : 'warning'
+    return {
+      id: `${ev}-${msg.campaign_id}-${pct}-${ts}`,
       type: level,
-      icon: pct >= 100 ? '✕' : '⚠',
+      iconType: level === 'error' ? 'error' : 'warning',
       title: pct >= 100 ? 'Budget exhausted' : `Budget at ${pct}%`,
-      body: `Campaign "${data.campaign_name}" has used ${pct}% of its budget`,
+      body: `Campaign "${msg.campaign_name || 'Campaign'}" has used ${pct}% of its budget`,
       ts,
     }
   }
   return null
 }
 
+const ICON_MAP = {
+  success: Check,
+  error: X,
+  info: Bell,
+  warning: AlertTriangle,
+}
+
 const TYPE_COLOR = { success: '#10b981', error: '#ef4444', info: '#6366f1', warning: '#f59e0b' }
 
 export default function NotificationBell() {
+  const { formatDateTime } = useWorkspaceSettings()
   const [notifs, setNotifs] = useState([])
   const [open, setOpen] = useState(false)
   const [unread, setUnread] = useState(0)
@@ -67,15 +124,7 @@ export default function NotificationBell() {
   }
 
   useEffect(() => {
-    const channels = [
-      'agentmarket:post_published',
-      'agentmarket:post_scheduled',
-      'agentmarket:account_added',
-      'agentmarket:account_unauthorized',
-      'agentmarket:budget_alert',
-    ]
-    const unsubs = channels.map(ch => subscribe(ch, data => push(buildNotification(ch, data))))
-    return () => { unsubs.forEach(fn => typeof fn === 'function' && fn()) }
+    return subscribe('events', (msg) => push(notificationFromEnvelope(msg)))
   }, [])
 
   // Close panel on outside click
@@ -101,16 +150,17 @@ export default function NotificationBell() {
         onClick={handleOpen}
         style={{
           background: 'none', border: 'none', cursor: 'pointer', padding: '0.35rem',
-          color: 'var(--fg-muted)', fontSize: '1.1rem', position: 'relative', lineHeight: 1,
+          color: 'var(--fg-muted)', position: 'relative', lineHeight: 1,
           borderRadius: 8,
-          background: open ? 'var(--surface-2)' : 'transparent',
+          background: open ? 'var(--surface-alt)' : 'transparent',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
         }}
         title="Notifications"
       >
-        🔔
+        <Bell size={20} strokeWidth={2} />
         {unread > 0 && (
           <span style={{
-            position: 'absolute', top: 0, right: 0,
+            position: 'absolute', top: -2, right: -2,
             width: 16, height: 16, borderRadius: '50%',
             background: '#ef4444', color: '#fff',
             fontSize: '0.6rem', fontWeight: 700,
@@ -145,24 +195,26 @@ export default function NotificationBell() {
             </div>
           ) : (
             <div>
-              {notifs.map(n => (
-                <div key={n.id} style={{ display: 'flex', gap: '0.75rem', padding: '0.75rem 1rem', borderBottom: '1px solid rgba(255,255,255,0.05)', alignItems: 'flex-start' }}>
-                  <span style={{
-                    width: 28, height: 28, borderRadius: '50%', flexShrink: 0,
-                    background: (TYPE_COLOR[n.type] || '#6366f1') + '22',
-                    color: TYPE_COLOR[n.type] || '#6366f1',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    fontSize: '0.75rem', fontWeight: 700,
-                  }}>
-                    {n.icon}
-                  </span>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: '0.8rem', fontWeight: 600 }}>{n.title}</div>
-                    <div style={{ fontSize: '0.75rem', color: 'var(--fg-muted)', marginTop: '0.1rem' }}>{n.body}</div>
-                    <div style={{ fontSize: '0.7rem', color: 'var(--fg-muted)', marginTop: '0.2rem' }}>{timeAgo(n.ts)}</div>
+              {notifs.map(n => {
+                const IconComponent = ICON_MAP[n.iconType] || Bell
+                return (
+                  <div key={n.id} style={{ display: 'flex', gap: '0.75rem', padding: '0.75rem 1rem', borderBottom: '1px solid rgba(255,255,255,0.05)', alignItems: 'flex-start' }}>
+                    <span style={{
+                      width: 28, height: 28, borderRadius: '50%', flexShrink: 0,
+                      background: (TYPE_COLOR[n.type] || '#6366f1') + '22',
+                      color: TYPE_COLOR[n.type] || '#6366f1',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    }}>
+                      <IconComponent size={14} strokeWidth={2.5} />
+                    </span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: '0.8rem', fontWeight: 600 }}>{n.title}</div>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--fg-muted)', marginTop: '0.1rem' }}>{n.body}</div>
+                      <div style={{ fontSize: '0.7rem', color: 'var(--fg-muted)', marginTop: '0.2rem' }}>{formatDateTime(n.ts)}</div>
+                    </div>
                   </div>
-                </div>
-              ))}
+                )
+              })}
             </div>
           )}
         </div>

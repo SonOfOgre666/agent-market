@@ -1,15 +1,19 @@
-import { getRedis } from '../db/redis.js'
-import { getDb } from '../db/mongodb.js'
+import { authenticate, requireWorkspaceAdmin } from '../middleware/auth.js'
+import { getRedis } from '../lib/redis.js'
+import { getDb } from '../lib/mongo.js'
+import { publishEvent } from '../lib/events.js'
 import { nanoid } from 'nanoid'
 import * as Account from '../models/Account.js'
+import * as Integration from '../models/Integration.js'
 import { getSocialProvider } from '../providers/index.js'
+import { loadTwitterOAuthSession } from '../providers/twitter.js'
 
 const SUPPORTED_PROVIDERS = ['linkedin', 'instagram', 'tiktok', 'google-ads']
 
 const PROVIDER_META = {
   linkedin: {
     name: 'LinkedIn',
-    scopes: ['r_liteprofile', 'r_emailaddress', 'w_member_social'],
+    scopes: ['openid', 'profile', 'email', 'w_member_social', 'w_member_social_feed', 'r_member_social_feed'],
     authType: 'oauth2',
   },
   instagram: {
@@ -30,22 +34,30 @@ const PROVIDER_META = {
 }
 
 // Build OAuth connect URL per provider
+async function linkedInOAuthCreds(workspaceId = null) {
+  const config = await Integration.getDecryptedConfig('linkedin', workspaceId || undefined)
+  return {
+    clientId: config.client_id || process.env.LINKEDIN_CLIENT_ID || '',
+    clientSecret: config.client_secret || process.env.LINKEDIN_CLIENT_SECRET || '',
+    callbackUrl: process.env.LINKEDIN_CALLBACK_URL
+      || `${process.env.API_URL || 'http://localhost:4010'}/api/integrations/linkedin/callback`,
+  }
+}
+
 async function buildConnectUrl(provider, userId) {
   const state = nanoid()
   const redis = getRedis()
   await redis.setex(`oauth_state:${state}`, 600, JSON.stringify({ userId }))
 
   if (provider === 'linkedin') {
-    const clientId = process.env.LINKEDIN_CLIENT_ID
-    const callbackUrl = process.env.LINKEDIN_CALLBACK_URL
-      || `http://localhost:4010/api/integrations/linkedin/callback`
+    const { clientId, callbackUrl } = await linkedInOAuthCreds()
     if (!clientId) return null
     const params = new URLSearchParams({
       response_type: 'code',
       client_id: clientId,
       redirect_uri: callbackUrl,
       state,
-      scope: 'r_liteprofile r_emailaddress w_member_social',
+      scope: 'openid profile email w_member_social w_member_social_feed r_member_social_feed',
     })
     return `https://www.linkedin.com/oauth/v2/authorization?${params}`
   }
@@ -101,6 +113,22 @@ async function buildConnectUrl(provider, userId) {
 }
 
 export default async function integrationsRoutes(app) {
+
+  // Workspace API credentials (formerly `services` collection / /api/services)
+  app.get('/integrations/configs', { preHandler: [authenticate, requireWorkspaceAdmin] }, async (request, reply) => {
+    const items = await Integration.findAll(request.workspace_id)
+    return reply.send(items.map((row) => Integration.serialize(row, true)))
+  })
+
+  app.put('/integrations/configs/:name', { preHandler: [authenticate, requireWorkspaceAdmin] }, async (request, reply) => {
+    const { name } = request.params
+    if (!Integration.INTEGRATION_NAMES.includes(name)) {
+      return reply.code(422).send({ error: `Unknown integration: ${name}` })
+    }
+    const config = request.body || {}
+    const row = await Integration.upsertIntegration(name, config, request.workspace_id)
+    return reply.send(Integration.serialize(row, true))
+  })
 
   // GET /api/integrations/providers
   app.get('/integrations/providers', async (_request, reply) => {
@@ -289,14 +317,25 @@ async function handleOAuthCallback(app, request, reply, provider) {
       try { statePayload = JSON.parse(raw) } catch { statePayload = { userId: raw } }
     }
   }
+  if (provider === 'twitter' && request.query.oauth_token && !statePayload?.workspaceId) {
+    const twitterSession = await loadTwitterOAuthSession(request.query.oauth_token)
+    if (twitterSession) {
+      statePayload = {
+        ...(statePayload || {}),
+        userId: twitterSession.userId || statePayload?.userId || null,
+        workspaceId: twitterSession.workspaceId || statePayload?.workspaceId || null,
+        return_to: twitterSession.return_to || statePayload?.return_to,
+      }
+    }
+  }
 
   const userId = statePayload?.userId || null
   const workspaceId = statePayload?.workspaceId || null
-  const forceAccountFlow = ['twitter', 'facebook_page', 'instagram_login'].includes(provider)
+  const forceAccountFlow = ['twitter', 'facebook_page', 'instagram_login', 'linkedin'].includes(provider)
   const isAccountsFlow = forceAccountFlow || !!workspaceId
 
   if (error) {
-    const target = isAccountsFlow ? 'accounts' : 'settings'
+    const target = isAccountsFlow ? 'accounts' : 'integrations'
     return reply.redirect(`${WEB_URL}/${target}?provider=${provider}&error=${encodeURIComponent(error)}`)
   }
 
@@ -305,7 +344,7 @@ async function handleOAuthCallback(app, request, reply, provider) {
       return handleAccountsOAuthCallback(app, request, reply, provider, userId, workspaceId, WEB_URL)
     }
 
-    const tokenData = await exchangeCodeForToken(provider, code)
+    const tokenData = await exchangeCodeForToken(provider, code, workspaceId)
     const db = getDb()
     await db.collection('integration_tokens').updateOne(
       { userId, provider },
@@ -325,13 +364,12 @@ async function handleOAuthCallback(app, request, reply, provider) {
       { upsert: true }
     )
 
-    const eventsChannel = process.env.EVENTS_CHANNEL || 'agent_market:events'
-    getRedis().publish(eventsChannel, JSON.stringify({ event: 'integration.connected', provider, userId }))
+    await publishEvent('integration.connected', { provider, userId }).catch(() => {})
 
-    return reply.redirect(`${WEB_URL}/settings?provider=${provider}&connected=1`)
+    return reply.redirect(`${WEB_URL}/integrations?provider=${provider}&connected=1`)
   } catch (err) {
     app.log.error(err)
-    const target = isAccountsFlow ? 'accounts' : 'settings'
+    const target = isAccountsFlow ? 'accounts' : 'integrations'
     return reply.redirect(`${WEB_URL}/${target}?provider=${provider}&error=${encodeURIComponent(err.message)}`)
   }
 }
@@ -346,6 +384,9 @@ async function handleAccountsOAuthCallback(app, request, reply, provider, userId
   const query = request.query
 
   try {
+    if (accountProvider === 'linkedin' && !workspaceId) {
+      throw new Error('LinkedIn OAuth session expired. Connect again from Accounts.')
+    }
     const providerInstance = await getSocialProvider(accountProvider, { workspace_id: workspaceId })
     const accountData = await providerInstance.handleCallback(query)
 
@@ -364,6 +405,10 @@ async function handleAccountsOAuthCallback(app, request, reply, provider, userId
       workspace_id: workspaceId || null,
     })
     getRedis().publish('agentmarket:account_added', JSON.stringify({ account_id: saved._id.toString() }))
+    await publishEvent('integration.connected', {
+      provider: accountProvider,
+      account_id: String(saved._id),
+    }).catch(() => {})
 
     return reply.redirect(`${WEB_URL}/accounts?connected=1`)
   } catch (err) {
@@ -372,17 +417,21 @@ async function handleAccountsOAuthCallback(app, request, reply, provider, userId
   }
 }
 
-async function exchangeCodeForToken(provider, code) {
+async function exchangeCodeForToken(provider, code, workspaceId = null) {
   if (provider === 'linkedin') {
+    const { clientId, clientSecret, callbackUrl } = await linkedInOAuthCreds(workspaceId)
+    if (!clientId) {
+      throw new Error('LinkedIn Client ID is not configured. Save it under Integrations → LinkedIn.')
+    }
     const res = await fetch('https://www.linkedin.com/oauth/v2/accessToken', {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({
         grant_type: 'authorization_code',
         code,
-        redirect_uri: process.env.LINKEDIN_CALLBACK_URL || 'http://localhost:4010/api/integrations/linkedin/callback',
-        client_id: process.env.LINKEDIN_CLIENT_ID || '',
-        client_secret: process.env.LINKEDIN_CLIENT_SECRET || '',
+        redirect_uri: callbackUrl,
+        client_id: clientId,
+        client_secret: clientSecret,
       }),
     })
     const data = await res.json()

@@ -1,0 +1,8 @@
+node_modules
+uploads
+logs
+*.log
+.env
+.env.*
+Dockerfile
+.dockerignore

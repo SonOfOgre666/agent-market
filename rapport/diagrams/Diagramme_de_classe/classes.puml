@@ -1,0 +1,186 @@
+@startuml agent-market-classes
+!theme plain
+title Agent-Market — Diagramme de classes (domaine MongoDB)
+
+skinparam classAttributeIconSize 0
+skinparam packageStyle rectangle
+
+
+' ─── Identité & workspace ───────────────────────────────────
+class Utilisateur {
+  +id : ObjectId
+  +nom : String
+  +email : String
+  +mot_de_passe : String
+  +created_at : Date
+  +updated_at : Date
+  --
+  +findByEmail()
+  +createUser()
+  +verifyPassword()
+}
+
+class Workspace {
+  +id : ObjectId
+  +nom : String
+  +owner_id : ObjectId
+  +members : Membre[]
+  +deleted_at : Date
+  --
+  +findByUserId()
+  +addMember()
+  +createInvite()
+}
+
+class Role {
+    +nom : String
+    +permissions : String
+}
+
+Utilisateur "1..*" -- "1" Workspace
+(Utilisateur, Workspace) .. Role
+
+' ─── Comptes connectés ──────────────────────────────────────
+class Compte {
+  +id : ObjectId
+  +uuid : String
+  +workspace_id : ObjectId
+  +provider : String
+  +provider_id : String
+  +nom : String
+  +username : String
+  +access_token : Object
+  +authorized : Boolean
+  +data : Object
+  --
+  +upsertAccount()
+  +findByProvider()
+}
+
+class "Compte social" as CompteSocial {
+}
+
+class "Compte ads" as CompteAd {
+}
+
+CompteSocial --|> Compte
+CompteAd --|> Compte
+
+Workspace "1" o-- "0..*" Compte
+
+' ─── Social : posts & médias ────────────────────────────────
+class Post {
+  +id : ObjectId
+  +uuid : String
+  +workspace_id : ObjectId
+  +account_ids : ObjectId[]
+  +tag_ids : ObjectId[]
+  +versions : Version[]
+  +scheduled_at : Date
+  +published_at : Date
+  +status : PostStatus
+  +schedule_status : Int
+  +deleted_at : Date
+  --
+  +createPost()
+  +findScheduledReady()
+}
+
+class Media {
+  +id : ObjectId
+  +uuid : String
+  +workspace_id : ObjectId
+  +nom : String
+  +mime_type : String
+  +path : String
+  +size : Long
+}
+
+Workspace "1" o-- "0..*" Post
+Workspace "1" o-- "0..*" Media
+
+Post "0..*" --> "1..*" CompteSocial : publie sur
+Post "0..*" -- "1" Media
+
+' ─── Publicité (Ads) ────────────────────────────────────────
+class Campaign {
+  +id : ObjectId
+  +uuid : String
+  +workspace_id : ObjectId
+  +platform : String
+  +type : String
+  +status : CampaignStatus
+  +budget : Object
+  +targeting : Object
+  +creatives : Object
+  +account_id : ObjectId
+  +scheduled_at : Date
+  --
+  +createCampaign()
+  +findScheduledReady()
+}
+
+class LandingPage {
+  +id : ObjectId
+  +uuid : String
+  +workspace_id : ObjectId
+  +slug : String
+  +status : String
+  +form_fields : Object
+}
+
+class Lead {
+  +id : ObjectId
+  +uuid : String
+  +workspace_id : ObjectId
+  +landing_page_id : ObjectId
+  +landing_page_slug : String
+  +data : Object
+  +utm : Object
+}
+
+Workspace "1" o-- "0..*" Campaign
+Workspace "1" o-- "0..*" LandingPage
+Workspace "1" o-- "0..*" Lead
+
+Campaign "0..*" -- "0..*" LandingPage
+LandingPage "1" <-- "0..*" Lead
+Campaign "0..1" --> CompteAd : publie sur
+
+' ─── Agent IA ───────────────────────────────────────────────
+class AgentConversation {
+  +id : ObjectId
+  +workspace_id : ObjectId
+  +user_id : ObjectId
+  +title : String
+  +messages : AgentMessage[]
+  --
+  +appendMessage()
+}
+
+class AgentWorkflow {
+  +id : ObjectId
+  +workflow_id : String
+  +workspace_id : ObjectId
+  +user_id : ObjectId
+  +conversation_id : ObjectId
+  +user_message : String
+  +status : WorkflowStatus
+  +graph : Object
+  +step_results : Object
+  --
+  +create()
+  +patch()
+}
+
+Workspace "1" o-- "0..*" AgentConversation
+Workspace "1" o-- "0..*" AgentWorkflow
+
+Utilisateur "1" -- "0..*" AgentConversation
+Utilisateur "1" -- "0..*" AgentWorkflow
+
+AgentConversation "1" *-- "1..*" AgentMessage
+AgentConversation "1" o-- "0..*" AgentWorkflow
+
+
+@enduml

@@ -5,21 +5,38 @@ import AppLayout from '../../components/AppLayout.js'
 import LineChart from '../../components/LineChart.js'
 import { api } from '../../lib/api.js'
 import { useToast } from '../../components/Toast.js'
+import {
+  DollarSign, MousePointerClick, TrendingUp, BarChart3, Target, Users, Calculator, Percent,
+} from 'lucide-react'
+import AdsOptimizationPanel from '../../components/ads/AdsOptimizationPanel.js'
 
 const PLATFORM_LABEL = {
-  google_ads: 'Google Ads', facebook: 'Facebook', linkedin: 'LinkedIn',
-  tiktok: 'TikTok', instagram: 'Instagram',
+  google_ads: 'Google Ads',
+  meta: 'Meta Ads',
+  facebook: 'Meta Ads',
+  meta_ads: 'Meta Ads',
 }
 const PLATFORM_COLOR = {
-  google_ads: '#4285f4', facebook: '#1877f2', linkedin: '#0a66c2',
-  tiktok: '#ff0050', instagram: '#e1306c',
+  google_ads: '#4285f4',
+  meta: '#1877f2',
+  facebook: '#1877f2',
+  meta_ads: '#1877f2',
 }
 
-function KpiCard({ label, value, sub, color }) {
+function KpiCard({ label, value, sub, color, icon: Icon }) {
   return (
     <div className="card stat-card">
-      <div className="stat-value" style={color ? { color } : {}}>{value}</div>
-      <div className="stat-label">{label}</div>
+      <div className="stat-with-icon">
+        {Icon && (
+          <div className="stat-icon" style={{ background: (color || 'var(--primary)') + '15' }}>
+            <Icon size={18} color={color || 'hsl(var(--primary))'} strokeWidth={2} />
+          </div>
+        )}
+        <div>
+          <div className="stat-value" style={color ? { color } : {}}>{value}</div>
+          <div className="stat-label">{label}</div>
+        </div>
+      </div>
       {sub && <div style={{ fontSize: '0.7rem', color: 'var(--fg-muted)', marginTop: '0.15rem' }}>{sub}</div>}
     </div>
   )
@@ -51,6 +68,7 @@ export default function BudgetPage() {
   const [campaigns, setCampaigns] = useState([])
   const [leads, setLeads] = useState({ total: 0 })
   const [loading, setLoading] = useState(true)
+  const [pdfLoading, setPdfLoading] = useState(false)
   const toast = useToast()
 
   useEffect(() => {
@@ -68,26 +86,65 @@ export default function BudgetPage() {
   const fmt$ = (v) => v != null ? `$${Number(v).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—'
   const fmtPct = (v) => v != null ? `${Number(v).toFixed(2)}%` : '—'
 
-  // Build per-platform spend chart data (from campaigns, grouped by creation month)
+  // Build per-platform spend chart data — Google Ads, Meta Ads
   const spendByPlatform = summary?.by_platform || {}
-  const platformEntries = Object.entries(spendByPlatform)
+  const SUPPORTED = new Set(['google_ads', 'meta_ads', 'meta', 'facebook'])
+  const platformEntries = Object.entries(spendByPlatform).filter(([p]) => SUPPORTED.has(p))
 
-  // Per-campaign KPI table
-  const campaignRows = campaigns.map(c => {
+  // Per-campaign KPI table — paid ads platforms
+  const campaignRows = campaigns.filter(c => SUPPORTED.has(c.platform)).map(c => {
     const m = c.metrics || {}
     const ctr = m.impressions > 0 ? ((m.clicks / m.impressions) * 100).toFixed(2) : null
     const cpc = m.clicks > 0 ? (m.spend / m.clicks).toFixed(2) : null
     const cpa = m.conversions > 0 ? (m.spend / m.conversions).toFixed(2) : null
-    const roas = m.spend > 0 && m.conversions > 0 ? ((m.conversions * 10) / m.spend).toFixed(2) : null // placeholder ROAS
+    const roas = m.roas > 0
+      ? Number(m.roas).toFixed(2)
+      : (m.conversion_value > 0 && m.spend > 0 ? (m.conversion_value / m.spend).toFixed(2) : null)
     const budgetUsed = c.budget?.amount > 0 ? ((m.spend / c.budget.amount) * 100).toFixed(0) : null
     return { ...c, ctr, cpc, cpa, roas, budgetUsed }
   })
 
+  async function downloadPdf() {
+    setPdfLoading(true)
+    try {
+      const blob = await api.downloadKpiReportPdf({ days: 7 })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = 'kpi-report-7d.pdf'
+      a.click()
+      URL.revokeObjectURL(url)
+      toast.success('KPI report downloaded')
+    } catch (err) {
+      toast.error(err.message || 'PDF download failed')
+    } finally {
+      setPdfLoading(false)
+    }
+  }
+
   return (
     <AppLayout>
-      <div className="page-header">
-        <h1 className="page-title">Budget & KPIs</h1>
-        <Link href="/ads/campaigns" className="btn btn-primary">Manage Campaigns</Link>
+      <div className="page-header-enhanced">
+        <div className="page-header-content">
+          <div className="page-header-title">
+            <div className="page-header-icon">
+              <Calculator size={18} strokeWidth={2.5} />
+            </div>
+            <h1 className="page-title">Budget & KPIs</h1>
+          </div>
+          <p className="page-header-desc">Track your advertising spend and metrics</p>
+        </div>
+        <div style={{ display: 'flex', gap: '0.5rem' }}>
+          <button type="button" className="btn btn-secondary" onClick={downloadPdf} disabled={pdfLoading || !summary}>
+            {pdfLoading ? 'Generating…' : 'Download PDF'}
+          </button>
+          <Link href="/ads/performance" className="btn btn-secondary">
+            <TrendingUp size={14} strokeWidth={2} /> Live Performance
+          </Link>
+          <Link href="/ads/campaigns" className="btn btn-primary">
+            <BarChart3 size={14} strokeWidth={2} /> Manage Campaigns
+          </Link>
+        </div>
       </div>
 
       {loading ? (
@@ -104,31 +161,31 @@ export default function BudgetPage() {
         </div>
       ) : (
         <>
-          {/* Top KPIs */}
+           {/* Top KPIs */}
           <div className="grid-4" style={{ marginBottom: '1.25rem' }}>
-            <KpiCard label="Total Budget" value={fmt$(summary.total_budget)} />
+            <KpiCard label="Impressions" value={(summary.total_impressions || 0).toLocaleString()} icon={BarChart3} />
+            <KpiCard label="Clicks" value={(summary.total_clicks || 0).toLocaleString()} icon={MousePointerClick} />
+            <KpiCard label="CTR" value={fmtPct(summary.ctr)} sub="click-through rate" icon={Percent} />
+            <KpiCard label="CPC" value={summary.cpc ? fmt$(summary.cpc) : '—'} sub="cost per click" icon={DollarSign} />
+          </div>
+
+          <div className="grid-4" style={{ marginBottom: '1.5rem' }}>
+            <KpiCard label="Conversions" value={(summary.total_conversions || 0).toLocaleString()} icon={TrendingUp} />
+            <KpiCard label="CPA" value={summary.cpa ? fmt$(summary.cpa) : '—'} sub="cost per acquisition" icon={DollarSign} />
             <KpiCard
-              label="Total Spend"
-              value={fmt$(summary.total_spend)}
-              sub={`${summary.total_budget > 0 ? ((summary.total_spend / summary.total_budget) * 100).toFixed(0) : 0}% of budget`}
-              color={summary.total_spend > summary.total_budget ? '#ef4444' : undefined}
+              label="ROAS"
+              value={summary.portfolio_roas > 0 ? `${Number(summary.portfolio_roas).toFixed(2)}x` : '—'}
+              sub="revenue / ad spend"
+              icon={TrendingUp}
             />
-            <KpiCard label="Budget Remaining" value={fmt$(summary.budget_remaining)} color={summary.budget_remaining < 0 ? '#ef4444' : '#10b981'} />
-            <KpiCard label="Total Leads" value={leads.total?.toLocaleString()} sub="captured via landing pages" />
+            <KpiCard label="Active Campaigns" value={summary.active_campaigns} icon={Target} />
           </div>
 
           <div className="grid-4" style={{ marginBottom: '1.5rem' }}>
-            <KpiCard label="Impressions" value={(summary.total_impressions || 0).toLocaleString()} />
-            <KpiCard label="Clicks" value={(summary.total_clicks || 0).toLocaleString()} />
-            <KpiCard label="CTR" value={fmtPct(summary.ctr)} sub="click-through rate" />
-            <KpiCard label="CPC" value={summary.cpc ? fmt$(summary.cpc) : '—'} sub="cost per click" />
-          </div>
-
-          <div className="grid-4" style={{ marginBottom: '1.5rem' }}>
-            <KpiCard label="Conversions" value={(summary.total_conversions || 0).toLocaleString()} />
-            <KpiCard label="CPA" value={summary.cpa ? fmt$(summary.cpa) : '—'} sub="cost per acquisition" />
-            <KpiCard label="Active Campaigns" value={summary.active_campaigns} />
-            <KpiCard label="Total Campaigns" value={summary.campaign_count} />
+            <KpiCard label="Total Campaigns" value={summary.campaign_count} icon={BarChart3} />
+            <KpiCard label="Total Leads" value={(leads.total || 0).toLocaleString()} icon={Users} />
+            <KpiCard label="Budget Used" value={fmt$(summary.total_spend)} sub={`of ${fmt$(summary.total_budget)}`} icon={DollarSign} />
+            <KpiCard label="Budget Left" value={fmt$(summary.budget_remaining)} icon={DollarSign} />
           </div>
 
           {/* Budget by platform */}
@@ -205,6 +262,7 @@ export default function BudgetPage() {
                       <th>CPC</th>
                       <th>Conv.</th>
                       <th>CPA</th>
+                      <th>ROAS</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -233,6 +291,7 @@ export default function BudgetPage() {
                         <td>{c.cpc != null ? `$${c.cpc}` : '—'}</td>
                         <td>{(c.metrics?.conversions || 0).toLocaleString()}</td>
                         <td>{c.cpa != null ? `$${c.cpa}` : '—'}</td>
+                        <td>{c.roas != null ? `${c.roas}x` : '—'}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -240,6 +299,10 @@ export default function BudgetPage() {
               </div>
             </div>
           )}
+
+          <div style={{ marginTop: '1.5rem' }}>
+            <AdsOptimizationPanel />
+          </div>
         </>
       )}
     </AppLayout>

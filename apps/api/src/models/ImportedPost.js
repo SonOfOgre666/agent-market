@@ -1,4 +1,4 @@
-import { getDb } from '../db/mongodb.js'
+import { getDb } from '../lib/mongo.js'
 
 export const COLLECTION = 'imported_posts'
 

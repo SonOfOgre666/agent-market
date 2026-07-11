@@ -1,6 +1,8 @@
 import * as Account from '../models/Account.js'
 import { getSocialProvider } from '../providers/index.js'
-import { getRedis } from '../db/redis.js'
+import { loadTwitterOAuthSession } from '../providers/twitter.js'
+import { getRedis } from '../lib/redis.js'
+import { publishEvent } from '../lib/events.js'
 import crypto from 'crypto'
 
 const WEB_URL = process.env.NEXT_PUBLIC_WEB_URL || 'http://localhost:3000'
@@ -23,7 +25,7 @@ export default async function callbackRoutes(app) {
 
       const userId = data.user_id
       if (userId) {
-        const db = (await import('../db/mongodb.js')).getDb()
+        const db = (await import('../lib/mongo.js')).getDb()
         await db.collection('accounts').deleteMany({ 'data.user_id': userId })
       }
 
@@ -69,26 +71,49 @@ export default async function callbackRoutes(app) {
     try {
       const { signed_request } = request.body || {}
       if (!signed_request) return reply.code(400).send({ error: 'Missing signed_request' })
+
+      const [encodedSig, payload] = signed_request.split('.')
+      const expectedSig = crypto
+        .createHmac('sha256', process.env.META_APP_SECRET || '')
+        .update(payload)
+        .digest('base64url')
+
+      if (encodedSig !== expectedSig) return reply.code(403).send({ error: 'Invalid signature' })
+
+      const data = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'))
+      const userId = data.user_id
+      if (userId) {
+        const db = (await import('../lib/mongo.js')).getDb()
+        await db.collection('accounts').updateMany(
+          { 'data.user_id': userId },
+          { $set: { authorized: false } }
+        )
+      }
       return reply.send({ status: 'ok' })
     } catch {
       return reply.code(500).send({ error: 'Failed to process deauthorization' })
     }
   })
 
-  // GET /callback/facebook_page and /callback/instagram — OAuth callbacks
-  // Both use Facebook OAuth but with different callback URLs and entity types
-  for (const provider of ['facebook_page', 'instagram', 'facebook']) {
+  // GET /callback/facebook_page, /callback/instagram, /callback/meta_ads — OAuth callbacks
+  // All use Facebook OAuth but with different callback URLs and entity types
+  for (const provider of ['facebook_page', 'instagram', 'meta_ads', 'google_ads']) {
     app.get(`/callback/${provider}`, async (request, reply) => {
       const query = request.query
 
-      // Resolve the workspace_id stored in Redis when the OAuth flow started
       let userId = null
       let workspaceId = null
+      let returnTo = '/accounts'
       if (query.state) {
         const raw = await getRedis().get(`oauth_state:${query.state}`)
         if (raw) {
           await getRedis().del(`oauth_state:${query.state}`)
-          try { ({ userId, workspaceId } = JSON.parse(raw)) } catch { userId = raw }
+          try {
+            const parsed = JSON.parse(raw)
+            userId = parsed.userId
+            workspaceId = parsed.workspaceId
+            if (parsed.return_to) returnTo = parsed.return_to
+          } catch { userId = raw }
         }
       }
 
@@ -104,7 +129,13 @@ export default async function callbackRoutes(app) {
           JSON.stringify({ accountData, userId, workspaceId }),
           'EX', 600
         )
-        return reply.redirect(`${WEB_URL}/accounts/entities?provider=${provider}&parent_key=${key}`)
+        const entityReturn =
+          provider === 'meta_ads' || provider === 'google_ads'
+            ? '/accounts'
+            : returnTo
+        return reply.redirect(
+          `${WEB_URL}/accounts/entities?provider=${provider}&parent_key=${key}&return_to=${encodeURIComponent(entityReturn)}`,
+        )
       } catch (err) {
         console.error(`[Callback:${provider}]`, err)
         return reply.redirect(`${WEB_URL}/accounts?error=${encodeURIComponent(err.message)}`)
@@ -119,11 +150,25 @@ export default async function callbackRoutes(app) {
 
     let userId = null
     let workspaceId = null
+    let returnTo = '/accounts'
     if (query.state) {
       const raw = await getRedis().get(`oauth_state:${query.state}`)
       if (raw) {
         await getRedis().del(`oauth_state:${query.state}`)
-        try { ({ userId, workspaceId } = JSON.parse(raw)) } catch { userId = raw }
+        try {
+          const parsed = JSON.parse(raw)
+          userId = parsed.userId
+          workspaceId = parsed.workspaceId
+          if (parsed.return_to) returnTo = parsed.return_to
+        } catch { userId = raw }
+      }
+    }
+    if (provider === 'twitter' && query.oauth_token && !workspaceId) {
+      const twitterSession = await loadTwitterOAuthSession(query.oauth_token)
+      if (twitterSession) {
+        userId = twitterSession.userId || userId
+        workspaceId = twitterSession.workspaceId || workspaceId
+        if (twitterSession.return_to) returnTo = twitterSession.return_to
       }
     }
 
@@ -132,7 +177,13 @@ export default async function callbackRoutes(app) {
       const accountData = await providerInstance.handleCallback(query)
       const saved = await Account.upsertAccount({ ...accountData, workspace_id: workspaceId })
       getRedis().publish('agentmarket:account_added', JSON.stringify({ account_id: saved._id.toString() }))
-      return reply.redirect(`${WEB_URL}/accounts?connected=1`)
+      await publishEvent('integration.connected', {
+        provider,
+        account_id: String(saved._id),
+      }).catch(() => {})
+      const dest = returnTo
+      const connected = Account.isAdsProvider(provider) ? 'ads' : '1'
+      return reply.redirect(`${WEB_URL}${dest}?connected=${connected}`)
     } catch (err) {
       console.error(`[Callback:${provider}]`, err)
       return reply.redirect(`${WEB_URL}/accounts?error=${encodeURIComponent(err.message)}`)

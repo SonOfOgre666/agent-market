@@ -1,5 +1,4 @@
-import { config } from 'dotenv'
-config({ path: new URL('../../../.env', import.meta.url) })
+import './bootstrap-env.js'
 import SCServer from 'socketcluster-server'
 import Redis from 'ioredis'
 import http from 'http'
@@ -7,14 +6,18 @@ import http from 'http'
 const PORT = parseInt(process.env.SC_PORT || '8000')
 const EVENTS_CHANNEL = process.env.EVENTS_CHANNEL || 'agent_market:events'
 
-const redisConfig = {
-  host: process.env.REDIS_HOST || 'localhost',
-  port: parseInt(process.env.REDIS_PORT || '6379'),
-  password: process.env.REDIS_PASSWORD || undefined,
+function redisOptions() {
+  const pw = process.env.REDIS_PASSWORD
+  const password = pw != null && String(pw).trim() !== '' ? String(pw).trim() : undefined
+  return {
+    host: process.env.REDIS_HOST || 'localhost',
+    port: parseInt(process.env.REDIS_PORT || '6379', 10),
+    password,
+  }
 }
 
 // Redis subscriber — relays the single events channel to all SC clients
-const sub = new Redis(redisConfig)
+const sub = new Redis(redisOptions())
 
 const httpServer = http.createServer()
 const agServer = new SCServer.AGServer({ httpServer })

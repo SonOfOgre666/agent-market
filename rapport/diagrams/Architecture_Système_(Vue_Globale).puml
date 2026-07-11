@@ -1,0 +1,48 @@
+@startuml agent-market-architecture
+!theme plain
+title Agent-Market — Architecture Système (Vue Globale)
+
+skinparam rectangle {
+  roundCorner 12
+}
+
+' =======================
+' SYSTEME PRINCIPAL
+' =======================
+rectangle "Agent-Market Platform" {
+
+  [Frontend\nNext.js] as Web
+  [API Backend\nFastify (Orchestrateur)] as API
+  [Worker Async\nCelery + Beat] as Worker
+  [Realtime Engine\nSocketCluster] as RT
+}
+
+database "MongoDB\nSource de vérité" as DB
+queue "Redis\nQueue + Events + Pub/Sub" as Redis
+
+' =======================
+' EXTERNAL SYSTEMS
+' =======================
+cloud "IA Services\n(OpenAI / Gemini / Anthropic)" as AI
+cloud "Réseaux Sociaux\n(X, Meta, TikTok, LinkedIn)" as Social
+cloud "Publicité\n(Google Ads / Meta Ads)" as Ads
+
+' =======================
+' CONNECTIONS (ARCHI ONLY)
+' =======================
+
+Web --> API : REST / JWT
+API --> DB : persistance
+API --> Redis : jobs + events
+
+Worker --> Redis : consume tasks
+Worker --> API : internal calls
+
+Worker --> AI
+Worker --> Social
+Worker --> Ads
+
+Redis --> RT : pub/sub
+RT --> Web : WebSocket
+
+@enduml

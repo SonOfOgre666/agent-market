@@ -1,0 +1,68 @@
+@startuml agent-market-sequence-auth-metier
+!theme plain
+title Séquence — Authentification et gestion du contexte de travail (vue métier)
+
+actor Utilisateur
+participant "Next.js (Frontend)" as App
+participant "API Backend" as System
+database "MongoDB" as DB
+
+== Inscription ==
+
+Utilisateur -> App : Saisir informations (nom, email, mot de passe)
+App -> System : Demande d'inscription
+
+System -> DB : Vérifier l'unicité de l'email
+DB --> System : Email disponible
+
+System -> DB : Créer le compte utilisateur
+DB --> System : Compte créé
+
+alt Invitation à un espace de travail
+  System -> DB : Valider l'invitation
+  DB --> System : Invitation valide
+
+  System -> DB : Ajouter l'utilisateur à l'espace de travail
+  DB --> System : Association créée
+else Inscription sans invitation
+  System -> DB : Créer un espace de travail personnel
+  DB --> System : Espace de travail créé
+end
+
+System -> System : Générer une session authentifiée
+System --> App : Inscription réussie + contexte actif
+App --> Utilisateur : Accès au tableau de bord
+
+== Connexion ==
+
+Utilisateur -> App : Saisir identifiants
+App -> System : Demande de connexion
+
+System -> DB : Rechercher l'utilisateur
+DB --> System : Compte utilisateur
+
+System -> System : Vérifier les identifiants
+
+System -> DB : Charger les espaces de travail
+DB --> System : Liste des espaces
+
+System -> System : Définir l'espace actif
+System --> App : Connexion validée + contexte
+
+App --> Utilisateur : Session ouverte
+
+== Consultation des données ==
+
+Utilisateur -> App : Consulter les données
+App -> System : Demande de données
+
+System -> System : Vérifier session et espace actif
+
+System -> DB : Récupérer les données de l'espace
+DB --> System : Résultats
+
+System --> App : Données retournées
+App --> Utilisateur : Affichage des données
+
+
+@enduml

@@ -14,4 +14,4 @@ COPY --from=builder /app/package.json ./
 RUN mkdir -p uploads logs && chown -R node:node /app
 USER node
 EXPOSE 4010
-CMD ["node", "src/server.js"]
+CMD ["node", "src/index.js"]

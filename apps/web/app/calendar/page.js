@@ -4,26 +4,29 @@ import { useRouter } from 'next/navigation'
 import AppLayout from '../../components/AppLayout.js'
 import { api } from '../../lib/api.js'
 import { useToast } from '../../components/Toast.js'
-import { format, startOfMonth, endOfMonth, eachDayOfInterval, startOfWeek, endOfWeek, isSameMonth, isToday, isSameDay } from 'date-fns'
-
+import { useWorkspaceSettings } from '../../components/WorkspaceSettingsProvider.js'
+import { format, startOfMonth, endOfMonth, eachDayOfInterval, startOfWeek, endOfWeek, isSameMonth } from 'date-fns'
+import { ChevronLeft, ChevronRight, Calendar } from 'lucide-react'
 const STATUS_COLOR = { 0: '#64748b', 1: '#60a5fa', 2: '#4ade80', 3: '#f87171' }
 const STATUS_LABEL = { 0: 'Draft', 1: 'Scheduled', 2: 'Published', 3: 'Failed' }
 
 export default function CalendarPage() {
   const [currentDate, setCurrentDate] = useState(new Date())
-  const [viewType, setViewType] = useState('month')
   const [posts, setPosts] = useState([])
   const [loading, setLoading] = useState(false)
   const [dragOverDay, setDragOverDay] = useState(null)
   const draggingPost = useRef(null)
   const router = useRouter()
   const toast = useToast()
+  const { weekStartsOn, calendarDayLabels, isSameDayInTimezone, formatDateTime, rescheduleIsoForCalendarDay } = useWorkspaceSettings()
+  const weekStart = weekStartsOn()
+  const dayHeaders = calendarDayLabels()
 
-  const load = useCallback(async (date, type) => {
+  const load = useCallback(async (date) => {
     setLoading(true)
     try {
       const dateStr = format(date, 'yyyy-MM')
-      const data = await api.calendar(dateStr, type)
+      const data = await api.calendar(dateStr)
       setPosts(data.posts || [])
     } catch (err) {
       console.error(err)
@@ -32,7 +35,7 @@ export default function CalendarPage() {
     }
   }, [])
 
-  useEffect(() => { load(currentDate, viewType) }, [currentDate, viewType, load])
+  useEffect(() => { load(currentDate) }, [currentDate, load])
 
   const prev = () => setCurrentDate(d => { const n = new Date(d); n.setMonth(n.getMonth() - 1); return n })
   const next = () => setCurrentDate(d => { const n = new Date(d); n.setMonth(n.getMonth() + 1); return n })
@@ -40,11 +43,11 @@ export default function CalendarPage() {
   // Build calendar grid
   const monthStart = startOfMonth(currentDate)
   const monthEnd = endOfMonth(currentDate)
-  const gridStart = startOfWeek(monthStart, { weekStartsOn: 1 })
-  const gridEnd = endOfWeek(monthEnd, { weekStartsOn: 1 })
+  const gridStart = startOfWeek(monthStart, { weekStartsOn: weekStart })
+  const gridEnd = endOfWeek(monthEnd, { weekStartsOn: weekStart })
   const days = eachDayOfInterval({ start: gridStart, end: gridEnd })
 
-  const postsForDay = (day) => posts.filter(p => p.scheduled_at && isSameDay(new Date(p.scheduled_at), day))
+  const postsForDay = (day) => posts.filter(p => p.scheduled_at && isSameDayInTimezone(p.scheduled_at, day))
 
   const getTitle = (post) => {
     const orig = post.versions?.find(v => v.is_original)
@@ -83,21 +86,15 @@ export default function CalendarPage() {
     draggingPost.current = null
     if (!post) return
 
-    const oldDate = post.scheduled_at ? new Date(post.scheduled_at) : new Date()
-    const newDate = new Date(targetDay)
-    // Preserve the original time, only change the date
-    newDate.setHours(oldDate.getHours(), oldDate.getMinutes(), 0, 0)
+    if (!post?.scheduled_at) return
 
-    if (isSameDay(oldDate, newDate)) return // dropped on same day
+    const newIso = rescheduleIsoForCalendarDay(post.scheduled_at, targetDay)
+    if (!newIso || newIso === post.scheduled_at) return
 
     try {
-      await api.updatePost(post.id, { scheduled_at: newDate.toISOString() })
-      // If it was scheduled (status=1), re-schedule it at new time
-      if (post.status === 1) {
-        await api.schedulePost(post.id, newDate.toISOString()).catch(() => {})
-      }
-      toast.success(`Moved to ${format(newDate, 'MMM d')}`)
-      load(currentDate, viewType)
+      await api.reschedulePost(post.id, newIso)
+      toast.success(`Moved to ${formatDateTime(newIso, { style: 'date-only' })}`)
+      load(currentDate)
     } catch (err) {
       toast.error(err.message)
     }
@@ -110,26 +107,30 @@ export default function CalendarPage() {
 
   return (
     <AppLayout>
-      <div className="page-header">
-        <div className="flex items-center gap-3">
-          <button className="btn btn-ghost btn-sm" onClick={prev}>‹</button>
-          <h1 className="page-title">{format(currentDate, 'MMMM yyyy')}</h1>
-          <button className="btn btn-ghost btn-sm" onClick={next}>›</button>
-        </div>
-        <div className="flex gap-2">
-          {['month', 'week', 'day'].map(t => (
-            <button key={t} className={`btn btn-sm ${viewType === t ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setViewType(t)}>
-              {t}
-            </button>
-          ))}
-          <button className="btn btn-primary btn-sm" onClick={() => router.push('/posts/new')}>+ Post</button>
+      <div className="page-header-enhanced">
+        <div className="page-header-content">
+          <div className="page-header-title">
+            <div className="page-header-icon">
+              <Calendar size={18} strokeWidth={2.5} />
+            </div>
+            <div className="flex items-center gap-3">
+              <button className="btn btn-ghost btn-sm" onClick={prev}>
+                <ChevronLeft size={14} strokeWidth={2} />
+              </button>
+              <h1 className="page-title">{format(currentDate, 'MMMM yyyy')}</h1>
+              <button className="btn btn-ghost btn-sm" onClick={next}>
+                <ChevronRight size={14} strokeWidth={2} />
+              </button>
+            </div>
+          </div>
+          <p className="page-header-desc">Schedule and manage your posts</p>
         </div>
       </div>
 
       {loading && <div style={{ height: 3, background: 'var(--primary)', borderRadius: 2, marginBottom: '0.5rem', animation: 'pulse 1s infinite' }} />}
 
       <div className="calendar-grid">
-        {['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].map(d => (
+        {dayHeaders.map(d => (
           <div key={d} className="calendar-header-cell">{d}</div>
         ))}
 
@@ -141,7 +142,7 @@ export default function CalendarPage() {
           return (
             <div
               key={dayStr}
-              className={`calendar-day${isToday(day) ? ' today' : ''}${!isSameMonth(day, currentDate) ? ' other-month' : ''}`}
+              className={`calendar-day${isSameDayInTimezone(new Date().toISOString(), day) ? ' today' : ''}${!isSameMonth(day, currentDate) ? ' other-month' : ''}`}
               style={isOver ? { background: 'rgba(99,102,241,0.15)', outline: '2px solid #6366f1', outlineOffset: -2 } : undefined}
               onClick={() => router.push(`/posts/new?date=${format(day, 'yyyy-MM-dd')}`)}
               onDragOver={e => handleDragOver(e, day)}

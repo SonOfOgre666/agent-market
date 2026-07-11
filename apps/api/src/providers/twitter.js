@@ -1,8 +1,32 @@
+/**
+ * X (Twitter) — OAuth 1.0a + v2 API.
+ *
+ * OAuth (API): getAuthUrl, handleCallback.
+ * Execution: getAccount, getExternalPostUrl. **Publishing** — worker only (`tasks.social.publish_post` → `connectors.twitter`).
+ */
 import { TwitterApi } from 'twitter-api-v2'
 import * as Account from '../models/Account.js'
 
 // Character limits per tier
 const CHAR_LIMITS = { legacy: 140, free: 280, basic: 280, pay_as_you_go: 280 }
+
+const TWITTER_OAUTH_KEY = (oauth_token) => `twitter:oauth:${oauth_token}`
+
+/** OAuth 1.0a does not round-trip `state`; persist workspace context by request token. */
+export async function loadTwitterOAuthSession(oauth_token) {
+  if (!oauth_token) return null
+  const { getRedis } = await import('../lib/redis.js')
+  const raw = await getRedis().get(TWITTER_OAUTH_KEY(oauth_token))
+  if (!raw) return null
+  try {
+    const parsed = JSON.parse(raw)
+    if (parsed && typeof parsed === 'object' && parsed.oauth_token_secret) return parsed
+  } catch {
+    // Legacy value: oauth_token_secret string only
+    return { oauth_token_secret: raw }
+  }
+  return null
+}
 
 export class TwitterProvider {
   constructor(config = {}, account = null) {
@@ -23,19 +47,24 @@ export class TwitterProvider {
   }
 
   // --- OAuth 1.0a flow (used for write access) ---
-  async getAuthUrl() {
+  async getAuthUrl({ workspaceId = null, userId = null, return_to = '/accounts' } = {}) {
     const client = new TwitterApi({ appKey: this.appKey, appSecret: this.appSecret })
     const { url, oauth_token, oauth_token_secret } = await client.generateAuthLink(this.callbackUrl)
-    // Store oauth_token_secret temporarily in Redis
-    const { getRedis } = await import('../db/redis.js')
-    await getRedis().setex(`twitter:oauth:${oauth_token}`, 600, oauth_token_secret)
+    const { getRedis } = await import('../lib/redis.js')
+    await getRedis().setex(
+      TWITTER_OAUTH_KEY(oauth_token),
+      600,
+      JSON.stringify({ oauth_token_secret, workspaceId, userId, return_to }),
+    )
     return url
   }
 
   async handleCallback({ oauth_token, oauth_verifier }) {
-    const { getRedis } = await import('../db/redis.js')
-    const oauth_token_secret = await getRedis().get(`twitter:oauth:${oauth_token}`)
+    const { getRedis } = await import('../lib/redis.js')
+    const session = await loadTwitterOAuthSession(oauth_token)
+    const oauth_token_secret = session?.oauth_token_secret
     if (!oauth_token_secret) throw new Error('OAuth session expired. Please try again.')
+    await getRedis().del(TWITTER_OAUTH_KEY(oauth_token))
 
     const client = new TwitterApi({
       appKey: this.appKey,
@@ -75,41 +104,10 @@ export class TwitterProvider {
     }
   }
 
-  async publishPost(version) {
-    const client = this._getClient()
-    const content = version.content || []
-    const textBlock = content.find(b => b.type === 'text')
-    const mediaBlocks = content.filter(b => b.type === 'media')
-    const text = textBlock?.body || ''
-
-    // Upload media
-    const mediaIds = []
-    for (const block of mediaBlocks) {
-      for (const item of block.media || []) {
-        const mediaId = await this._uploadMedia(client, item)
-        if (mediaId) mediaIds.push(mediaId)
-      }
-    }
-
-    const tweetPayload = { text }
-    if (mediaIds.length) tweetPayload.media = { media_ids: mediaIds }
-
-    const tweet = await client.v2.tweet(tweetPayload)
-    return { provider_post_id: tweet.data.id, url: `https://twitter.com/i/web/status/${tweet.data.id}` }
-  }
-
-  async _uploadMedia(client, mediaItem) {
-    try {
-      const { default: axios } = await import('axios')
-      const response = await axios.get(mediaItem.url, { responseType: 'arraybuffer' })
-      const buffer = Buffer.from(response.data)
-      const mimeType = mediaItem.mime_type || 'image/jpeg'
-      const mediaId = await client.v1.uploadMedia(buffer, { mimeType })
-      return mediaId
-    } catch (err) {
-      console.error('[Twitter] Media upload failed:', err.message)
-      return null
-    }
+  async publishPost() {
+    throw new Error(
+      'Twitter publishing runs in the worker (tasks.social.publish_post → connectors.twitter). API routes must use dispatchPublishPost only.',
+    )
   }
 
   async getExternalPostUrl(providerPostId) {

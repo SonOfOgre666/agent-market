@@ -1,4 +1,4 @@
-import { getDb } from '../db/mongodb.js'
+import { getDb } from '../lib/mongo.js'
 import { ObjectId } from 'mongodb'
 import { nanoid } from 'nanoid'
 
@@ -16,8 +16,21 @@ export async function findAll(workspace_id, { landing_page_id, campaign_id, page
   return { items, total, page, per_page, last_page: Math.ceil(total / per_page) }
 }
 
-export async function createLead({ workspace_id, landing_page_id, landing_page_slug, campaign_id, data, utm, ip, user_agent }) {
+export async function createLead({
+  workspace_id,
+  landing_page_id,
+  landing_page_slug,
+  campaign_id,
+  data,
+  utm,
+  touchpoints,
+  ip,
+  user_agent,
+}) {
   const now = new Date()
+  const normalizedTouchpoints = Array.isArray(touchpoints) && touchpoints.length
+    ? touchpoints.slice(-20)
+    : null
   const doc = {
     uuid: nanoid(),
     workspace_id,
@@ -26,6 +39,7 @@ export async function createLead({ workspace_id, landing_page_id, landing_page_s
     campaign_id: campaign_id || null,
     data: data || {},
     utm: utm || {},
+    touchpoints: normalizedTouchpoints,
     ip: ip || null,
     user_agent: user_agent || null,
     created_at: now,
@@ -43,6 +57,7 @@ export function serialize(l) {
     campaign_id: l.campaign_id,
     data: l.data || {},
     utm: l.utm || {},
+    touchpoints: l.touchpoints || [],
     created_at: l.created_at,
   }
 }

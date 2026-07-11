@@ -5,7 +5,12 @@ import AppLayout from '../../../components/AppLayout.js'
 import { api } from '../../../lib/api.js'
 import { useToast } from '../../../components/Toast.js'
 
-const PROVIDER_LABEL = { facebook: 'Facebook Page', instagram: 'Instagram Account' }
+const PROVIDER_LABEL = {
+  facebook: 'Facebook Page',
+  instagram: 'Instagram Account',
+  meta_ads: 'Meta Ad Account',
+  google_ads: 'Google Ads Customer',
+}
 
 function EntitiesContent() {
   const searchParams = useSearchParams()
@@ -14,6 +19,7 @@ function EntitiesContent() {
 
   const provider = searchParams.get('provider') || 'facebook'
   const parentKey = searchParams.get('parent_key') || ''
+  const returnTo = searchParams.get('return_to') || '/accounts'
 
   const [entities, setEntities] = useState([])
   const [loading, setLoading] = useState(true)
@@ -31,7 +37,7 @@ function EntitiesContent() {
     try {
       await api.saveEntity(provider, entity, parentKey)
       toast.success(`${entity.name} connected`)
-      router.push('/accounts')
+      router.push(returnTo)
     } catch (err) {
       toast.error(err.message)
     } finally {
@@ -39,15 +45,23 @@ function EntitiesContent() {
     }
   }
 
+  const isGoogle = provider === 'google_ads'
+
   return (
     <AppLayout>
       <div className="page-header">
-        <h1 className="page-title">Select Account</h1>
+        <h1 className="page-title">
+          {isGoogle ? 'Select a Google Ads account' : 'Select Account'}
+        </h1>
       </div>
 
       <div className="card" style={{ maxWidth: 560 }}>
         <p className="text-muted text-sm" style={{ marginBottom: '1rem' }}>
-          Select the {provider === 'facebook' ? 'Facebook Page' : 'Instagram account'} you want to connect.
+          {provider === 'meta_ads'
+            ? 'Select the Ad Account you want to connect for Meta Ads campaigns.'
+            : isGoogle
+              ? 'Choose which Google Ads customer to use for campaigns and reporting. Manager accounts are listed separately from client ad accounts.'
+              : `Select the ${provider === 'facebook' ? 'Facebook Page' : 'Instagram account'} you want to connect.`}
         </p>
 
         {loading ? (
@@ -58,8 +72,50 @@ function EntitiesContent() {
           <div className="empty-state" style={{ padding: '2rem' }}>
             <div className="empty-title">No accounts found</div>
             <div className="empty-desc">
-              Make sure your Facebook account manages at least one Page.
+              {isGoogle
+                ? 'Check Integrations → Google Ads (developer token) and that your Google user can access these customers in ads.google.com.'
+                : 'Make sure your Facebook account manages at least one Page.'}
             </div>
+          </div>
+        ) : isGoogle ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+            <div
+              className="text-xs text-muted"
+              style={{
+                display: 'grid',
+                gridTemplateColumns: '1fr auto auto',
+                gap: '0.5rem',
+                padding: '0 0.25rem 0.35rem',
+                fontWeight: 600,
+              }}
+            >
+              <span>Account</span>
+              <span>Type</span>
+              <span />
+            </div>
+            {entities.map(entity => (
+              <div
+                key={entity.id}
+                className="flex items-center gap-3 card card-sm"
+                style={{ cursor: 'pointer' }}
+                onClick={() => connect(entity)}
+              >
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: 500 }}>{entity.name}</div>
+                  <div className="text-xs text-muted">
+                    {entity.customer_id_display || entity.customer_id || entity.id}
+                    {entity.currency ? ` · ${entity.currency}` : ''}
+                    {entity.test_account ? ' · Test' : ''}
+                  </div>
+                </div>
+                <span className="text-xs text-muted" style={{ whiteSpace: 'nowrap' }}>
+                  {entity.account_type_label || (entity.manager ? 'Manager' : 'Ads Account')}
+                </span>
+                {saving === entity.id
+                  ? <span className="spinner" />
+                  : <span className="btn btn-primary btn-sm">Use</span>}
+              </div>
+            ))}
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
@@ -74,6 +130,8 @@ function EntitiesContent() {
                   <div className="text-xs text-muted">
                     {PROVIDER_LABEL[entity.type] || entity.type}
                     {entity.username ? ` · @${entity.username}` : ''}
+                    {entity.currency ? ` · ${entity.currency}` : ''}
+                    {entity.status ? ` · ${entity.status}` : ''}
                   </div>
                 </div>
                 {saving === entity.id

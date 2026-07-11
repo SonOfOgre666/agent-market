@@ -1,4 +1,4 @@
-import { authenticate } from '../middleware/auth.js'
+import { authenticate, requireWorkspaceAdmin } from '../middleware/auth.js'
 import * as Setting from '../models/Setting.js'
 
 export default async function settingRoutes(app) {
@@ -9,9 +9,9 @@ export default async function settingRoutes(app) {
   })
 
   // PUT /api/settings
-  app.put('/settings', { preHandler: [authenticate] }, async (request, reply) => {
+  app.put('/settings', { preHandler: [authenticate, requireWorkspaceAdmin] }, async (request, reply) => {
     const body = request.body || {}
-    const allowed = ['timezone', 'date_format', 'time_format', 'week_starts_on', 'admin_email', 'default_accounts']
+    const allowed = ['timezone', 'date_format', 'time_format', 'week_starts_on', 'admin_email', 'default_accounts', 'auto_analyze_comments']
     const toSave = Object.fromEntries(Object.entries(body).filter(([k]) => allowed.includes(k)))
 
     // Validate — mirrors Settings.php rules()

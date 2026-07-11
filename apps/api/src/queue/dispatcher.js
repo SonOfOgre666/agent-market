@@ -1,37 +1,51 @@
-import { getRedis } from '../db/redis.js'
+/**
+ * Enqueue-only dispatcher: all background work goes to Celery via the API task bridge.
+ * Node ``agentmarket:queue:*`` BLPOP workers are removed — see ``services/ai-worker``.
+ */
+import { enqueueCeleryTask } from '../lib/celeryEnqueue.js'
 
-const QUEUE_KEY = 'agentmarket:queue'
-
-export async function dispatch(queue, job, payload) {
-  const message = JSON.stringify({ job, payload, attempts: 0, created_at: Date.now() })
-  await getRedis().rpush(`${QUEUE_KEY}:${queue}`, message)
-}
-
-// Post publishing
+/** @returns {Promise<{ via: 'celery', task_id: string }>} */
 export async function dispatchPublishPost(postId) {
-  return dispatch('publish-post', 'PublishPost', { post_id: postId })
+  // Same task as registry tool publish_post (agent runtime).
+  const task_id = await enqueueCeleryTask('tasks.social.publish_post', [postId])
+  return { via: 'celery', task_id }
 }
 
-// Twitter
+/** @returns {Promise<{ via: 'celery', task_id: string }>} */
+export async function dispatchPublishCampaign(campaignId) {
+  const task_id = await enqueueCeleryTask('tasks.ads.publish_campaign', [campaignId])
+  return { via: 'celery', task_id }
+}
+
+/** @returns {Promise<{ via: 'celery', task_id: string }>} */
+export async function dispatchImportAccount(accountId) {
+  const task_id = await enqueueCeleryTask('tasks.imports.import_account', [accountId])
+  return { via: 'celery', task_id }
+}
+
 export async function dispatchImportTwitterFollowers(accountId) {
-  return dispatch('imports', 'ImportTwitterFollowers', { account_id: accountId })
+  await enqueueCeleryTask('tasks.imports.import_twitter_followers', [accountId])
 }
+
 export async function dispatchImportTwitterPosts(accountId, paginationToken = '') {
-  return dispatch('imports', 'ImportTwitterPosts', { account_id: accountId, pagination_token: paginationToken })
+  await enqueueCeleryTask(
+    'tasks.imports.import_twitter_posts',
+    paginationToken ? [accountId, paginationToken] : [accountId],
+  )
 }
+
 export async function dispatchProcessTwitterMetrics(accountId) {
-  return dispatch('imports', 'ProcessTwitterMetrics', { account_id: accountId })
+  await enqueueCeleryTask('tasks.analytics.process_twitter_metrics', [accountId])
 }
 
-// Facebook
 export async function dispatchImportFacebookFollowers(accountId) {
-  return dispatch('imports', 'ImportFacebookFollowers', { account_id: accountId })
-}
-export async function dispatchImportFacebookInsights(accountId) {
-  return dispatch('imports', 'ImportFacebookInsights', { account_id: accountId })
+  await enqueueCeleryTask('tasks.imports.import_facebook_followers', [accountId])
 }
 
-// Instagram
+export async function dispatchImportFacebookInsights(accountId) {
+  await enqueueCeleryTask('tasks.imports.import_facebook_insights', [accountId])
+}
+
 export async function dispatchImportInstagramFollowers(accountId) {
-  return dispatch('imports', 'ImportInstagramFollowers', { account_id: accountId })
+  await enqueueCeleryTask('tasks.imports.import_instagram_followers', [accountId])
 }

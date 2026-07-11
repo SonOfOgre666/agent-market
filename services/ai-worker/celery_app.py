@@ -1,7 +1,24 @@
 import os
+import sys
+from pathlib import Path
+
 from dotenv import load_dotenv
 from celery import Celery
 from celery.schedules import crontab
+from celery.signals import worker_process_init
+
+# Ensure worker root is on sys.path in prefork children (agents/, lib/, tasks/).
+_WORKER_ROOT = Path(__file__).resolve().parent
+_ROOT_STR = str(_WORKER_ROOT)
+if _ROOT_STR not in sys.path:
+    sys.path.insert(0, _ROOT_STR)
+
+
+@worker_process_init.connect
+def _celery_worker_process_init(**_kwargs):
+    if _ROOT_STR not in sys.path:
+        sys.path.insert(0, _ROOT_STR)
+
 
 load_dotenv()
 
@@ -28,22 +45,72 @@ celery_app.conf.update(
     task_acks_late=True,
 )
 
-# Celery Beat schedule — mirrors Node.js scheduler for AI-specific tasks
+# Celery Beat — onboarding spec + extra maintenance beats
 celery_app.conf.beat_schedule = {
-    # Every minute: publish scheduled social posts that are due
-    'publish-scheduled-posts': {
-        'task': 'tasks.publish_scheduled_posts',
-        'schedule': 60.0,
-    },
-    # Every hour: optimize active campaigns
     'optimize-active-campaigns': {
         'task': 'tasks.optimize_active_campaigns',
         'schedule': crontab(minute=30),
     },
-    # Every day at 7am UTC: generate weekly AI content suggestions
-    'generate-content-suggestions': {
-        'task': 'tasks.generate_content_suggestions',
-        'schedule': crontab(hour=7, minute=0),
+    'bridge.api_celery_queue': {
+        'task': 'tasks.bridge_api_celery_queue',
+        'schedule': 5.0,
+    },
+    # Migrated from apps/api/src/queue/scheduler.js (Node cron)
+    'scheduler.tick_due_posts': {
+        'task': 'tasks.scheduler.tick_due_posts',
+        'schedule': 60.0,
+    },
+    'scheduler.tick_due_campaigns': {
+        'task': 'tasks.scheduler.tick_due_campaigns',
+        'schedule': 60.0,
+    },
+    'scheduler.hourly_import_followers': {
+        'task': 'tasks.scheduler.hourly_import_followers',
+        'schedule': crontab(minute=0),
+    },
+    'scheduler.six_hourly_twitter_posts': {
+        'task': 'tasks.scheduler.six_hourly_twitter_posts',
+        'schedule': crontab(minute=0, hour='*/6'),
+    },
+    'scheduler.daily_metrics_midnight_utc': {
+        'task': 'tasks.scheduler.daily_metrics_midnight_utc',
+        'schedule': crontab(minute=0, hour=0),
+    },
+    'scheduler.daily_delete_old_imports': {
+        'task': 'tasks.scheduler.daily_delete_old_imports',
+        'schedule': crontab(minute=0, hour=4),
+    },
+    'scheduler.hourly_budget_alerts': {
+        'task': 'tasks.scheduler.hourly_budget_alerts',
+        'schedule': crontab(minute=0),
+    },
+    'scheduler.hourly_budget_pacing': {
+        'task': 'tasks.scheduler.hourly_budget_pacing',
+        'schedule': crontab(minute=15),
+    },
+    'scheduler.hourly_bid_optimization': {
+        'task': 'tasks.scheduler.hourly_bid_optimization',
+        'schedule': crontab(minute=45),
+    },
+    'scheduler.daily_negative_keyword_review': {
+        'task': 'tasks.scheduler.daily_negative_keyword_review',
+        'schedule': crontab(minute=30, hour=7),
+    },
+    'scheduler.daily_prune_upload_tmp': {
+        'task': 'tasks.scheduler.daily_prune_upload_tmp',
+        'schedule': crontab(minute=0, hour=3),
+    },
+    'scheduler.weekly_report_monday_8utc': {
+        'task': 'tasks.scheduler.weekly_report_monday_8utc',
+        'schedule': crontab(minute=0, hour=8, day_of_week=1),
+    },
+    'scheduler.ads_platform_sync_daily': {
+        'task': 'tasks.scheduler.ads_platform_sync_daily',
+        'schedule': crontab(minute=0, hour=6),
+    },
+    'scheduler.tick_comment_sync': {
+        'task': 'tasks.scheduler.tick_comment_sync',
+        'schedule': crontab(minute='*/15'),
     },
 }
 

@@ -1,8 +1,27 @@
-import { getDb } from '../db/mongodb.js'
+import { getDb } from '../lib/mongo.js'
 import { ObjectId } from 'mongodb'
 import { nanoid } from 'nanoid'
 
 const COLLECTION = 'ads_landing_pages'
+
+export function sanitizeSlug(input) {
+  const slug = String(input || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 80)
+  return slug || 'landing-page'
+}
+
+async function resolveUniqueSlug(preferred, fallbackTitle) {
+  const base = sanitizeSlug(preferred) || sanitizeSlug(fallbackTitle)
+  let slug = base
+  let i = 1
+  while (await getDb().collection(COLLECTION).findOne({ slug })) {
+    slug = `${base}-${i++}`
+  }
+  return slug
+}
 
 export async function findAll(workspace_id, { status, page = 1, per_page = 20 } = {}) {
   const filter = { workspace_id, deleted_at: null }
@@ -25,15 +44,9 @@ export async function findBySlug(slug) {
   return getDb().collection(COLLECTION).findOne({ slug, status: 'published', deleted_at: null })
 }
 
-export async function createLandingPage({ workspace_id, campaign_id, title, headline, subheadline, body, cta_text, cta_url, form_fields, meta }) {
+export async function createLandingPage({ workspace_id, campaign_id, title, slug: preferredSlug, headline, subheadline, body, cta_text, cta_url, form_fields, meta }) {
   const now = new Date()
-  // Build slug from title
-  const base = title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
-  let slug = base
-  let i = 1
-  while (await getDb().collection(COLLECTION).findOne({ slug })) {
-    slug = `${base}-${i++}`
-  }
+  const slug = await resolveUniqueSlug(preferredSlug, title)
   const doc = {
     uuid: nanoid(),
     workspace_id,
@@ -52,6 +65,7 @@ export async function createLandingPage({ workspace_id, campaign_id, title, head
     meta: meta || {},
     status: 'draft',
     lead_count: 0,
+    view_count: 0,
     deleted_at: null,
     created_at: now,
     updated_at: now,
@@ -66,6 +80,10 @@ export async function updateLandingPage(id, updates) {
   for (const k of allowed) if (updates[k] !== undefined) $set[k] = updates[k]
   await getDb().collection(COLLECTION).updateOne({ _id: new ObjectId(id) }, { $set })
   return findById(id)
+}
+
+export async function incrementViewCount(id) {
+  await getDb().collection(COLLECTION).updateOne({ _id: new ObjectId(id) }, { $inc: { view_count: 1 } })
 }
 
 export async function incrementLeadCount(id) {
@@ -93,6 +111,7 @@ export function serialize(p) {
     meta: p.meta || {},
     status: p.status,
     lead_count: p.lead_count || 0,
+    view_count: p.view_count || 0,
     created_at: p.created_at,
     updated_at: p.updated_at,
   }

@@ -1,0 +1,39 @@
+@startuml ai-assistant
+!theme plain
+title Assistant IA — Diagramme de cas d'utilisation
+
+left to right direction
+skinparam packageStyle rectangle
+skinparam actorStyle awesome
+
+actor "Utilisateur" as User
+actor "Fournisseur IA\n(Gemini…)" as LLM
+
+
+  package "Assistant IA" {
+
+    usecase "Discuter avec\nl'assistant" as UC_Chat
+    usecase "Planifier workflow\nmulti-étapes" as UC_Plan
+    usecase "Approuver workflow" as UC_Approve
+    usecase "Exécuter workflow" as UC_Exec
+    usecase "Suivre l'état\nd'un job" as UC_Poll
+  }
+
+
+' ─── Acteur principal ───────────────────────────────────────
+User -- UC_Chat
+User -- UC_Approve
+User -- UC_Poll
+
+' ─── Acteur secondaire ────────────────────────────────────────
+LLM -- UC_Plan
+LLM -- UC_Exec
+
+' ─── Relations entre cas d'utilisation ──────────────────────
+UC_Plan    ..> UC_Chat : <<include>>
+UC_Approve ..> UC_Plan : <<include>>
+UC_Exec    ..> UC_Approve : <<include>>
+UC_Poll    ..> UC_Chat : <<include>>
+
+
+@enduml

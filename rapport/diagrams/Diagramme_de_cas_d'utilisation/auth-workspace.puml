@@ -1,0 +1,38 @@
+@startuml auth-workspace
+left to right direction
+skinparam packageStyle rectangle
+skinparam actorStyle awesome
+
+actor "Utilisateur" as User
+actor "Owner / Admin\nworkspace" as Admin
+Admin --|> User
+
+rectangle "Auth & Workspace" {
+
+  usecase "Se connecter\n(JWT)" as UC_Login
+  usecase "S'inscrire" as UC_Register
+  usecase "Rejoindre workspace\nvia invitation" as UC_JoinInvite
+  usecase "Créer workspace personnel\n(auto à l'inscription)" as UC_CreateWS
+
+  usecase "Gérer profil" as UC_Profile
+  usecase "Inviter membres" as UC_Invite
+  usecase "Gérer membres" as UC_Members
+  usecase "Gérer rôles" as UC_Roles
+  usecase "Configurer préférences\nworkspace" as UC_Prefs
+}
+
+User -- UC_Login
+User -- UC_Register
+User -- UC_Profile
+
+UC_Register ..> UC_JoinInvite : <<extend>>\n[invite_token]
+UC_Register ..> UC_CreateWS : <<extend>>\n[pas d'invitation]
+
+Admin -- UC_Invite
+Admin -- UC_Members
+Admin -- UC_Roles
+Admin -- UC_Prefs
+
+UC_Invite ..> UC_JoinInvite : <<include>>
+
+@enduml

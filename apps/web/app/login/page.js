@@ -4,6 +4,8 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { useAuth } from '../../components/AuthProvider.js'
 import { useToast } from '../../components/Toast.js'
+import { Lock, Mail, LogIn } from 'lucide-react'
+import BrandLogo from '../../components/BrandLogo.js'
 
 export default function LoginPage() {
   const [email, setEmail] = useState('')
@@ -31,6 +33,9 @@ export default function LoginPage() {
     <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}>
       <div style={{ width: '100%', maxWidth: 400 }}>
         <div style={{ textAlign: 'center', marginBottom: '2rem' }}>
+          <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '1rem' }}>
+            <BrandLogo size={64} style={{ borderRadius: '0.875rem', boxShadow: '0 4px 24px rgba(99, 102, 241, 0.25)' }} />
+          </div>
           <h1 style={{ fontSize: '1.75rem', fontWeight: 700, color: '#6366f1' }}>Agent Market</h1>
           <p className="text-muted text-sm" style={{ marginTop: '0.25rem' }}>Sign in to your account</p>
         </div>
@@ -43,14 +48,20 @@ export default function LoginPage() {
             )}
             <div className="form-group">
               <label className="form-label">Email</label>
-              <input className="form-input" type="email" value={email} onChange={e => { setEmail(e.target.value); setError('') }} required autoFocus />
+              <div className="form-input-group">
+                <input className="form-input" type="email" value={email} onChange={e => { setEmail(e.target.value); setError('') }} required autoFocus />
+                <div className="form-input-icon"><Mail size={14} strokeWidth={2} /></div>
+              </div>
             </div>
             <div className="form-group">
               <label className="form-label">Password</label>
-              <input className="form-input" type="password" value={password} onChange={e => { setPassword(e.target.value); setError('') }} required />
+              <div className="form-input-group">
+                <input className="form-input" type="password" value={password} onChange={e => { setPassword(e.target.value); setError('') }} required />
+                <div className="form-input-icon"><Lock size={14} strokeWidth={2} /></div>
+              </div>
             </div>
             <button className="btn btn-primary w-full" type="submit" disabled={loading} style={{ justifyContent: 'center' }}>
-              {loading ? <span className="spinner" /> : 'Sign in'}
+              {loading ? <span className="spinner" /> : <><LogIn size={14} strokeWidth={2} /> Sign in</>}
             </button>
           </form>
           <div style={{ textAlign: 'center', marginTop: '1.5rem', paddingTop: '1.5rem', borderTop: '1px solid rgba(255,255,255,0.08)' }}>

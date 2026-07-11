@@ -2,21 +2,8 @@
 import { useEffect, useState } from 'react'
 import { useParams, useSearchParams } from 'next/navigation'
 import { Suspense } from 'react'
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4010'
-
-function isNgrokUrl(url) {
-  try {
-    const host = new URL(url).hostname
-    return host.endsWith('ngrok-free.dev') || host.endsWith('ngrok.io') || host.endsWith('ngrok.app')
-  } catch {
-    return false
-  }
-}
-
-const NGROK_SKIP_WARNING_HEADERS = isNgrokUrl(API_URL)
-  ? { 'ngrok-skip-browser-warning': 'true' }
-  : {}
+import { api } from '../../../lib/api.js'
+import { recordAttributionTouch, getAttributionJourney, clearAttributionJourney } from '../../../lib/attributionJourney.js'
 
 function LandingPageContent() {
   const params = useParams()
@@ -31,7 +18,6 @@ function LandingPageContent() {
   const [submitted, setSubmitted] = useState(false)
   const [error, setError] = useState('')
 
-  // Read UTM params from URL
   const utm = {
     source: searchParams.get('utm_source') || '',
     medium: searchParams.get('utm_medium') || '',
@@ -41,19 +27,21 @@ function LandingPageContent() {
   }
 
   useEffect(() => {
-    fetch(`${API_URL}/api/ads/landing-pages/${slug}`, {
-      headers: { ...NGROK_SKIP_WARNING_HEADERS },
-    })
-      .then(res => {
-        if (res.status === 404) { setNotFound(true); setLoading(false); return null }
-        return res.json()
+    if (!slug) return
+    recordAttributionTouch(utm, { landing_page: slug })
+    api.publicRecordAttributionTouch(slug, { utm }).catch(() => {})
+  }, [slug, searchParams])
+
+  useEffect(() => {
+    if (!slug) return
+    setLoading(true)
+    api.publicLandingPageBySlug(slug)
+      .then((data) => {
+        setPage(data)
+        setNotFound(false)
       })
-      .then(data => {
-        if (!data) return
-        if (data.error) { setNotFound(true) } else { setPage(data) }
-        setLoading(false)
-      })
-      .catch(() => { setNotFound(true); setLoading(false) })
+      .catch(() => setNotFound(true))
+      .finally(() => setLoading(false))
   }, [slug])
 
   const handleSubmit = async (e) => {
@@ -61,19 +49,15 @@ function LandingPageContent() {
     setError('')
     setSubmitting(true)
     try {
-      const res = await fetch(`${API_URL}/api/ads/landing-pages/${slug}/lead`, {
-        method: 'POST',
-        headers: {
-          ...NGROK_SKIP_WARNING_HEADERS,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ data: form, utm }),
+      await api.publicSubmitLandingLead(slug, {
+        data: form,
+        utm,
+        touchpoints: getAttributionJourney(),
       })
-      const json = await res.json()
-      if (!res.ok) throw new Error(json.error || 'Submission failed')
+      clearAttributionJourney()
       setSubmitted(true)
     } catch (err) {
-      setError(err.message)
+      setError(err.message || 'Submission failed')
     } finally {
       setSubmitting(false)
     }
@@ -99,7 +83,6 @@ function LandingPageContent() {
 
   return (
     <div style={{ minHeight: '100vh', background: 'linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%)', color: '#e2e8f0', fontFamily: 'system-ui, sans-serif' }}>
-      {/* Hero */}
       <div style={{ maxWidth: 700, margin: '0 auto', padding: '4rem 1.5rem 2rem' }}>
         <div style={{ textAlign: 'center', marginBottom: '3rem' }}>
           {page.headline && (
@@ -119,7 +102,6 @@ function LandingPageContent() {
           )}
         </div>
 
-        {/* Lead capture form */}
         <div style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 16, padding: '2rem', backdropFilter: 'blur(12px)' }}>
           {submitted ? (
             <div style={{ textAlign: 'center', padding: '2rem 0' }}>

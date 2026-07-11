@@ -1,0 +1,96 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+    tags: ['v*']
+  pull_request:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  api-syntax:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Syntax check API
+        run: |
+          find apps/api/src -name '*.js' -print0 | xargs -0 -n1 node --check
+
+  worker-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install worker deps
+        working-directory: services/ai-worker
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pytest
+      - name: Run pytest
+        working-directory: services/ai-worker
+        run: python -m pytest tests/ -q --ignore=tests/test_competitive_intel.py
+
+  docker:
+    # On pull requests the images are only built (to catch Dockerfile/build
+    # regressions); they are pushed to GHCR only on main/master and v* tags.
+    needs: [api-syntax, worker-tests]
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: api
+            context: apps/api
+          - name: web
+            context: apps/web
+          - name: realtime
+            context: services/realtime
+          - name: ai-worker
+            context: services/ai-worker
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        if: github.event_name == 'push'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}-${{ matrix.name }}
+          tags: |
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            type=sha,prefix=
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          push: ${{ github.event_name == 'push' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=${{ matrix.name }}
+          cache-to: type=gha,scope=${{ matrix.name }},mode=max
+          build-args: |
+            NEXT_PUBLIC_API_URL=${{ vars.NEXT_PUBLIC_API_URL || 'http://localhost:4010' }}
+            NEXT_REWRITE_API_URL=${{ vars.NEXT_REWRITE_API_URL || 'http://api:4010' }}
+            NEXT_PUBLIC_SC_HOST=${{ vars.NEXT_PUBLIC_SC_HOST || 'localhost' }}
+            NEXT_PUBLIC_SC_PORT=${{ vars.NEXT_PUBLIC_SC_PORT || '8000' }}
+            NEXT_PUBLIC_SC_SECURE=${{ vars.NEXT_PUBLIC_SC_SECURE || 'false' }}

@@ -1,5 +1,5 @@
 import axios from 'axios'
-import { getDecryptedConfig } from '../models/Service.js'
+import { getDecryptedConfig } from '../models/Integration.js'
 
 export async function fetchFromUnsplash(query, page = 1) {
   const config = await getDecryptedConfig('unsplash')

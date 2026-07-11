@@ -16,3 +16,10 @@ out/
 .cache/
 .parcel-cache/
 uploads/
+**/__pycache__/
+*.py[cod]
+*.backup
+.venv/
+.pytest_cache/
+celerybeat-schedule
+.claude/

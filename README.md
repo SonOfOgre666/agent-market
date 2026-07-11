@@ -1,111 +1,116 @@
-# Agent-Market
+# Agent Market
 
-Scaffold monorepo pour un agent AI marketing multi-canal avec ta stack:
+Monorepo **marketing multi-canal** : publication sociale, campagnes publicitaires (Google Ads, Meta), génération IA (Gemini via worker Celery), dashboard Next.js, temps réel SocketCluster.
 
-- MongoDB
-- Fastify
-- SocketCluster
-- Next.js
-- Redis
-- Python + Celery
-- Connecteurs AI (OpenAI, Anthropic, etc.)
+## Documentation (source de vérité)
 
-## Structure
+| Document | Contenu |
+| -------- | ------- |
+| **[Rules/ARCHITECTURE_RULES.md](Rules/ARCHITECTURE_RULES.md)** | Règles strictes des couches (API, worker Celery, connecteurs, temps réel). |
+| **[Rules/CLEAN_ARCHITECTURE_ROADMAP.md](Rules/CLEAN_ARCHITECTURE_ROADMAP.md)** | Roadmap d’alignement repo (phases P0–P5, persistence, événements, LLM `lib/llm/`). |
+| **[docs/ONBOARDING.md](docs/ONBOARDING.md)** | Stack, architecture, **référence détaillée par zone** (API, web, worker, collections Mongo), setup local. |
+| **[docs/FILE_INDEX.md](docs/FILE_INDEX.md)** | **Inventaire d’un fichier → une ligne d’explication** pour les chemins importants du dépôt (hors `node_modules`, caches, etc.) — **maintenu à la main**. |
+| **[docs/MIGRATION_PLAN.md](docs/MIGRATION_PLAN.md)** | Exécution **Celery-only** : pont Redis, Beat, suppression du worker Node BLPOP. |
+| **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** | Vue des composants runtime. |
+| **[docs/api_postman_collection.json](docs/api_postman_collection.json)** | Collection Postman pour l’API. |
 
-- `apps/web`: interface Next.js (HTML/CSS pur)
-- `apps/api`: API Fastify
-- `services/realtime`: serveur SocketCluster
-- `services/ai-worker`: worker Python Celery
-- `docs/ARCHITECTURE.md`: vue architecture
+Le **README** ci-dessous résume le démarrage ; le détail des fichiers et du produit est dans les liens ci-dessus.
 
-## Prerequis
+---
 
-- Node.js 20+
-- Python 3.11+
-- Docker + Docker Compose
+## Structure du dépôt
 
-## Quick Start
+| Dossier | Rôle |
+| ------- | ---- |
+| `apps/web` | Interface **Next.js** (App Router, CSS global). |
+| `apps/api` | API **Fastify** : CRUD, auth JWT, enqueue **Celery** via liste Redis `CELERY_REDIS_LIST`. |
+| `services/realtime` | **SocketCluster** : relais Redis pub/sub → WebSocket. |
+| `services/ai-worker` | **Celery** (worker + logique Beat dans `celery_app.py`) : publish, imports, métriques, Gemini, schedulers. |
+| `docs/` | Guides, politiques, index de fichiers, Postman. |
+| `scripts/` | Utilitaires (ex. **`get-meta-credentials.js`** Meta). |
 
-1. Copier les variables:
+---
+
+## Prérequis
+
+- Node.js **20+**
+- Python **3.11+**
+- Docker + Docker Compose (recommandé)
+
+---
+
+## Quick start
+
+### 1. Environnement
 
 ```bash
 cp .env.example .env
+# Éditer .env : MONGODB_URI, REDIS_*, JWT_SECRET, APP_KEY, GEMINI_API_KEY, clés OAuth…
 ```
 
-2. Lancer MongoDB et Redis:
+### 2. Infrastructure
 
 ```bash
 docker compose up -d
 ```
 
-3. Installer les dependances Node:
+Lève **MongoDB**, **Redis**, et la stack applicative (**api**, **web**, **realtime**, **celery-worker**, **celery-beat**) selon votre `docker-compose.yml`.
+
+### 3. Dépendances Node
 
 ```bash
 npm install
-```
-
-4. Lancer les services Node:
-
-```bash
 npm run dev
 ```
 
-5. Installer les dependances Python worker:
+Lance **API** (:4010), **Web** (:3000), **Realtime** (:8000) (voir `package.json` racine).
+
+### 4. Celery (obligatoire pour publish, imports, `/api/ai/*`)
+
+Renseigner dans **`.env`** au minimum **`WORKER_API_SECRET`** (≥ 8 caractères, ex. `openssl rand -hex 24`) et **`INTERNAL_API_URL`** (`http://127.0.0.1:4010` en local). Sans cela, la publication des posts (`tasks.social.publish_post`) et le beat **`tick_due_posts`** ne peuvent pas appliquer les changements via l’API.
+
+Depuis la **racine** du dépôt :
 
 ```bash
-cd services/ai-worker
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
+make worker
+make beat
 ```
 
-6. Lancer Celery:
-
-```bash
-cd services/ai-worker
-source .venv/bin/activate
-celery -A celery_app.celery_app worker -l info
-```
-
-7. Lancer Celery Beat (scheduler):
+Équivalent manuel (après `python3 -m venv .venv` + `pip install -r requirements.txt` dans `services/ai-worker`) :
 
 ```bash
 cd services/ai-worker
 source .venv/bin/activate
-celery -A celery_app.celery_app beat -l info
+celery -A celery_app:celery_app worker -l info
+# autre terminal :
+celery -A celery_app:celery_app beat -l info
 ```
 
-## Endpoints de base
+> **`npm run worker` dans `apps/api` est volontairement inop** : l’exécution des jobs se fait uniquement dans **Celery**.
 
-- API root: `http://localhost:4010/`
-- Health: `http://localhost:4010/api/health`
-- Draft social: `POST http://localhost:4010/api/social/posts/draft`
-- Schedule social post: `POST http://localhost:4010/api/social/posts/schedule`
-- List social posts: `GET http://localhost:4010/api/social/posts?userId=wetaxi`
-- Publish now: `POST http://localhost:4010/api/social/posts/:postId/publish-now`
-- Keywords ads: `POST http://localhost:4010/api/ads/keywords/suggest`
-- Create ads campaign: `POST http://localhost:4010/api/ads/campaigns`
-- List ads campaigns: `GET http://localhost:4010/api/ads/campaigns?userId=wetaxi`
-- Generate ads assets: `POST /api/ads/campaigns/:campaignId/generate-assets`
-- Generate landing page: `POST /api/ads/campaigns/:campaignId/generate-landing-page`
-- Optimize campaign: `POST /api/ads/campaigns/:campaignId/optimize`
-- List landing pages: `GET /api/ads/landing-pages?userId=wetaxi`
-- Get landing page by slug: `GET /api/ads/landing-pages/:slug?userId=wetaxi`
-- Capture lead: `POST /api/ads/landing-pages/:slug/lead`
-- List leads: `GET /api/ads/leads?userId=wetaxi`
-- OAuth providers: `GET http://localhost:4010/api/integrations/providers`
-- OAuth connect URL: `GET http://localhost:4010/api/integrations/:provider/connect?userId=wetaxi`
-- OAuth status: `GET http://localhost:4010/api/integrations/:provider/status?userId=wetaxi`
-- Diagnostics credentials: `GET http://localhost:4010/api/integrations/diagnostics?userId=wetaxi`
-- Google Ads refresh token: `GET http://localhost:4010/api/integrations/google-ads/refresh-token?userId=wetaxi`
-- Dashboard overview: `GET http://localhost:4010/api/dashboard/overview?userId=wetaxi`
-- Web dashboard: `http://localhost:3000`
-- Realtime (WS): `ws://localhost:8000`
+---
 
-## OAuth social (LinkedIn, Instagram, TikTok)
+## Endpoints utiles
 
-1. Renseigner les credentials dans `.env`.
-2. Enregistrer les redirect URIs dans chaque plateforme:
+- **API** : `http://localhost:4010/`
+- **Santé** : `GET http://localhost:4010/api/health`
+- **Web** : `http://localhost:3000`
+- **WebSocket** : `ws://localhost:8000` (SocketCluster)
+
+Les routes complètes (souvent sous **`/api`** avec JWT) sont décrites dans **`docs/ONBOARDING.md`** et testables via **`docs/api_postman_collection.json`**.
+
+Exemples historiques (certaines routes peuvent exiger un workspace JWT plutôt que `userId` en query — vérifier le code des routes) :
+
+- Social (collection legacy **`social_posts`** via `routes/social.js`) : draft, schedule, publish-now…
+- Posts principaux (**`posts`**) : voir `routes/posts.js` et UI `apps/web/app/posts/`.
+- Ads : campagnes, landing pages, leads — `routes/ads.js`.
+- Intégrations OAuth : `routes/integrations.js`, callbacks dans `routes/callback.js`.
+
+---
+
+## OAuth — redirect URIs (exemples locaux)
+
+À déclarer chez chaque fournisseur (voir `.env.example` pour les noms exacts de variables) :
 
 - `http://localhost:4010/api/integrations/linkedin/callback`
 - `http://localhost:4010/api/integrations/instagram/callback`
@@ -113,75 +118,30 @@ celery -A celery_app.celery_app beat -l info
 - `http://localhost:4010/api/integrations/twitter/callback`
 - `http://localhost:4010/api/integrations/facebook_page/callback`
 - `http://localhost:4010/api/integrations/instagram_login/callback`
+- `http://localhost:4010/api/integrations/google-ads/callback`
 
-3. Ouvrir l URL de connexion:
+Flux typique : `GET /api/integrations/:provider/connect` → navigateur → callback → compte dans **`accounts`**.
 
-```bash
-curl "http://localhost:4010/api/integrations/linkedin/connect?userId=wetaxi"
-```
+---
 
-4. Suivre `authUrl` dans le navigateur pour autoriser le compte.
-5. Verifier la connexion:
+## Temps réel
 
-```bash
-curl "http://localhost:4010/api/integrations/linkedin/status?userId=wetaxi"
-```
+- Canal Redis : **`EVENTS_CHANNEL`** (défaut `agent_market:events`).
+- **`services/realtime`** relaie vers le canal SocketCluster **`events`**.
+- Le dashboard consomme les événements via **`apps/web/lib/socket.js`**.
 
-Note LinkedIn publication:
+---
 
-- Renseigner aussi `LINKEDIN_AUTHOR_URN` dans `.env`.
-- Sans token/URN valides, la publication reste en mode `dry_run` (pas de post externe).
+## Inventaire des fichiers
 
-## Publication planifiee LinkedIn (MVP)
+Voir **`docs/FILE_INDEX.md`** (tableau maintenu à la main).
 
-1. Creer un draft:
+---
 
-```bash
-curl -X POST "http://localhost:4010/api/social/posts/draft" \
-	-H "Content-Type: application/json" \
-	-d '{"userId":"wetaxi","channel":"linkedin","text":"Post test LinkedIn"}'
-```
+## Pistes d’évolution (non exhaustif)
 
-2. Planifier avec `scheduledAt` (ISO datetime).
-3. Le worker + beat traitent automatiquement les posts dus.
-4. Publication immediate possible via `publish-now`.
+1. Étendre **`publish_native.py`** (et flux associés) pour chaque réseau requis en production.
+2. Renforcer tests E2E (OAuth, publish, webhooks).
+3. Option : passer **`/api/ai/*`** en **202 + polling** côté web pour ne plus bloquer la requête HTTP sur le worker.
 
-## Pipeline Google Ads (MVP)
-
-1. Creer une campagne:
-
-```bash
-curl -X POST "http://localhost:4010/api/ads/campaigns" \
-	-H "Content-Type: application/json" \
-	-d '{"userId":"wetaxi","name":"Spring Promo","goal":"leads","budgetDaily":180}'
-```
-
-2. Lancer generation assets RSA: `POST /api/ads/campaigns/:campaignId/generate-assets`
-3. Lancer generation landing page: `POST /api/ads/campaigns/:campaignId/generate-landing-page`
-4. Lancer optimization continue: `POST /api/ads/campaigns/:campaignId/optimize`
-5. Worker + beat traitent automatiquement les queues Redis.
-6. Ouvrir la page generee dans Next.js: `http://localhost:3000/lp/<slug>`
-7. Tester avec UTM: `http://localhost:3000/lp/<slug>?utm_source=google&utm_medium=cpc&utm_campaign=test`
-
-Note Google Ads:
-
-- Tant que les credentials Google Ads sont incomplets, le connecteur tourne en mode fallback/stub.
-- Les structures de pipeline et d'optimisation restent actives pour tests locaux.
-- OAuth Google Ads local:
-  - `GET http://localhost:4010/api/integrations/google-ads/connect?userId=wetaxi`
-  - Callback attendu: `http://localhost:4010/api/integrations/google-ads/callback`
-  - Verifier token: `GET http://localhost:4010/api/integrations/google-ads/status?userId=wetaxi`
-
-## Realtime events (SocketCluster + Redis Pub/Sub)
-
-- Canal Redis: `EVENTS_CHANNEL` (par defaut `agent_market:events`)
-- Le serveur realtime relaie ce canal vers le channel SocketCluster `events`.
-- Le dashboard Next.js affiche les stats + le feed live.
-
-## Prochaines etapes recommandees
-
-1. Ajouter OAuth officiel LinkedIn/Meta/TikTok.
-2. Connecter Google Ads API (Keyword Planner + Campaign management).
-3. Creer un scheduler de publication (Celery Beat).
-4. Ajouter moderation policy avant reponses automatiques.
-5. Ajouter tracking UTM + conversions + ROI/ROAS dashboard.
+Pour l’historique migration Node → Celery, voir **`docs/MIGRATION_PLAN.md`**.

@@ -1,18 +1,9 @@
 /**
- * Mirrors Laravel's HandleAccountImports listener.
- * When a new account is connected (account_added event), immediately dispatch
- * import jobs for that account: followers + posts/insights + metrics.
+ * When a new account is connected, enqueue Celery ``tasks.imports.import_account``.
  */
-import { getRedisSub } from '../db/redis.js'
+import { getRedisSub } from '../lib/redis.js'
 import { findById as findAccount } from '../models/Account.js'
-import {
-  dispatchImportTwitterFollowers,
-  dispatchImportTwitterPosts,
-  dispatchProcessTwitterMetrics,
-  dispatchImportFacebookFollowers,
-  dispatchImportFacebookInsights,
-  dispatchImportInstagramFollowers,
-} from '../queue/dispatcher.js'
+import { dispatchImportAccount } from '../queue/dispatcher.js'
 
 export function startAccountImportListener() {
   const sub = getRedisSub()
@@ -29,21 +20,13 @@ export function startAccountImportListener() {
     const account = await findAccount(account_id).catch(() => null)
     if (!account || !account.authorized) return
 
-    const provider = account.provider
     try {
-      if (provider === 'twitter') {
-        await dispatchImportTwitterFollowers(account_id)
-        await dispatchImportTwitterPosts(account_id)
-        await dispatchProcessTwitterMetrics(account_id)
-      } else if (provider === 'facebook') {
-        await dispatchImportFacebookFollowers(account_id)
-        await dispatchImportFacebookInsights(account_id)
-      } else if (provider === 'instagram') {
-        await dispatchImportInstagramFollowers(account_id)
-      }
-      console.log(`[AccountImportListener] Queued import jobs for ${provider} account ${account_id}`)
+      const out = await dispatchImportAccount(account_id)
+      console.log(
+        `[AccountImportListener] Queued tasks.imports.import_account bridge_task_id=${out.task_id} for ${account_id}`,
+      )
     } catch (err) {
-      console.error(`[AccountImportListener] Failed to dispatch for ${account_id}:`, err.message)
+      console.error(`[AccountImportListener] Failed to enqueue for ${account_id}:`, err.message)
     }
   })
 }

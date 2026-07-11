@@ -1,18 +1,28 @@
-import { getDb } from '../db/mongodb.js'
+import { getDb } from '../lib/mongo.js'
 import { ObjectId } from 'mongodb'
 import { nanoid } from 'nanoid'
+import {
+  SOCIAL_PROVIDERS,
+  ADS_PROVIDERS,
+  isSocialProvider,
+  isAdsProvider,
+  filterAccountsByKind,
+} from '../constants/accountKinds.js'
 
 export const COLLECTION = 'accounts'
 
-// Supported providers
-export const PROVIDERS = ['twitter', 'facebook', 'instagram', 'instagram_login', 'tiktok', 'linkedin']
+export { SOCIAL_PROVIDERS, ADS_PROVIDERS, isSocialProvider, isAdsProvider, filterAccountsByKind }
+
+/** All connectable providers (social + ads). */
+export const PROVIDERS = [...SOCIAL_PROVIDERS, ...ADS_PROVIDERS]
 
 // Providers that require at least one media item to publish
 export const MEDIA_REQUIRED_PROVIDERS = ['instagram', 'instagram_login', 'tiktok']
 
-export async function findAll(workspace_id) {
+export async function findAll(workspace_id, { kind } = {}) {
   const filter = workspace_id ? { workspace_id } : {}
-  return getDb().collection(COLLECTION).find(filter).sort({ created_at: 1 }).toArray()
+  const rows = await getDb().collection(COLLECTION).find(filter).sort({ created_at: 1 }).toArray()
+  return filterAccountsByKind(rows, kind)
 }
 
 export async function findById(id) {

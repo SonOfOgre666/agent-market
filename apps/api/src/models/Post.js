@@ -1,4 +1,4 @@
-import { getDb } from '../db/mongodb.js'
+import { getDb } from '../lib/mongo.js'
 import { ObjectId } from 'mongodb'
 import { nanoid } from 'nanoid'
 
@@ -8,11 +8,10 @@ export const COLLECTION = 'posts'
 export const PostStatus = { DRAFT: 0, SCHEDULED: 1, PUBLISHED: 2, FAILED: 3 }
 export const ScheduleStatus = { PENDING: 0, PROCESSING: 1, PROCESSED: 2 }
 
-export async function findAll({ workspace_id, status, tag_id, keyword, account_id, page = 1, per_page = 15 } = {}) {
+export async function findAll({ workspace_id, status, keyword, account_id, page = 1, per_page = 15 } = {}) {
   const filter = { deleted_at: null }
   if (workspace_id) filter.workspace_id = workspace_id
   if (status !== undefined && status !== null && status !== '') filter.status = parseInt(status)
-  if (tag_id)     filter.tag_ids    = tag_id
   if (account_id) filter.account_ids = account_id
 
   if (keyword) {
@@ -40,21 +39,10 @@ export async function findByUuid(uuid, workspace_id) {
   return getDb().collection(COLLECTION).findOne(filter)
 }
 
-export async function findForCalendar({ workspace_id, date, type = 'month' }) {
-  const d = new Date(date)
-  let start, end
-  if (type === 'month') {
-    start = new Date(d.getFullYear(), d.getMonth(), 1)
-    end = new Date(d.getFullYear(), d.getMonth() + 1, 0, 23, 59, 59)
-  } else if (type === 'week') {
-    const day = d.getDay()
-    start = new Date(d); start.setDate(d.getDate() - day)
-    end = new Date(start); end.setDate(start.getDate() + 6)
-    end.setHours(23, 59, 59)
-  } else {
-    start = new Date(d.setHours(0, 0, 0, 0))
-    end = new Date(d.setHours(23, 59, 59, 999))
-  }
+export async function findForCalendar({ workspace_id, date }) {
+  const d = new Date(`${date}-01T12:00:00`)
+  const start = new Date(d.getFullYear(), d.getMonth(), 1)
+  const end = new Date(d.getFullYear(), d.getMonth() + 1, 0, 23, 59, 59)
   const filter = {
     deleted_at: null,
     scheduled_at: { $gte: start, $lte: end },
@@ -73,17 +61,16 @@ export async function findScheduledReady() {
   }).toArray()
 }
 
-export async function createPost({ workspace_id, account_ids = [], tag_ids = [], versions = [], scheduled_at } = {}) {
+export async function createPost({ workspace_id, account_ids = [], versions = [], scheduled_at, status } = {}) {
   const now = new Date()
   const doc = {
     uuid: nanoid(),
     workspace_id: workspace_id || null,
-    status: scheduled_at ? PostStatus.SCHEDULED : PostStatus.DRAFT,
+    status: status !== undefined ? status : (scheduled_at ? PostStatus.SCHEDULED : PostStatus.DRAFT),
     schedule_status: ScheduleStatus.PENDING,
     scheduled_at: scheduled_at ? new Date(scheduled_at) : null,
     published_at: null,
     account_ids,
-    tag_ids,
     versions,
     created_at: now,
     updated_at: now,
@@ -114,10 +101,39 @@ export async function deleteManyPosts(ids) {
   )
 }
 
+export async function findPublishAccountResults(postId) {
+  return getDb()
+    .collection('post_accounts')
+    .find({ post_id: String(postId) })
+    .toArray()
+}
+
+export async function findPublishSummaries(postIds = []) {
+  const ids = postIds.map(String).filter(Boolean)
+  if (!ids.length) return {}
+
+  const rows = await getDb()
+    .collection('post_accounts')
+    .find({ post_id: { $in: ids } })
+    .toArray()
+
+  return rows.reduce((acc, row) => {
+    const postId = String(row.post_id)
+    const current = acc[postId] || { total: 0, succeeded: 0, failed: 0, partial: false }
+    const failed = Array.isArray(row.errors) && row.errors.length > 0
+    current.total += 1
+    if (failed) current.failed += 1
+    else current.succeeded += 1
+    current.partial = current.succeeded > 0 && current.failed > 0
+    acc[postId] = current
+    return acc
+  }, {})
+}
+
 export async function duplicatePost(id, workspace_id) {
   const original = await getDb().collection(COLLECTION).findOne({ _id: new ObjectId(id), deleted_at: null })
   if (!original) return null
-  const { _id, uuid, created_at, updated_at, deleted_at, published_at, ...fields } = original
+  const { _id, uuid, created_at, updated_at, deleted_at, published_at, tag_ids: _tags, ...fields } = original
   return createPost({
     ...fields,
     workspace_id: workspace_id || fields.workspace_id,
@@ -129,9 +145,9 @@ export async function duplicatePost(id, workspace_id) {
 
 export function serialize(post) {
   if (!post) return null
+  const { _id, tag_ids, ...rest } = post
   return {
-    ...post,
-    id: post._id.toString(),
-    _id: undefined,
+    ...rest,
+    id: _id.toString(),
   }
 }

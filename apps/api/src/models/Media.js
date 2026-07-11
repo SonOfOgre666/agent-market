@@ -1,4 +1,4 @@
-import { getDb } from '../db/mongodb.js'
+import { getDb } from '../lib/mongo.js'
 import { ObjectId } from 'mongodb'
 import { nanoid } from 'nanoid'
 import fs from 'fs/promises'

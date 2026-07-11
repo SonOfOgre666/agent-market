@@ -1,12 +1,15 @@
+/**
+ * TikTok Content API — PKCE OAuth + publish pipeline.
+ *
+ * OAuth (API): getAuthUrl, handleCallback (token + user info during connect).
+ * Execution: getAccount. **Publishing** — worker only (`tasks.social.publish_post`; TikTok Content API not wired in worker yet).
+ */
 import axios from 'axios'
 import crypto from 'crypto'
 
 const TOKEN_URL = 'https://open.tiktokapis.com/v2/oauth/token/'
 const AUTH_URL = 'https://www.tiktok.com/v2/auth/authorize/'
 const USERINFO_URL = 'https://open.tiktokapis.com/v2/user/info/'
-const CREATOR_INFO_URL = 'https://open.tiktokapis.com/v2/post/publish/creator_info/query/'
-const PUBLISH_INIT_URL = 'https://open.tiktokapis.com/v2/post/publish/video/init/'
-const PUBLISH_STATUS_URL = 'https://open.tiktokapis.com/v2/post/publish/status/fetch/'
 
 export class TikTokProvider {
   constructor(config = {}, account = null) {
@@ -24,7 +27,7 @@ export class TikTokProvider {
     const state = crypto.randomBytes(16).toString('hex')
 
     // Store verifier in Redis keyed by state
-    const { getRedis } = await import('../db/redis.js')
+    const { getRedis } = await import('../lib/redis.js')
     await getRedis().setex(`tiktok:pkce:${state}`, 600, codeVerifier)
 
     const params = new URLSearchParams({
@@ -40,7 +43,7 @@ export class TikTokProvider {
   }
 
   async handleCallback({ code, state }) {
-    const { getRedis } = await import('../db/redis.js')
+    const { getRedis } = await import('../lib/redis.js')
     let codeVerifier = null
     if (state) {
       codeVerifier = await getRedis().get(`tiktok:pkce:${state}`)
@@ -94,128 +97,10 @@ export class TikTokProvider {
     }
   }
 
-  async publishPost(version) {
-    const token = this.account?.access_token?.token
-    const content = version.content || []
-    const textBlock = content.find(b => b.type === 'text')
-    const mediaBlocks = content.filter(b => b.type === 'media')
-    const title = textBlock?.body || ''
-
-    // Find the first video in media blocks
-    const allMedia = mediaBlocks.flatMap(b => b.media || [])
-    const videoItem = allMedia.find(m => m.mime_type?.startsWith('video'))
-
-    if (!videoItem?.url) throw new Error('TikTok requires a video to publish')
-
-    // Fetch the video file and upload it directly (FILE_UPLOAD) so no domain
-    // verification is needed. Pull-from-URL requires TikTok domain verification.
-    const fs = await import('fs')
-    const path = await import('path')
-    const { pipeline } = await import('stream/promises')
-
-    // Resolve local file path from URL (media is served from the local uploads dir)
-    const uploadDir = process.env.STORAGE_LOCAL_PATH || './uploads'
-    const urlPath = new URL(videoItem.url).pathname  // e.g. /uploads/abc.mp4
-    const filename = urlPath.replace(/^\/uploads\//, '')
-    const localPath = path.join(uploadDir, filename)
-
-    const stat = await fs.promises.stat(localPath)
-    const videoSize = stat.size
-
-    // Step 1 — query creator info to get allowed privacy levels (required by TikTok)
-    let privacyLevel = 'SELF_ONLY'
-    try {
-      const creatorRes = await axios.post(
-        CREATOR_INFO_URL,
-        {},
-        { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json; charset=UTF-8' } }
-      )
-      const options = creatorRes.data?.data?.privacy_level_options || []
-      // Until the app is audited by TikTok, direct posting only works with SELF_ONLY.
-      // After audit approval, switch to: PUBLIC_TO_EVERYONE → MUTUAL_FOLLOW_FRIENDS → SELF_ONLY
-      privacyLevel = options.includes('SELF_ONLY') ? 'SELF_ONLY'
-        : options[0] || 'SELF_ONLY'
-      console.log(`[TikTok] privacy options: ${JSON.stringify(options)} → using ${privacyLevel}`)
-    } catch (e) {
-      console.warn(`[TikTok] creator info query failed: ${e.message || e.code || JSON.stringify(e.response?.data)}, defaulting to SELF_ONLY`)
-    }
-
-    // Step 2 — init direct post (video.publish scope, posts directly to profile)
-    console.log(`[TikTok] init direct post: size=${videoSize} file=${localPath}`)
-    let initRes
-    try {
-      initRes = await axios.post(
-        PUBLISH_INIT_URL,
-        {
-          post_info: {
-            title: title.slice(0, 150),
-            privacy_level: privacyLevel,
-            disable_duet: false,
-            disable_comment: false,
-            disable_stitch: false,
-          },
-          source_info: {
-            source: 'FILE_UPLOAD',
-            video_size: videoSize,
-            chunk_size: videoSize,
-            total_chunk_count: 1,
-          },
-        },
-        { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json; charset=UTF-8' } }
-      )
-    } catch (e) {
-      const body = e.response?.data
-      throw new Error(`TikTok init HTTP ${e.response?.status} code=${e.code}: ${JSON.stringify(body)}`)
-    }
-    console.log(`[TikTok] init response: ${JSON.stringify(initRes.data)}`)
-
-    // TikTok wraps errors in data.error even on 200
-    if (initRes.data?.error?.code && initRes.data.error.code !== 'ok') {
-      throw new Error(`TikTok: ${initRes.data.error.message} (${initRes.data.error.code})`)
-    }
-
-    const publishId = initRes.data?.data?.publish_id
-    const uploadUrl = initRes.data?.data?.upload_url
-    if (!publishId || !uploadUrl) {
-      throw new Error(`TikTok init failed: ${JSON.stringify(initRes.data)}`)
-    }
-
-    // Step 3 — upload the video in one chunk
-    console.log(`[TikTok] uploading to: ${uploadUrl}`)
-    const videoBuffer = await fs.promises.readFile(localPath)
-    const uploadRes = await axios.put(uploadUrl, videoBuffer, {
-      headers: {
-        'Content-Type': 'video/mp4',
-        'Content-Range': `bytes 0-${videoSize - 1}/${videoSize}`,
-        'Content-Length': videoSize,
-      },
-    })
-    console.log(`[TikTok] upload response: ${uploadRes.status} ${JSON.stringify(uploadRes.data)}`)
-
-    // Step 4 — poll until published
-    const postId = await this._pollPublishStatus(publishId, token)
-    return { provider_post_id: postId }
-  }
-
-  async _pollPublishStatus(publishId, token, retries = 20) {
-    for (let i = 0; i < retries; i++) {
-      await new Promise(r => setTimeout(r, 3000))
-      const res = await axios.post(
-        PUBLISH_STATUS_URL,
-        { publish_id: publishId },
-        { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json; charset=UTF-8' } }
-      )
-      // TikTok wraps errors in data.error even on 200
-      if (res.data?.error?.code && res.data.error.code !== 'ok') {
-        throw new Error(`TikTok: ${res.data.error.message} (${res.data.error.code})`)
-      }
-      const status = res.data?.data?.status
-      if (status === 'PUBLISH_COMPLETE' || status === 'SEND_TO_USER_INBOX') {
-        return res.data?.data?.publicaly_available_post_id?.[0] || publishId
-      }
-      if (status === 'FAILED') throw new Error(`TikTok publish failed: ${res.data?.data?.fail_reason || 'unknown'}`)
-    }
-    throw new Error('TikTok publish timed out')
+  async publishPost() {
+    throw new Error(
+      'TikTok publishing runs in the worker (tasks.social.publish_post). Implement connectors.tiktok + publish_native — do not call publishPost from apps/api.',
+    )
   }
 
   hasEntities() { return false }

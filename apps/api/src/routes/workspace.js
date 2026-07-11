@@ -22,7 +22,10 @@ export default async function workspaceRoutes(app) {
       email: userMap[m.user_id]?.email || null,
     }))
 
-    const invites = await Workspace.listInvites(request.workspace_id)
+    const member = Workspace.getMember(workspace, request.user.id)
+    const canManage = member?.role === 'owner' || member?.role === 'admin'
+
+    const invites = canManage ? await Workspace.listInvites(request.workspace_id) : []
 
     return reply.send({
       workspace: {

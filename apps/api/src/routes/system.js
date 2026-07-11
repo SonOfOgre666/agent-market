@@ -1,6 +1,6 @@
 import { authenticate } from '../middleware/auth.js'
-import { getDb } from '../db/mongodb.js'
-import { getRedis } from '../db/redis.js'
+import { getDb } from '../lib/mongo.js'
+import { getRedis } from '../lib/redis.js'
 import fs from 'fs/promises'
 import path from 'path'
 import os from 'os'
@@ -24,12 +24,11 @@ export default async function systemRoutes(app) {
       redisOk = true
     } catch {}
 
-    // Queue stats from Redis
-    let queueStats = {}
+    // Legacy Node queues removed — background work runs in Celery only.
+    let queueStats = { note: 'Node agentmarket:queue:* worker removed; use Celery + Beat.' }
     try {
-      const queued = await getRedis().llen('agentmarket:queue:publish-post')
       const failed = await getRedis().llen('agentmarket:queue:failed')
-      queueStats = { queued, failed }
+      queueStats.failed_legacy = failed
     } catch {}
 
     return reply.send({

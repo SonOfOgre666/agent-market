@@ -1,0 +1,181 @@
+const INTERRUPTED_MSG = 'Step interrupted — worker stopped before completion.'
+
+const TERMINAL_STEP_STATUSES = new Set(['completed', 'failed', 'skipped'])
+
+/** Merge server refresh without downgrading steps the socket already finished. */
+export function mergeWorkflowRefresh(local, server) {
+  if (!server) return local
+  if (!local) return server
+  const localResults = local.step_results || {}
+  const serverResults = server.step_results || {}
+  const mergedResults = { ...serverResults }
+  let changed = false
+  for (const [sid, localRow] of Object.entries(localResults)) {
+    const serverRow = serverResults[sid]
+    if (
+      TERMINAL_STEP_STATUSES.has(localRow?.status)
+      && serverRow?.status === 'running'
+    ) {
+      mergedResults[sid] = localRow
+      changed = true
+    }
+  }
+  if (!changed) return server
+  return { ...server, step_results: mergedResults }
+}
+
+/** Step currently executing on the worker (from persisted step_results). */
+export function getActiveStep(workflow) {
+  const results = workflow?.step_results || {}
+  const hit = Object.entries(results).find(([, r]) => r?.status === 'running')
+  if (!hit) return null
+  const [stepId, row] = hit
+  const step = (workflow?.graph?.steps || []).find(s => s.step_id === stepId)
+  return { stepId, toolId: row?.tool_id || step?.tool_id || stepId }
+}
+
+/** Terminal workflow statuses — no active execution spinner. */
+export function isTerminalWorkflowStatus(status) {
+  return ['completed', 'failed', 'cancelled', 'awaiting_approval'].includes(status)
+}
+
+/** Stale ``running`` rows after crash/reboot — never show a live spinner. */
+export function normalizeStepResults(stepResults, workflowStatus) {
+  if (!stepResults || typeof stepResults !== 'object') return stepResults || {}
+  if (!isTerminalWorkflowStatus(workflowStatus)) return stepResults
+
+  let changed = false
+  const out = { ...stepResults }
+  for (const [sid, row] of Object.entries(out)) {
+    if (row?.status === 'running') {
+      out[sid] = {
+        ...row,
+        status: 'failed',
+        error: row.error || INTERRUPTED_MSG,
+      }
+      changed = true
+    }
+  }
+  return changed ? out : stepResults
+}
+
+/** Effective step status for timeline (handles stale DB + optimistic UI). */
+export function resolveStepStatus({ step, stepResults, workflowStatus, busy }) {
+  const result = stepResults[step.step_id]
+  let status = result?.status || 'pending'
+
+  if (isTerminalWorkflowStatus(workflowStatus) && status === 'running') {
+    return { status: 'failed', error: result?.error || INTERRUPTED_MSG, result }
+  }
+
+  const wfRunning = workflowShowsRunning({ busy, status: workflowStatus })
+  if (wfRunning && status === 'pending') {
+    const deps = step.depends_on || []
+    const depsDone = deps.every((d) => {
+      const st = stepResults[d]?.status
+      return st === 'completed' || st === 'skipped'
+    })
+    const anyRunning = Object.values(stepResults).some((r) => r.status === 'running')
+    if (depsDone && !anyRunning) status = 'running'
+  }
+
+  return { status, error: result?.error, result }
+}
+
+export function workflowShowsRunning({ busy, status }) {
+  if (isTerminalWorkflowStatus(status)) return false
+  return Boolean(busy) || status === 'running' || status === 'queued'
+}
+
+/** e.g. image/video skipped (quota) but draft_post still saved */
+export function getPartialSuccessMessage(workflow) {
+  const graph = workflow?.graph || {}
+  const steps = graph.steps || []
+  const results = workflow?.step_results || {}
+  const wfStatus = workflow?.status
+  if (!['failed', 'completed'].includes(wfStatus)) return null
+
+  const optionalSkipped = Object.values(results).filter(
+    r => r.status === 'skipped' && r.reason === 'optional_step_failed',
+  )
+  const failed = Object.entries(results).filter(
+    ([, r]) => r.status === 'failed' || (r.status === 'skipped' && r.reason === 'optional_step_failed'),
+  )
+  if (!failed.length && !optionalSkipped.length) return null
+
+  const tailTools = ['schedule_post', 'publish_post', 'create_draft_post']
+  const lastStep = steps[steps.length - 1]
+  const lastOk =
+    lastStep &&
+    tailTools.includes(lastStep.tool_id) &&
+    results[lastStep.step_id]?.status === 'completed'
+
+  if (!lastOk) return null
+  if (wfStatus === 'completed' && !optionalSkipped.length) return null
+
+  if (lastStep.tool_id === 'schedule_post') {
+    return 'Some steps failed, but your post was saved and scheduled successfully.'
+  }
+  if (lastStep.tool_id === 'publish_post') {
+    return 'Some steps failed, but your post was published successfully.'
+  }
+  if (lastStep.tool_id === 'create_draft_post') {
+    return 'Some steps failed, but your draft post was saved successfully.'
+  }
+  return null
+}
+
+/** Collecting missing fields — no workflow card, just the assistant question. */
+export function isCollectionPhaseWorkflow(workflow) {
+  const graph = workflow?.graph || {}
+  if (graph.collection_phase) return true
+  const steps = graph.steps || []
+  if (steps.length > 0) return false
+  const phase = graph.google_setup_phase || graph.meta_setup_phase
+  if (phase === 'discovery') return true
+  const summary = String(workflow?.summary || graph.summary || '').toLowerCase()
+  if (summary.includes('collect campaign details') || summary.includes('collect google campaign details')) {
+    return true
+  }
+  if (Array.isArray(graph.execute_plan) && graph.execute_plan.length > 0 && !graph.requires_approval) {
+    return phase !== 'ready_for_review'
+  }
+  return false
+}
+
+/** Plain chat — no workflow card (greetings, capabilities, informational Q&A). */
+export function isChatOnlyWorkflow(workflow) {
+  const graph = workflow?.graph || {}
+  if (graph.chat_only) return true
+  const steps = graph.steps || []
+  const intent = graph.intent || workflow?.intent
+  if (intent !== 'informational' || steps.length > 0 || graph.requires_approval) return false
+  if (graph.google_setup_phase || graph.meta_setup_phase) return false
+  if (graph.google_compiled || graph.meta_compiled) return false
+  if (graph.collection_phase) return false
+  if (Array.isArray(graph.execute_plan) && graph.execute_plan.length > 0) return false
+  return true
+}
+
+export function shouldShowWorkflowCard(workflow) {
+  if (!workflow) return false
+  if (isChatOnlyWorkflow(workflow) || isCollectionPhaseWorkflow(workflow)) return false
+
+  const graph = workflow.graph || {}
+  const status = workflow.status || ''
+  const steps = graph.steps || []
+
+  if (graph.requires_approval && status === 'awaiting_approval') return true
+  if (graph.google_setup_phase === 'ready_for_review' || graph.meta_setup_phase === 'ready_for_review') {
+    return true
+  }
+
+  if (
+    steps.length > 0
+    && ['running', 'queued', 'approved', 'planned', 'completed', 'failed'].includes(status)
+  ) {
+    return true
+  }
+
+  return false
+}

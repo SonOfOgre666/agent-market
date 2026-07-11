@@ -1,5 +1,5 @@
-import { getDb } from '../db/mongodb.js'
-import { getRedis } from '../db/redis.js'
+import { getDb } from '../lib/mongo.js'
+import { getRedis } from '../lib/redis.js'
 
 export const COLLECTION = 'settings'
 
@@ -11,10 +11,24 @@ const DEFAULTS = {
   week_starts_on: 1,         // 0 = Sunday, 1 = Monday, 6 = Saturday
   admin_email:    '',
   default_accounts: [],
+  auto_analyze_comments: false,
 }
 
 // Mirrors Settings.php rules()
 const VALID_TIMEZONES = Intl.supportedValuesOf('timeZone')
+
+const WEEKDAY_NAMES = {
+  sunday: 0, monday: 1, saturday: 6,
+}
+
+function normalizeWeekStartsOn(value) {
+  if (typeof value === 'string') {
+    const mapped = WEEKDAY_NAMES[value.toLowerCase()]
+    if (mapped !== undefined) return mapped
+  }
+  const n = Number(value)
+  return [0, 1, 6].includes(n) ? n : undefined
+}
 
 export function validate(settings) {
   const errors = {}
@@ -24,14 +38,20 @@ export function validate(settings) {
   if (settings.time_format !== undefined && ![12, 24, '12', '24'].includes(settings.time_format)) {
     errors.time_format = 'Must be 12 or 24'
   }
-  if (settings.week_starts_on !== undefined && ![0, 1, 6].includes(Number(settings.week_starts_on))) {
-    errors.week_starts_on = 'Must be 0 (Sunday), 1 (Monday), or 6 (Saturday)'
+  if (settings.week_starts_on !== undefined) {
+    const week = normalizeWeekStartsOn(settings.week_starts_on)
+    if (week === undefined) {
+      errors.week_starts_on = 'Must be 0 (Sunday), 1 (Monday), or 6 (Saturday)'
+    }
   }
   if (settings.admin_email !== undefined && settings.admin_email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(settings.admin_email)) {
     errors.admin_email = 'Invalid email address'
   }
   if (settings.default_accounts !== undefined && !Array.isArray(settings.default_accounts)) {
     errors.default_accounts = 'Must be an array'
+  }
+  if (settings.auto_analyze_comments !== undefined && typeof settings.auto_analyze_comments !== 'boolean') {
+    errors.auto_analyze_comments = 'Must be true or false'
   }
   return Object.keys(errors).length ? errors : null
 }
@@ -79,7 +99,13 @@ export async function set(name, payload, workspace_id) {
 
 export async function setMany(settings, workspace_id) {
   for (const [name, payload] of Object.entries(settings)) {
-    if (name in DEFAULTS) await set(name, payload, workspace_id)
+    if (!(name in DEFAULTS)) continue
+    let value = payload
+    if (name === 'week_starts_on') {
+      const normalized = normalizeWeekStartsOn(payload)
+      if (normalized !== undefined) value = normalized
+    }
+    await set(name, value, workspace_id)
   }
 }
 

@@ -1,10 +1,15 @@
+/**
+ * Social / ads provider registry + factory (`getSocialProvider`).
+ * No HTTP here — only wiring and decrypted Service config (see Rules/CLEAN_ARCHITECTURE_ROADMAP.md P1).
+ */
 import { TwitterProvider } from './twitter.js'
 import { MetaProvider } from './meta.js'
+import { MetaAdsProvider } from './meta_ads.js'
 import { TikTokProvider } from './tiktok.js'
 import { LinkedInProvider } from './linkedin.js'
 import { InstagramLoginProvider } from './instagram_login.js'
 import { GoogleAdsProvider } from './google_ads.js'
-import * as Service from '../models/Service.js'
+import * as Integration from '../models/Integration.js'
 
 // facebook_page and instagram both use MetaProvider but with different callbackType
 // so they build different callback URLs and filter different entity types
@@ -17,6 +22,7 @@ const PROVIDERS = {
   linkedin:        { Class: LinkedInProvider,       configKey: 'linkedin',        callbackType: null },
   instagram_login: { Class: InstagramLoginProvider, configKey: 'instagram_login', callbackType: null },
   google_ads:      { Class: GoogleAdsProvider,      configKey: 'google_ads',      callbackType: null },
+  meta_ads:        { Class: MetaAdsProvider,        configKey: 'facebook',        callbackType: 'meta_ads' },
 }
 
 export async function getSocialProvider(providerName, options = {}, account = null) {
@@ -24,7 +30,7 @@ export async function getSocialProvider(providerName, options = {}, account = nu
   if (!entry) throw new Error(`Unknown provider: ${providerName}`)
 
   const workspaceId = options.workspace_id || account?.workspace_id || null
-  const config = await Service.getDecryptedConfig(entry.configKey, workspaceId)
+  const config = await Integration.getDecryptedConfig(entry.configKey, workspaceId)
   const merged = { ...config, ...options, ...(entry.callbackType ? { callbackType: entry.callbackType } : {}) }
   delete merged.workspace_id
   return new entry.Class(merged, account)

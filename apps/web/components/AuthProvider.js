@@ -18,17 +18,14 @@ export function AuthProvider({ children }) {
   }, [])
 
   const login = async (email, password, options = {}) => {
-    // If register option is true, call register endpoint
+    let token
     if (options.register) {
-      const { token, user: u } = await api.register(options.name, email, password, options.invite_token)
-      localStorage.setItem('agentmarket_token', token)
-      setUser(u)
-      return u
+      ;({ token } = await api.register(options.name, email, password, options.invite_token))
+    } else {
+      ;({ token } = await api.login(email, password))
     }
-
-    // Normal login
-    const { token, user: u } = await api.login(email, password)
     localStorage.setItem('agentmarket_token', token)
+    const u = await api.me()
     setUser(u)
     return u
   }

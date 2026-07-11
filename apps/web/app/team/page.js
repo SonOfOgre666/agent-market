@@ -1,19 +1,28 @@
 'use client'
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import AppLayout from '../../components/AppLayout.js'
+import { useAuth } from '../../components/AuthProvider.js'
 import { useToast } from '../../components/Toast.js'
 import { api } from '../../lib/api.js'
+import { useConfirmDialog } from '../../lib/useConfirmDialog.js'
+import { useWorkspaceSettings } from '../../components/WorkspaceSettingsProvider.js'
+import { isWorkspaceAdmin, workspaceRoleBadgeClass, workspaceRoleLabel } from '../../lib/workspaceRoles.js'
+import { Users, Building2, Send, Copy, Trash2, UserX } from 'lucide-react'
 
 export default function TeamPage() {
+  const { user } = useAuth()
+  const canManage = isWorkspaceAdmin(user?.workspace?.role)
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [inviteEmail, setInviteEmail] = useState('')
   const [inviteRole, setInviteRole] = useState('member')
   const [inviting, setInviting] = useState(false)
   const [lastInviteUrl, setLastInviteUrl] = useState(null)
+  const { formatDateTime } = useWorkspaceSettings()
   const [workspaceName, setWorkspaceName] = useState('')
   const [savingName, setSavingName] = useState(false)
   const toast = useToast()
+  const { confirm, ConfirmDialogHost } = useConfirmDialog()
 
   const load = async () => {
     try {
@@ -57,7 +66,12 @@ export default function TeamPage() {
   }
 
   const handleRemoveMember = async (userId) => {
-    if (!confirm('Remove this member from the workspace?')) return
+    const ok = await confirm({
+      title: 'Remove member?',
+      message: 'Remove this member from the workspace? They will lose access immediately.',
+      confirmLabel: 'Remove',
+    })
+    if (!ok) return
     try {
       await api.removeMember(userId)
       toast.success('Member removed')
@@ -103,13 +117,24 @@ export default function TeamPage() {
   return (
     <AppLayout>
       <div style={{ maxWidth: 800, margin: '0 auto' }}>
-        <div style={{ marginBottom: '2rem' }}>
-          <h1 style={{ fontSize: '1.5rem', fontWeight: 700, margin: 0 }}>Team</h1>
-          <p style={{ color: 'var(--fg-muted)', marginTop: '0.25rem', fontSize: '0.875rem' }}>
-            Manage your workspace members and invitations
-          </p>
+        <div className="page-header-enhanced" style={{ marginBottom: '2rem' }}>
+          <div className="page-header-content">
+            <div className="page-header-title">
+              <div className="page-header-icon">
+                <Users size={18} strokeWidth={2.5} />
+              </div>
+              <h1 className="page-title">Team</h1>
+            </div>
+            <p className="page-header-desc">
+              {canManage
+                ? 'Manage your workspace members and invitations'
+                : 'The workspace members'}
+            </p>
+          </div>
         </div>
 
+        {canManage && (
+          <>
         {/* Workspace name */}
         <div className="card" style={{ marginBottom: '1.5rem' }}>
           <h2 style={{ fontSize: '1rem', fontWeight: 600, marginBottom: '1rem' }}>Workspace Settings</h2>
@@ -124,7 +149,7 @@ export default function TeamPage() {
               />
             </div>
             <button className="btn btn-primary" type="submit" disabled={savingName}>
-              {savingName ? <span className="spinner" /> : 'Save'}
+              {savingName ? <span className="spinner" /> : <><Building2 size={14} strokeWidth={2} /> Save</>}
             </button>
           </form>
         </div>
@@ -151,7 +176,7 @@ export default function TeamPage() {
               </select>
             </div>
             <button className="btn btn-primary" type="submit" disabled={inviting}>
-              {inviting ? <span className="spinner" /> : 'Send Invite'}
+              {inviting ? <span className="spinner" /> : <><Send size={14} strokeWidth={2} /> Send Invite</>}
             </button>
           </form>
 
@@ -173,7 +198,7 @@ export default function TeamPage() {
                   type="button"
                   onClick={() => { navigator.clipboard.writeText(lastInviteUrl); toast.success('Copied!') }}
                 >
-                  Copy
+                  <Copy size={12} strokeWidth={2} /> Copy
                 </button>
               </div>
               <div style={{ fontSize: '0.7rem', color: 'var(--fg-muted)', marginTop: '0.4rem' }}>
@@ -184,9 +209,11 @@ export default function TeamPage() {
             </div>
           )}
         </div>
+          </>
+        )}
 
-        {/* Members list */}
-        <div className="card" style={{ marginBottom: '1.5rem' }}>
+        {/* Members list — visible to all workspace members */}
+        <div className="card" style={{ marginBottom: canManage && invites?.length > 0 ? '1.5rem' : 0 }}>
           <h2 style={{ fontSize: '1rem', fontWeight: 600, marginBottom: '1rem' }}>
             Members <span style={{ color: 'var(--fg-muted)', fontWeight: 400, fontSize: '0.875rem' }}>({members?.length || 0})</span>
           </h2>
@@ -200,9 +227,10 @@ export default function TeamPage() {
                   <div style={{ fontWeight: 500, fontSize: '0.875rem' }}>{m.name || 'Unknown'}</div>
                   <div style={{ fontSize: '0.75rem', color: 'var(--fg-muted)' }}>{m.email}</div>
                 </div>
-                {m.role === 'owner' ? (
+                {canManage && m.role === 'owner' ? (
                   <span className="badge badge-info">Owner</span>
-                ) : (
+                ) : canManage ? (
+                  <>
                   <select
                     className="form-input"
                     value={m.role}
@@ -212,23 +240,23 @@ export default function TeamPage() {
                     <option value="admin">Admin</option>
                     <option value="member">Member</option>
                   </select>
-                )}
-                {m.role !== 'owner' && (
                   <button
                     className="btn btn-ghost btn-sm"
                     onClick={() => handleRemoveMember(m.user_id)}
                     style={{ color: 'var(--danger)', padding: '0.25rem 0.5rem' }}
                   >
-                    Remove
+                    <UserX size={12} strokeWidth={2} /> Remove
                   </button>
+                  </>
+                ) : (
+                  <span className={workspaceRoleBadgeClass(m.role)}>{workspaceRoleLabel(m.role)}</span>
                 )}
               </div>
             ))}
           </div>
         </div>
 
-        {/* Pending invites */}
-        {invites?.length > 0 && (
+        {canManage && invites?.length > 0 && (
           <div className="card">
             <h2 style={{ fontSize: '1rem', fontWeight: 600, marginBottom: '1rem' }}>
               Pending Invites <span style={{ color: 'var(--fg-muted)', fontWeight: 400, fontSize: '0.875rem' }}>({invites.length})</span>
@@ -239,7 +267,7 @@ export default function TeamPage() {
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontWeight: 500, fontSize: '0.875rem' }}>{inv.email}</div>
                     <div style={{ fontSize: '0.75rem', color: 'var(--fg-muted)' }}>
-                      {inv.role} · Expires {new Date(inv.expires_at).toLocaleDateString()}
+                      {inv.role} · Expires {formatDateTime(inv.expires_at, { style: 'date-only' })}
                     </div>
                   </div>
                   <button
@@ -247,7 +275,7 @@ export default function TeamPage() {
                     onClick={() => handleRevokeInvite(inv.token)}
                     style={{ color: 'var(--danger)' }}
                   >
-                    Revoke
+                    <Trash2 size={12} strokeWidth={2} /> Revoke
                   </button>
                 </div>
               ))}
@@ -255,6 +283,7 @@ export default function TeamPage() {
           </div>
         )}
       </div>
+      {canManage && <ConfirmDialogHost />}
     </AppLayout>
   )
 }

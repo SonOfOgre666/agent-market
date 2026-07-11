@@ -4,7 +4,7 @@ import fs from 'fs/promises'
 import { nanoid } from 'nanoid'
 import { createMedia } from '../models/Media.js'
 import { processMedia } from './processor.js'
-import { getDecryptedConfig } from '../models/Service.js'
+import { getDecryptedConfig } from '../models/Integration.js'
 
 const UPLOAD_DIR = process.env.STORAGE_LOCAL_PATH || './uploads'
 
