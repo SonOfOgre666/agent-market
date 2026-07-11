@@ -140,8 +140,12 @@ def test_cbo_step_order():
     assert 'daily_budget' not in adset['payload']
 
 
+_MOCK_COPY = ('Shop now for the best deals.', 'Shop Today', 'Quality products.', 'llm')
+
+
+@patch('lib.planner.meta_campaign_spec.resolve_meta_ad_copy', return_value=_MOCK_COPY)
 @patch('lib.planner.meta_campaign_spec.fetch_usable_pages')
-def test_plan_shows_review_before_steps(mock_pages):
+def test_plan_shows_review_before_steps(mock_pages, _mock_copy):
     mock_pages.return_value = [{'id': 'p1', 'name': 'My Page'}]
     prompt = (
         'Create meta traffic ads for Morocco $20/day until 2026-08-01 '
@@ -182,8 +186,9 @@ def test_materialize_meta_compiled_graph():
     assert graph['intent'] == 'ads_campaign'
 
 
+@patch('lib.planner.meta_campaign_spec.resolve_meta_ad_copy', return_value=_MOCK_COPY)
 @patch('lib.planner.meta_campaign_spec.fetch_usable_pages')
-def test_plan_executes_after_approve(mock_pages):
+def test_plan_executes_after_approve(mock_pages, _mock_copy):
     mock_pages.return_value = [{'id': 'p1', 'name': 'My Page'}]
     ctx = {
         'attached_media': [{'id': 'img1', 'mime_type': 'image/jpeg'}],

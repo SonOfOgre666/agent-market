@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import pytest
 from unittest.mock import patch
 
 from lib.ads_marketing_content import (
@@ -17,18 +18,13 @@ def test_suggest_keywords_requires_topic():
 
 
 @patch('lib.planner.google_campaign_llm.generate_seed_keywords_with_llm', return_value=None)
-def test_suggest_keywords_fallback_not_french_templates(_llm):
-    out = suggest_keywords_for_topic(
-        topic='legal contract review software',
-        country='US',
-        language='en',
-    )
-    assert out['ok'] is True
-    assert out['source'] == 'fallback'
-    kws = [s['keyword'] for s in out['suggestions']]
-    assert 'prix' not in ' '.join(kws).lower()
-    assert 'meilleur' not in ' '.join(kws).lower()
-    assert any('legal' in k.lower() or 'software' in k.lower() for k in kws)
+def test_suggest_keywords_requires_llm_when_unconfigured(_llm):
+    with pytest.raises(RuntimeError, match='Google Ads Marketing AI'):
+        suggest_keywords_for_topic(
+            topic='legal contract review software',
+            country='US',
+            language='en',
+        )
 
 
 @patch('lib.planner.google_campaign_llm.generate_rsa_copy_with_llm', return_value=None)

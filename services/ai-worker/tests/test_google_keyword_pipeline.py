@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import pytest
 from unittest.mock import patch
 
 from lib.planner.google_keyword_pipeline import (
@@ -61,19 +62,16 @@ def test_extract_keywords_from_review_history():
     ]
 
 
-def test_pipeline_fallback_when_ai_and_planner_unavailable():
+def test_pipeline_raises_when_ai_and_planner_unavailable():
     with patch('lib.planner.google_campaign_llm.generate_seed_keywords_with_llm', return_value=None), \
          patch('lib.planner.google_keyword_pipeline._try_google_planner', return_value=None):
-        result = run_search_keyword_pipeline(
-            prompt='fitness supplement store targeting Morocco',
-            conversation_history=[],
-            business_context='fitness supplement store',
-            geo_countries=['MA'],
-            geo_target_constant_ids=[2504],
-            final_url='https://shop.example.com',
-            base_payload={'account_id': 'acc1'},
-        )
-    assert isinstance(result, KeywordPipelineResult)
-    assert result.source == 'fallback'
-    assert 'whey protein' not in result.keywords
-    assert any('fitness supplement store' in k.lower() for k in result.keywords)
+        with pytest.raises(RuntimeError, match='no LLM seeds'):
+            run_search_keyword_pipeline(
+                prompt='fitness supplement store targeting Morocco',
+                conversation_history=[],
+                business_context='fitness supplement store',
+                geo_countries=['MA'],
+                geo_target_constant_ids=[2504],
+                final_url='https://shop.example.com',
+                base_payload={'account_id': 'acc1'},
+            )

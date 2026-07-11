@@ -32,8 +32,9 @@ class IntentRouterTest(unittest.TestCase):
         self.assertLess(len(social), len(full))
         self.assertTrue(all(t['tool_id'].startswith('meta_') for t in meta))
         self.assertTrue(all(t['tool_id'] in {
-            'generate_social_post', 'generate_video_script', 'generate_image_script',
-            'generate_image', 'generate_video', 'create_draft_post', 'schedule_post', 'publish_post',
+            'generate_social_post', 'analyze_social_comment', 'generate_video_script',
+            'generate_image_script', 'generate_image', 'generate_video', 'create_draft_post',
+            'schedule_post', 'publish_post',
         } for t in social))
 
 
