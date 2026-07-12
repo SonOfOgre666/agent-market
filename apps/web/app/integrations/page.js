@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { Suspense, useEffect, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
 import AppLayout from '../../components/AppLayout.js'
 import RequireWorkspaceAdmin from '../../components/RequireWorkspaceAdmin.js'
@@ -127,7 +127,7 @@ function IntegrationCard({ name, fields, configs, saving, onUpdate, onSave }) {
   )
 }
 
-export default function IntegrationsPage() {
+function IntegrationsContent() {
   const [configs, setConfigs] = useState({})
   const [saving, setSaving] = useState({})
   const toast = useToast()
@@ -171,7 +171,6 @@ export default function IntegrationsPage() {
   }
 
   return (
-    <RequireWorkspaceAdmin>
     <AppLayout>
       <div className="page-header-enhanced">
         <div className="page-header-content">
@@ -213,6 +212,15 @@ export default function IntegrationsPage() {
         ))}
       </div>
     </AppLayout>
+  )
+}
+
+export default function IntegrationsPage() {
+  return (
+    <RequireWorkspaceAdmin>
+      <Suspense fallback={null}>
+        <IntegrationsContent />
+      </Suspense>
     </RequireWorkspaceAdmin>
   )
 }
