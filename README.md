@@ -28,13 +28,14 @@ Le **README** ci-dessous résume le démarrage ; le détail des fichiers et du p
 | `services/ai-worker` | **Celery** (worker + logique Beat dans `celery_app.py`) : publish, imports, métriques, Gemini, schedulers. |
 | `docs/` | Guides, politiques, index de fichiers, Postman. |
 | `scripts/` | Utilitaires (ex. **`get-meta-credentials.js`** Meta). |
+| `.github/workflows/` | Pipeline **CI/CD** (tests, build Docker, publication GHCR). |
 
 ---
 
 ## Prérequis
 
 - Node.js **20+**
-- Python **3.11+**
+- Python **3.11+** (CI utilise **3.12**)
 - Docker + Docker Compose (recommandé)
 
 ---
@@ -87,6 +88,107 @@ celery -A celery_app:celery_app beat -l info
 ```
 
 > **`npm run worker` dans `apps/api` est volontairement inop** : l’exécution des jobs se fait uniquement dans **Celery**.
+
+### 5. Vérification locale (sans Docker)
+
+Contrôle syntaxique rapide (équivalent partiel du job CI `api-syntax` + compileall Python) :
+
+```bash
+make check
+```
+
+Tests worker (équivalent du job CI `worker-tests`) :
+
+```bash
+cd services/ai-worker
+python3 -m venv .venv && . .venv/bin/activate
+pip install -r requirements.txt pytest
+python -m pytest tests/ -q --ignore=tests/test_competitive_intel.py
+```
+
+---
+
+## CI/CD
+
+Le workflow **`.github/workflows/ci.yml`** s’exécute sur chaque **push** vers `main` / `master`, sur les **tags** `v*`, et sur les **pull requests**.
+
+| Job | Rôle |
+| --- | ---- |
+| **`api-syntax`** | `node --check` sur tous les fichiers `apps/api/src/**/*.js` |
+| **`worker-tests`** | `pytest` dans `services/ai-worker` (hors `test_competitive_intel.py`) |
+| **`docker`** | Build des 4 images Docker (matrix : `api`, `web`, `realtime`, `ai-worker`) |
+
+Comportement :
+
+- **Pull request** : build des images uniquement (pas de push) — détecte les régressions Dockerfile.
+- **Push sur `main`** : build **et publication** sur **GitHub Container Registry (GHCR)**.
+- **Tag `v*`** : publication avec tag semver en plus de `latest` et du SHA.
+
+Images publiées (exemple pour ce dépôt) :
+
+| Service | Image GHCR |
+| ------- | ---------- |
+| API | `ghcr.io/sonofogre666/agent-market-api` |
+| Web | `ghcr.io/sonofogre666/agent-market-web` |
+| Realtime | `ghcr.io/sonofogre666/agent-market-realtime` |
+| Worker Celery | `ghcr.io/sonofogre666/agent-market-ai-worker` |
+
+Tags typiques : `latest`, nom de branche, SHA du commit, et version semver sur tag Git.
+
+Suivi des runs : onglet **Actions** du dépôt GitHub.
+
+Variables optionnelles (repo → **Settings → Secrets and variables → Actions → Variables**) pour le build Next.js :
+
+- `NEXT_PUBLIC_API_URL`
+- `NEXT_REWRITE_API_URL`
+- `NEXT_PUBLIC_SC_HOST`
+- `NEXT_PUBLIC_SC_PORT`
+- `NEXT_PUBLIC_SC_SECURE`
+
+Sans ces variables, le build web utilise les valeurs locales par défaut (`http://localhost:4010`, etc.).
+
+---
+
+## Déploiement (images GHCR)
+
+La CI **publie** les images dans GHCR ; le **déploiement** consiste à les **télécharger et les lancer** sur une machine (PC, VPS, etc.).
+
+### Lancer la stack depuis les images CI
+
+1. Copier et configurer **`.env`** (voir Quick start §1).
+2. S’authentifier sur GHCR (packages **privés** par défaut) :
+
+```bash
+docker login ghcr.io
+# Utilisateur GitHub + Personal Access Token (scope read:packages)
+```
+
+3. Tirer et démarrer (Mongo/Redis restent les images publiques du `docker-compose.yml` de base) :
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.prebuilt.yml pull
+docker compose -f docker-compose.yml -f docker-compose.prebuilt.yml up -d
+```
+
+Épingler une version précise :
+
+```bash
+IMAGE_TAG=7b5b0f3 docker compose -f docker-compose.yml -f docker-compose.prebuilt.yml pull
+IMAGE_TAG=7b5b0f3 docker compose -f docker-compose.yml -f docker-compose.prebuilt.yml up -d
+```
+
+Le fichier **`docker-compose.prebuilt.yml`** remplace les blocs `build:` par les images GHCR ci-dessus.
+
+### Rendre les images téléchargeables par d’autres utilisateurs
+
+Par défaut, les packages GHCR peuvent être **privés**. Pour qu’un tiers puisse `docker pull` sans compte GitHub :
+
+1. GitHub → **Packages** → package `agent-market-*`
+2. **Package settings** → visibilité **Public**
+
+Même avec des images publiques, il faut toujours ce dépôt (ou au minimum `docker-compose.yml`, `.env.example` et `docker-compose.prebuilt.yml`) pour lancer toute la stack.
+
+> **Note :** la CI ne déploie pas automatiquement sur un serveur. Un déploiement auto (SSH, Watchtower, etc.) reste une étape optionnelle à ajouter.
 
 ---
 
