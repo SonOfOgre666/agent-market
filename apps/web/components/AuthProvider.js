@@ -11,7 +11,21 @@ export function AuthProvider({ children }) {
   useEffect(() => {
     const token = localStorage.getItem('agentmarket_token')
     if (token) {
-      api.me().then(u => { setUser(u); setLoading(false) }).catch(() => { setLoading(false) })
+      api.me()
+        .then((u) => {
+          if (!u?.id && !u?.email) {
+            localStorage.removeItem('agentmarket_token')
+            setUser(null)
+          } else {
+            setUser(u)
+          }
+          setLoading(false)
+        })
+        .catch(() => {
+          localStorage.removeItem('agentmarket_token')
+          setUser(null)
+          setLoading(false)
+        })
     } else {
       setLoading(false)
     }

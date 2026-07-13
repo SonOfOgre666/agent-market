@@ -70,6 +70,8 @@ export default async function authRoutes(app) {
   // GET /api/me
   app.get('/me', { preHandler: [authenticate] }, async (request, reply) => {
     const user = await User.findById(request.user.id)
+    if (!user) return reply.code(401).send({ error: 'User not found' })
+
     const workspaces = await Workspace.findByUserId(request.user.id)
     const workspace = workspaces.find(w => w._id.toString() === request.user.workspace_id) || workspaces[0] || null
     return reply.send({
