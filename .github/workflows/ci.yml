@@ -129,9 +129,13 @@ jobs:
 
       - name: Sync compose files
         run: |
+          STAGING=~/agent-market-staging
+          ssh -o StrictHostKeyChecking=accept-new "$REMOTE" "mkdir -p $STAGING"
           scp -o StrictHostKeyChecking=accept-new \
             docker-compose.yml docker-compose.prebuilt.yml \
-            "$REMOTE:$DEPLOY_PATH/"
+            "$REMOTE:$STAGING/"
+          ssh -o StrictHostKeyChecking=accept-new "$REMOTE" \
+            "sudo install -m 644 $STAGING/docker-compose.yml $STAGING/docker-compose.prebuilt.yml $DEPLOY_PATH/ && rm -rf $STAGING"
 
       - name: Deploy application
         env:
