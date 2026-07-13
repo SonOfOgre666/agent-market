@@ -9,15 +9,18 @@ on:
 permissions:
   contents: read
   packages: write
+  id-token: write
 
 jobs:
   api-syntax:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: "20"
+
       - name: Syntax check API
         run: |
           find apps/api/src -name '*.js' -print0 | xargs -0 -n1 node --check
@@ -26,23 +29,26 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: "3.12"
+
       - name: Install worker deps
         working-directory: services/ai-worker
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt pytest
+
       - name: Run pytest
         working-directory: services/ai-worker
-        run: python -m pytest tests/ -q --ignore=tests/test_competitive_intel.py
+        run: |
+          python -m pytest tests/ -q --ignore=tests/test_competitive_intel.py
 
   docker:
-    # On pull requests the images are only built (to catch Dockerfile/build
-    # regressions); they are pushed to GHCR only on main/master and v* tags.
     needs: [api-syntax, worker-tests]
     runs-on: ubuntu-latest
+
     strategy:
       fail-fast: false
       matrix:
@@ -55,6 +61,7 @@ jobs:
             context: services/realtime
           - name: ai-worker
             context: services/ai-worker
+
     steps:
       - uses: actions/checkout@v4
 
@@ -94,3 +101,49 @@ jobs:
             NEXT_PUBLIC_SC_HOST=${{ vars.NEXT_PUBLIC_SC_HOST || 'localhost' }}
             NEXT_PUBLIC_SC_PORT=${{ vars.NEXT_PUBLIC_SC_PORT || '8000' }}
             NEXT_PUBLIC_SC_SECURE=${{ vars.NEXT_PUBLIC_SC_SECURE || 'false' }}
+
+  deploy:
+    name: Deploy
+    needs: docker
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    environment: github-deploy
+
+    env:
+      SSH_OPTS: -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=no
+      REMOTE: ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}
+      DEPLOY_PATH: ${{ vars.DEPLOY_PATH || '/opt/agent-market' }}
+      IMAGE_TAG: latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Connect to Tailscale
+        uses: tailscale/github-action@v3
+        with:
+          authkey: ${{ secrets.TAILSCALE_AUTHKEY }}
+
+      - name: Install SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+
+      - name: Sync compose files
+        run: |
+          scp $SSH_OPTS docker-compose.yml docker-compose.prebuilt.yml "$REMOTE:$DEPLOY_PATH/"
+
+      - name: Deploy application
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_ACTOR: ${{ github.actor }}
+        run: |
+          ssh $SSH_OPTS "$REMOTE" bash -s <<EOF
+          set -euo pipefail
+          cd "$DEPLOY_PATH"
+          echo "$GITHUB_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          IMAGE_TAG=$IMAGE_TAG docker compose -f docker-compose.yml -f docker-compose.prebuilt.yml pull
+          IMAGE_TAG=$IMAGE_TAG docker compose -f docker-compose.yml -f docker-compose.prebuilt.yml up -d --remove-orphans
+          docker image prune -f
+          IMAGE_TAG=$IMAGE_TAG docker compose -f docker-compose.yml -f docker-compose.prebuilt.yml ps
+          EOF
