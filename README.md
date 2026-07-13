@@ -4,7 +4,7 @@ Plateforme **marketing multi-canal pilotée par l'IA** : réseaux sociaux, campa
 
 Chaque utilisateur travaille dans un **workspace** (JWT). Les clés IA (Gemini, OpenAI, Anthropic) se configurent **par workspace** dans l'interface web — pas dans `.env`.
 
----
+--- 
 
 ## Documentation
 
