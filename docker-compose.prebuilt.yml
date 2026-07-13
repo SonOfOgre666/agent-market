@@ -6,10 +6,14 @@ services:
   api:
     image: ghcr.io/sonofogre666/agent-market-api:${IMAGE_TAG:-latest}
     build: !reset null
+    volumes:
+      - ./uploads:/app/uploads
 
   celery-worker:
     image: ghcr.io/sonofogre666/agent-market-ai-worker:${IMAGE_TAG:-latest}
     build: !reset null
+    volumes:
+      - ./uploads:/data/uploads
 
   celery-beat:
     image: ghcr.io/sonofogre666/agent-market-ai-worker:${IMAGE_TAG:-latest}
