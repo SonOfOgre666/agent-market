@@ -110,7 +110,6 @@ jobs:
     environment: github-deploy
 
     env:
-      SSH_OPTS: -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=no
       REMOTE: ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}
       DEPLOY_PATH: ${{ vars.DEPLOY_PATH || '/opt/agent-market' }}
       IMAGE_TAG: latest
@@ -124,21 +123,22 @@ jobs:
           authkey: ${{ secrets.TAILSCALE_AUTHKEY }}
 
       - name: Install SSH key
-        run: |
-          mkdir -p ~/.ssh
-          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_ed25519
-          chmod 600 ~/.ssh/id_ed25519
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
 
       - name: Sync compose files
         run: |
-          scp $SSH_OPTS docker-compose.yml docker-compose.prebuilt.yml "$REMOTE:$DEPLOY_PATH/"
+          scp -o StrictHostKeyChecking=accept-new \
+            docker-compose.yml docker-compose.prebuilt.yml \
+            "$REMOTE:$DEPLOY_PATH/"
 
       - name: Deploy application
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_ACTOR: ${{ github.actor }}
         run: |
-          ssh $SSH_OPTS "$REMOTE" bash -s <<EOF
+          ssh -o StrictHostKeyChecking=accept-new "$REMOTE" bash -s <<EOF
           set -euo pipefail
           cd "$DEPLOY_PATH"
           echo "$GITHUB_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
