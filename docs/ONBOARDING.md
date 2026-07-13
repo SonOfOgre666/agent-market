@@ -1,6 +1,7 @@
 # Agent-Market — Guide d'onboarding développeur
 
-> **Dernière mise à jour** : Mars 2026
+> **Dernière mise à jour** : juillet 2026  
+> **Complément** : vue architecture runtime → **[ARCHITECTURE.md](ARCHITECTURE.md)** · démarrage rapide → **[README.md](../README.md)**
 
 ---
 
@@ -8,12 +9,13 @@
 
 Agent-Market est une **plateforme de gestion marketing cross-plateforme pilotée par l'IA**. Elle centralise dans une seule « tour de contrôle » :
 
-- La **gestion des réseaux sociaux** (LinkedIn, Instagram, TikTok, Facebook)
-- La **gestion des campagnes publicitaires** (Google Ads, SEA)
+- La **gestion des réseaux sociaux** (LinkedIn, Instagram, TikTok, Facebook, Twitter/X)
+- La **gestion des campagnes publicitaires** (Google Ads, Meta Ads)
 - L'**optimisation SEO/SEA automatisée par IA**
+- Un **agent IA conversationnel** (workflows multi-étapes, outils ads/SEO/contenu)
 - Le **suivi budgétaire** et des **KPIs en temps réel**
 
-L'objectif : automatiser toute la chaîne marketing — de la génération de contenu à l'optimisation des campagnes — via des agents IA connectés aux APIs des plateformes.
+Chaque utilisateur travaille dans un **workspace** (JWT). Les clés IA (Gemini, OpenAI, Anthropic, Ollama) se configurent **par workspace** dans l'UI — pas dans `.env`.
 
 ---
 
@@ -23,99 +25,87 @@ L'objectif : automatiser toute la chaîne marketing — de la génération de co
 
 | Techno | Version | Rôle |
 | ------ | ------- | ---- |
-| **Next.js** | 15.1.0 | Framework React SSR/SSG, routing, pages dynamiques |
-| **React** | 19.0.0 | UI components |
-| **SocketCluster Client** | 20.x | Connexion WebSocket temps réel |
-| **CSS pur** | — | Pas de Tailwind ni framework CSS, tout est dans `globals.css` |
+| **Next.js** | 15.3.x | App Router, pages dynamiques |
+| **React** | 19.0.0 | Composants UI |
+| **SocketCluster Client** | 20.x | WebSocket temps réel |
+| **CSS pur** | — | Styles dans `app/globals.css` (pas de Tailwind) |
 
 ### Backend API (`apps/api`)
 
 | Techno | Version | Rôle |
 | ------ | ------- | ---- |
-| **Fastify** | 5.1.0 | API REST haute performance |
-| **MongoDB** (driver natif) | 6.12.0 | Base de données principale (pas Mongoose) |
-| **ioredis** | 5.4.1 | Cache, queues, pub/sub événements |
-| **dotenv** | 16.4.5 | Variables d'environnement |
+| **Fastify** | 5.1.0 | API REST |
+| **MongoDB** (driver natif) | 6.12.0 | Base principale (pas Mongoose) |
+| **ioredis** | 5.4.1 | Cache, bridge Celery, pub/sub |
+| **sharp / fluent-ffmpeg** | — | Traitement média |
 
 ### Temps réel (`services/realtime`)
 
 | Techno | Version | Rôle |
 | ------ | ------- | ---- |
-| **SocketCluster Server** | 20.x | WebSocket bidirectionnel, broadcast d'événements |
-| **ioredis** | 5.4.1 | Souscription Redis pub/sub → relay vers les clients WS |
+| **SocketCluster Server** | 20.x | Relay WebSocket |
+| **ioredis** | 5.4.1 | Subscribe `EVENTS_CHANNEL` → broadcast |
 
 ### AI Worker (`services/ai-worker`)
 
 | Techno | Version | Rôle |
 | ------ | ------- | ---- |
-| **Python** | 3.11+ | Runtime worker |
-| **Celery** | 5.4.0 | File d'attente de tâches asynchrones |
-| **Redis** | 5.1.1 | Broker Celery |
-| **OpenAI SDK** | 1.68.2 | Génération de contenu, assets, analyse sémantique |
-| **Anthropic SDK** | 0.49.0 | Alternative IA (Claude) |
-| **PyMongo** | 4.10.1 | Accès MongoDB depuis Python |
-| **Requests** | 2.32.3 | Appels HTTP (LinkedIn API, etc.) |
+| **Python** | 3.11+ (CI 3.12) | Runtime worker |
+| **Celery** | 5.3.6 | File d'attente + Beat |
+| **Redis** | 5.0.1 | Broker |
+| **google-ads** | 28.x+ | API Google Ads |
+| **OpenAI / Anthropic SDK** | — | Génération LLM |
+| **PyMongo** | 4.6.1 | Accès MongoDB côté worker |
 
 ### Infrastructure
 
 | Techno | Rôle |
 | ------ | ---- |
-| **MongoDB 7** | Source de vérité (campagnes, posts, leads, métriques) |
-| **Redis 7** | Queue Celery + cache + event bridge (pub/sub) |
-| **Docker Compose** | Orchestration MongoDB + Redis en local |
+| **MongoDB 7** | Source de vérité |
+| **Redis 7** | Broker Celery + bridge API + pub/sub |
+| **Docker Compose** | Stack complète ou mongo/redis seuls |
 
 ---
 
 ## 3. Architecture du projet
 
 ```
-Agent-Market/
-├── .env                    # Variables d'env (SECRETS — jamais commiter)
-├── .env.example            # Template des variables requises
-├── docker-compose.yml      # MongoDB + Redis
-├── Makefile                # Raccourcis: up, down, dev, worker
-├── package.json            # Monorepo npm workspaces
+agent-market/
+├── .env / .env.example
+├── docker-compose.yml          # mongo, redis, api, web, realtime, celery-worker, celery-beat
+├── docker-compose.prebuilt.yml # images GHCR
+├── Makefile                    # up, down, dev, worker, beat, check
+├── start.sh / start_with_docker.sh
+├── package.json                # workspaces npm
 ├── apps/
-│   ├── api/                # API Fastify (port 4010)
+│   ├── api/                    # Fastify :4010
 │   │   └── src/
-│   │       ├── index.js    # Point d'entrée, registration des routes
-│   │       ├── lib/
-│   │       │   ├── mongo.js    # Singleton MongoClient
-│   │       │   ├── redis.js    # Singleton Redis (ioredis)
-│   │       │   └── events.js   # Helper : publish event Redis + log MongoDB
-│   │       └── routes/
-│   │           ├── health.js         # GET /api/health
-│   │           ├── social.js         # CRUD posts sociaux, scheduling, publication
-│   │           ├── ads.js            # Campagnes, keywords, landing pages, leads, optimization
-│   │           ├── integrations.js # OAuth LinkedIn/Instagram/TikTok/Google Ads
-│   │           └── dashboard.js      # GET /api/dashboard/overview (KPIs agrégés)
-│   └── web/                # Frontend Next.js (port 3000)
-│       └── app/
-│           ├── page.js         # Dashboard principal
-│           ├── layout.js       # Layout HTML racine
-│           ├── globals.css     # Styles globaux
+│   │       ├── index.js        # → server.js
+│   │       ├── registerRoutes.js
+│   │       ├── server.js       # plugins, listen
+│   │       ├── middleware/auth.js
+│   │       ├── lib/            # mongo, redis, events, celeryEnqueue, aiCeleryBridge…
+│   │       ├── models/         # Post, Campaign, Account, Workspace, AgentWorkflow…
+│   │       ├── providers/      # linkedin, twitter, meta, google_ads, tiktok…
+│   │       ├── routes/         # auth, posts, ads, agent, seo, ai, integrations…
+│   │       └── media/          # processor, downloader
+│   └── web/                    # Next.js :3000
+│       └── app/                # pages par module (posts, ads, agent, seo…)
 │           ├── components/
-│           │   └── LivePanel.js    # Widget temps réel (stats + event feed via WS)
-│           └── lp/[slug]/
-│               ├── page.js             # Landing page dynamique (SSR)
-│               ├── LeadCaptureForm.js    # Formulaire de capture de leads
-│               └── not-found.js          # 404 landing page
+│           └── lib/              # socket.js, helpers ads/SEO
 ├── services/
-│   ├── realtime/           # SocketCluster (port 8000)
-│   │   └── server.js       # Subscribe Redis → broadcast WS aux clients
-│   └── ai-worker/          # Python Celery
-│       ├── celery_app.py       # Config Celery + beat_schedule (cron tasks)
-│       ├── requirements.txt    # Dépendances Python
-│       ├── connectors/
-│       │   ├── google_ads.py   # Connector Google Ads (fallback mode actuellement)
-│       │   └── linkedin.py     # Connector LinkedIn (publication de posts)
-│       ├── tasks/
-│       │   ├── social.py       # Tâches : draft AI, publish scheduled, publish queue
-│       │   └── ads.py          # Tâches : keyword research, generate assets, landing pages, optimize
-│       └── prompts/            # (vide — à remplir avec les prompts IA)
+│   ├── realtime/               # SocketCluster :8000
+│   └── ai-worker/
+│       ├── celery_app.py       # broker + beat_schedule
+│       ├── connectors/         # google_ads/, meta_ads/, linkedin, twitter…
+│       ├── tasks/              # social/, ads/, seo/, agent/, imports/, bridge.py
+│       ├── lib/llm/            # router, gemini, openai, anthropic, ollama
+│       ├── lib/planner/        # agent planning, ads session
+│       ├── tools/ads/          # outils agent Google/Meta
+│       └── prompts/            # templates markdown par feature
 └── docs/
-    ├── ARCHITECTURE.md     # Vue d'ensemble architecture
-    └── ONBOARDING.md       # Ce fichier
+    ├── ONBOARDING.md           # ce fichier
+    └── ARCHITECTURE.md
 ```
 
 ---
@@ -128,23 +118,25 @@ Utilisateur (Dashboard Next.js)
         ▼
    API Fastify ──────── MongoDB (persist)
         │
-        ├── redis.lpush(queue:*) ──► Celery Worker (Python)
-        │                                    │
-        │                                    ├── OpenAI / Anthropic (génération)
-        │                                    ├── Google Ads API
-        │                                    ├── LinkedIn API
-        │                                    └── MongoDB (résultats)
+        ├── LPUSH CELERY_REDIS_LIST
+        │         │
+        │         ▼
+        │   Beat: bridge_api_celery_queue (toutes les 5s)
+        │         │
+        │         ▼
+        │   Celery Worker
+        │         ├── lib/llm/ (Gemini, OpenAI, Anthropic…)
+        │         ├── connectors/ (Google Ads, Meta, LinkedIn…)
+        │         └── GET /api/internal/worker/* (publish, bundles)
         │
-        └── redis.publish(events) ──► SocketCluster ──► Dashboard (live update)
+        └── redis.publish(EVENTS_CHANNEL) ──► SocketCluster ──► Dashboard
 ```
 
-1. L'utilisateur déclenche une action depuis le dashboard
-2. L'API Fastify persiste le job dans MongoDB
-3. L'API enqueue une tâche Celery via Redis
-4. Le worker Python exécute le job IA et stocke le résultat en MongoDB
-5. Le worker émet un événement Redis pub/sub
-6. SocketCluster relay l'événement aux clients WebSocket
-7. Le dashboard se met à jour en temps réel
+1. L'utilisateur déclenche une action (UI ou agent)
+2. L'API persiste l'état dans MongoDB
+3. L'API enqueue via `CELERY_REDIS_LIST` (ou round-trip sync pour `/api/ai/*`)
+4. Le worker exécute et rappelle l'API interne si nécessaire
+5. `publishEvent()` notifie le dashboard en temps réel
 
 ---
 
@@ -152,94 +144,172 @@ Utilisateur (Dashboard Next.js)
 
 | Collection | Contenu |
 | ---------- | ------- |
-| **`social_posts`** | Posts sociaux (draft, scheduled, published, queued) |
-| **`social_connections`** | Tokens OAuth par provider (LinkedIn, Instagram, TikTok, Google Ads) |
-| **`ads_campaigns`** | Campagnes publicitaires (budget, keywords, assets, landing pages) |
-| **`ads_keyword_research`** | Historique de recherches de mots-clés |
-| **`ads_leads`** | Leads capturés via les landing pages (avec UTM tracking) |
-| **`ads_metrics`** | Métriques de performance par campagne (CTR, CPC, ROI, ROAS) |
-| **`event_logs`** | Journal d'événements (audit trail) |
+| **`users`** | Comptes utilisateurs |
+| **`workspaces`** | Tenants, membres, rôles |
+| **`workspace_invites`** | Invitations en attente |
+| **`accounts`** | Comptes connectés (social + `google_ads` / `meta_ads`) |
+| **`posts`** | Posts sociaux (draft, scheduled, published) |
+| **`post_accounts`** | Liaison post ↔ comptes cibles |
+| **`post_comments`** | Commentaires synchronisés par plateforme |
+| **`social_comments`** | File d'analyse commentaires |
+| **`imported_posts`** | Historique importé (Twitter, etc.) |
+| **`media`** | Bibliothèque média |
+| **`metrics`**, **`audience`**, **`facebook_insights`** | Métriques par compte |
+| **`ads_campaigns`** | Campagnes publicitaires |
+| **`ads_landing_pages`** | Landing pages générées |
+| **`ads_leads`** | Leads capturés (UTM) |
+| **`ads_metrics`** | Snapshots performance campagne |
+| **`ads_keyword_research`** | Historique recherche mots-clés |
+| **`integrations`** | Config chiffrée (OAuth tokens, clés IA par workspace) |
+| **`ai_workspace_configs`** | Mapping feature → provider/modèle |
+| **`ai_catalog`** | Catalogue features IA (seed) |
+| **`ai_executions`** | Journal exécutions IA |
+| **`agent_conversations`** | Historique chat agent |
+| **`agent_workflows`** | Workflows planifiés / exécutés |
+| **`settings`** | Préférences workspace |
+| **`event_logs`** | Audit trail événements |
+| **`tags`** | Tags posts |
+
+Modèles : `apps/api/src/models/*.js` · index : `apps/api/src/lib/mongo.js`.
 
 ---
 
 ## 6. Intégrations plateformes (OAuth)
 
-| Plateforme | Statut | Endpoints |
+| Plateforme | Statut | Connexion |
 | ---------- | ------ | --------- |
-| **LinkedIn** | Connecteur + OAuth fonctionnels | `/api/integrations/linkedin/connect`, `callback`, `urn`, `status` |
-| **Instagram (Meta)** | OAuth wired, tokens à configurer | `/api/integrations/instagram/connect`, `callback` |
-| **TikTok** | OAuth wired, tokens à configurer | `/api/integrations/tiktok/connect`, `callback` |
-| **Google Ads** | OAuth + worker Celery (API Google Ads réelle) | `/api/accounts` + agent tools `google_*` |
-| **Facebook / Meta** | OAuth + publish Graph API | `/api/accounts` |
+| **LinkedIn** | Implémenté | `/api/integrations/linkedin/connect` |
+| **Instagram (Meta)** | Implémenté | `/api/integrations/instagram/connect` |
+| **Instagram Login** | Implémenté | flux direct sans page Facebook |
+| **TikTok** | Implémenté | `/api/integrations/tiktok/connect` |
+| **Twitter/X** | Implémenté | `/api/integrations/twitter/connect` |
+| **Facebook Page** | Implémenté | `/callback/facebook_page` |
+| **Meta Ads** | Implémenté | `/callback/meta_ads` + comptes ads |
+| **Google Ads** | Implémenté | `/api/integrations/google-ads/connect` ou `/callback/google_ads` |
 
-**Diagnostic complet** : `GET /api/integrations/diagnostics`
+**Diagnostic** : `GET /api/integrations/diagnostics` (JWT workspace)
+
+Callbacks et variables : voir **README.md** § OAuth et `.env.example`.
 
 ---
 
-## 7. API Endpoints (canonical)
+## 7. API Endpoints (référence)
 
-### Social (workspace JWT)
+> Toutes les routes ci-dessous sous `/api` exigent un **JWT workspace** sauf mention contraire.
 
-| Méthode | Route | Description |
-| ------- | ----- | ----------- |
-| `GET/POST/PATCH` | `/api/posts` | Posts CRUD (collection `posts`) |
-| `POST` | `/api/posts/:id/publish` | Publier via Celery `tasks.social.publish_post` |
-| `POST` | `/api/posts/:id/schedule` | Planifier un post |
-| `POST` | `/api/posts/comments/analyze` | Analyser un commentaire (LLM) |
-
-### SEO & calendrier éditorial
+### Auth & workspace
 
 | Méthode | Route | Description |
 | ------- | ----- | ----------- |
-| `POST` | `/api/seo/keywords/cluster` | Clustering de mots-clés |
-| `POST` | `/api/seo/keywords/check-ranks` | Suivi SERP |
-| `GET` | `/api/seo/landing-pages/audit` | Audit SEO landing pages |
+| `POST` | `/api/login`, `/api/register` | Auth |
+| `GET` | `/api/me` | Utilisateur courant |
+| `POST` | `/api/switch-workspace` | Changer de workspace actif |
+| `GET/PATCH` | `/api/workspace` | Détail / mise à jour workspace |
+| `POST` | `/api/workspace/invite` | Inviter un membre |
+
+### Posts & calendrier
+
+| Méthode | Route | Description |
+| ------- | ----- | ----------- |
+| `GET/POST/PATCH` | `/api/posts` | CRUD posts |
+| `POST` | `/api/posts/:id/publish` | Publier via `tasks.social.publish_post` |
+| `POST` | `/api/posts/:id/schedule` | Planifier |
 | `POST` | `/api/calendar/suggestions/generate` | Suggestions calendrier IA |
+
+### Commentaires
+
+| Méthode | Route | Description |
+| ------- | ----- | ----------- |
+| `POST` | `/api/posts/comments/analyze` | Analyse LLM |
+| Routes | `/api/social-comments/*` | Sync et gestion commentaires |
+
+### SEO
+
+| Méthode | Route | Description |
+| ------- | ----- | ----------- |
+| `POST` | `/api/seo/keywords/cluster` | Clustering mots-clés |
+| `POST` | `/api/seo/keywords/check-ranks` | Suivi SERP |
+| `GET` | `/api/seo/landing-pages/audit` | Audit landing pages |
+
+### Ads (Google + Meta)
+
+| Méthode | Route | Description |
+| ------- | ----- | ----------- |
+| `POST` | `/api/ads/keywords/suggest` | Suggestion mots-clés |
+| `GET/POST` | `/api/ads/campaigns` | CRUD campagnes |
+| `POST` | `/api/ads/campaigns/:id/generate-assets` | Assets RSA |
+| `POST` | `/api/ads/campaigns/:id/generate-landing-page` | Landing page |
+| `POST` | `/api/ads/campaigns/:id/optimize` | Optimisation KPI |
+| `POST` | `/api/ads/budget/pacing` | Pacing budgétaire |
+| `POST` | `/api/ads/budget/reallocation` | Réallocation |
+| `POST` | `/api/ads/optimization/bid` | Enchères CPA/ROAS |
+| `GET` | `/api/ads/optimization/quality-score` | Quality Score |
+| `POST` | `/api/ads/optimization/asset-ab` | A/B annonces |
+| `GET` | `/api/ads/reports/kpi-pdf` | Rapport PDF |
+| `POST` | `/api/ads/negative-keywords/suggest` | Mots-clés négatifs |
 | `POST` | `/api/ads/competitive-analysis` | Analyse concurrentielle |
+| `POST` | `/api/ads/google-ads/sync` | Sync campagnes Google |
+| `GET/POST` | `/api/ads/landing-pages`, `/api/ads/leads` | Landing pages & leads |
 
-### Ads (Google Ads + Meta)
-
-| Méthode | Route | Description |
-| ------- | ----- | ----------- |
-| `POST` | `/api/ads/keywords/suggest` | Suggestion de mots-clés (LLM + Keyword Planner) |
-| `POST` | `/api/ads/campaigns` | Créer une campagne |
-| `GET` | `/api/ads/campaigns` | Lister les campagnes |
-| `POST` | `/api/ads/campaigns/:id/generate-assets` | Générer les assets (titres, descriptions) |
-| `POST` | `/api/ads/campaigns/:id/generate-landing-page` | Générer une landing page |
-| `POST` | `/api/ads/campaigns/:id/optimize` | Analyse KPI + suggestions (même logique que Budget) |
-| `POST` | `/api/ads/budget/pacing` | Analyse pacing budgétaire |
-| `POST` | `/api/ads/budget/reallocation` | Recommandations de réallocation |
-| `POST` | `/api/ads/optimization/bid` | Recommandations d'enchères CPA/ROAS |
-| `GET` | `/api/ads/optimization/quality-score` | Monitoring Quality Score |
-| `POST` | `/api/ads/optimization/asset-ab` | Analyse A/B des annonces |
-| `GET` | `/api/ads/reports/kpi-pdf` | Rapport KPI PDF |
-| `POST` | `/api/ads/negative-keywords/suggest` | Suggestions de mots-clés négatifs |
-| `GET` | `/api/ads/landing-pages` | Lister les landing pages |
-| `GET` | `/api/ads/landing-pages/:slug` | Voir une landing page |
-| `POST` | `/api/ads/landing-pages/:slug/lead` | Capturer un lead (avec UTM) |
-| `GET` | `/api/ads/leads` | Lister les leads |
-
-### Dashboard
+### Agent IA
 
 | Méthode | Route | Description |
 | ------- | ----- | ----------- |
-| `GET` | `/api/dashboard` | KPIs workspace (posts + ads + leads) |
+| `GET` | `/api/agent/conversations`, `/api/agent/workflows` | Historique |
+| `POST` | `/api/agent/chat` | Message → plan workflow |
+| `POST` | `/api/agent/chat/complete` | Complétion synchrone |
+| `POST` | `/api/agent/workflows/:id/approve` | Approuver le plan |
+| `POST` | `/api/agent/workflows/:id/execute` | Exécuter |
+| `POST` | `/api/agent/workflows/:id/cancel` | Annuler |
+| `GET` | `/api/agent/jobs/:jobId` | Poll job Celery |
+
+### IA synchrone & config workspace
+
+| Méthode | Route | Description |
+| ------- | ----- | ----------- |
+| `POST` | `/api/ai/generate-post`, `/api/ai/generate-image`, … | Génération contenu |
+| `GET` | `/api/ai/jobs/:jobId` | Poll résultat |
+| `GET` | `/api/ai/workspace` | Config IA workspace (admin) |
+| `PUT` | `/api/ai/providers/:name` | Connecter un provider |
+| `GET` | `/api/ai/catalog` | Catalogue features |
+
+### Dashboard & divers
+
+| Méthode | Route | Description |
+| ------- | ----- | ----------- |
+| `GET` | `/api/dashboard` | KPIs workspace |
+| `GET` | `/api/health` | Santé Mongo + Redis (sans JWT) |
+| `GET/POST` | `/api/media` | Bibliothèque média |
+| `GET/POST` | `/api/accounts` | Comptes connectés |
+
+Catalogue complet des routes : `apps/api/src/registerRoutes.js`.
 
 ---
 
 ## 8. Celery Beat (tâches planifiées)
 
-| Tâche | Fréquence | Rôle |
-| ----- | --------- | ---- |
-| `scheduler.tick_due_posts` | Chaque 60s | Publie les posts planifiés (`tasks.social.publish_post`) |
-| `scheduler.tick_due_campaigns` | Chaque 60s | Publie les campagnes ads planifiées |
-| `generate-content-suggestions` | Quotidien 07:00 UTC | Suggestions calendrier IA par workspace actif |
-| `optimize-active-campaigns` | Chaque heure :30 | Optimisation KPI (service `runCampaignOptimization`) |
-| `scheduler.hourly_budget_pacing` | Chaque heure :15 | Pacing budgétaire workspace |
-| `scheduler.hourly_bid_optimization` | Chaque heure :45 | Recommandations d'enchères CPA/ROAS |
-| `scheduler.daily_negative_keyword_review` | Quotidien 07:30 UTC | Revue search terms → negatives |
-| `scheduler.weekly_report_monday_8utc` | Lundi 08:00 UTC | Snapshots rapport KPI |
-| `scheduler.ads_platform_sync_daily` | Quotidien 06:00 UTC | Sync Google/Meta campagnes |
+Source : `services/ai-worker/celery_app.py`
+
+| Tâche Beat | Fréquence | Rôle |
+| ---------- | --------- | ---- |
+| `tasks.bridge_api_celery_queue` | 5s | Pont `CELERY_REDIS_LIST` → broker Celery |
+| `tasks.scheduler.tick_due_posts` | 60s | Publie posts planifiés |
+| `tasks.scheduler.tick_due_campaigns` | 60s | Publie campagnes planifiées |
+| `tasks.scheduler.tick_comment_sync` | 15 min | Sync commentaires |
+| `tasks.optimize_active_campaigns` | :30 chaque heure | Optimisation campagnes actives |
+| `tasks.scheduler.hourly_import_followers` | :00 chaque heure | Import followers |
+| `tasks.scheduler.six_hourly_twitter_posts` | toutes les 6h | Import posts Twitter |
+| `tasks.scheduler.hourly_budget_alerts` | :00 | Alertes budget |
+| `tasks.scheduler.hourly_budget_pacing` | :15 | Pacing budgétaire |
+| `tasks.scheduler.hourly_bid_optimization` | :45 | Optimisation enchères |
+| `tasks.scheduler.daily_negative_keyword_review` | 07:30 UTC | Revue search terms |
+| `tasks.scheduler.daily_metrics_midnight_utc` | 00:00 UTC | Agrégation métriques |
+| `tasks.scheduler.daily_delete_old_imports` | 04:00 UTC | Purge imports anciens |
+| `tasks.scheduler.daily_prune_upload_tmp` | 03:00 UTC | Nettoyage uploads temp |
+| `tasks.scheduler.weekly_report_monday_8utc` | lundi 08:00 UTC | Snapshots rapport KPI |
+| `tasks.scheduler.ads_platform_sync_daily` | 06:00 UTC | Sync Google/Meta |
+
+Beat optionnel via `.env` : `ADS_PACING_AUTO_PAUSE`, `ADS_BID_AUTO_APPLY`.
 
 ---
 
@@ -270,7 +340,7 @@ Utilisateur (Dashboard Next.js)
 | Fonctionnalité | État |
 | -------------- | ---- |
 | Clustering keywords IA | Implémenté |
-| Suivi positions SERP | Implémenté (scrape DuckDuckGo — pas d'API SERP payante) |
+| Suivi positions SERP | Implémenté (scrape DuckDuckGo) |
 | Audit landing pages | Partiel — règles Mongo, pas de crawl live |
 | Crawl technique complet (CWV, sitemap, liens) | À venir |
 
@@ -278,10 +348,10 @@ Utilisateur (Dashboard Next.js)
 
 | Fonctionnalité | État |
 | -------------- | ---- |
-| Calendrier éditorial IA | Implémenté |
+| Calendrier éditorial IA | Implémenté (on-demand via `/api/calendar`) |
 | RSA / landing page copy | Implémenté (LLM requis) |
 | Analyse concurrentielle | Implémenté |
-| Génération visuels DALL-E | Partiel — via `generate_image` agent |
+| Génération visuels / vidéo | Partiel — via agent et `/api/ai/generate-*` |
 
 ### 9.5 — Budget & KPIs
 
@@ -305,46 +375,28 @@ Utilisateur (Dashboard Next.js)
 
 ## 10. Setup local (Quick Start)
 
+Voir aussi **[README.md](../README.md)** pour le guide condensé.
+
 ### Prérequis
 
-- Node.js 20+
-- Python 3.11+
-- Docker + Docker Compose
+- Node.js 20+, Python 3.11+, Docker Compose
+- ffmpeg/ffprobe pour le traitement média
 
 ### Installation
 
 ```bash
-# 1. Cloner et entrer dans le projet
-cd Agent-Market
-
-# 2. Copier les variables d'environnement
 cp .env.example .env
-# → Remplir les clés API dans .env
+# Renseigner MONGODB_URI, REDIS_*, JWT_SECRET, APP_KEY, WORKER_API_SECRET, INTERNAL_API_URL
 
-# 3. Lancer MongoDB + Redis
+# Option A — stack complète Docker
 docker compose up -d
 
-# 4. Installer les dépendances Node (monorepo)
+# Option B — infra seule + dev local
+docker compose up -d mongo redis
 npm install
-
-# 5. Lancer les 3 services Node (API + Web + Realtime)
-npm run dev
-# ou individuellement :
-# npm run dev:api → http://localhost:4010
-# npm run dev:web → http://localhost:3000
-# npm run dev:realtime → ws://localhost:8000
-
-# 6. Installer les dépendances Python
-cd services/ai-worker
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-
-# 7. Lancer le worker Celery
-celery -A celery_app.celery_app worker -l info
-
-# 8. Lancer le scheduler Celery Beat (dans un autre terminal)
-celery -A celery_app.celery_app beat -l info
+npm run dev          # API :4010, Web :3000, Realtime :8000
+make worker          # terminal 2
+make beat            # terminal 3
 ```
 
 ### Ports
@@ -362,40 +414,65 @@ celery -A celery_app.celery_app beat -l info
 ```bash
 make up      # docker compose up -d
 make down    # docker compose down
-make dev     # npm run dev (tous les services Node)
-make worker  # lance le Celery worker
+make dev     # npm run dev
+make worker  # Celery worker
+make beat    # Celery beat
+make check   # syntaxe API + compileall Python
+```
+
+### Scripts tunnels OAuth
+
+```bash
+./start_with_docker.sh   # Docker + ngrok/cloudflared
+./start.sh               # npm local + Celery + tunnels
 ```
 
 ---
 
-## 11. Variables d'environnement requises
+## 11. Variables d'environnement
 
-Voir `.env.example` pour la liste complète. Les principales :
+Liste complète : **`.env.example`**.
+
+### Obligatoires (local)
 
 | Variable | Description |
 | -------- | ----------- |
-| `MONGO_URL` | URL MongoDB |
-| `REDIS_URL` | URL Redis |
-| `API_PORT` | Port API (défaut: 4010) |
-| `SC_PORT` | Port SocketCluster (défaut: 8000) |
-| `OPENAI_API_KEY` | Clé OpenAI pour la génération IA |
-| `ANTHROPIC_API_KEY` | Clé Anthropic (Claude) |
-| `LINKEDIN_CLIENT_ID` / `SECRET` | OAuth LinkedIn |
-| `INSTAGRAM_APP_ID` / `SECRET` | OAuth Instagram (Meta) |
-| `TIKTOK_CLIENT_KEY` / `SECRET` | OAuth TikTok |
-| `GOOGLE_ADS_*` | Credentials Google Ads |
+| `MONGODB_URI` | URI MongoDB |
+| `REDIS_HOST`, `REDIS_PORT`, `REDIS_PASSWORD` | Redis |
+| `JWT_SECRET` | Secret JWT |
+| `APP_KEY` | Chiffrement `integrations` (32 premiers caractères) |
+| `WORKER_API_SECRET` | Auth worker → `/api/internal/worker/*` |
+| `INTERNAL_API_URL` | URL API vue par le worker |
+
+### Celery & ads
+
+| Variable | Description |
+| -------- | ----------- |
+| `CELERY_REDIS_LIST` | Liste Redis pont API → worker (défaut `agentmarket:api_task_bridge`) |
+| `LEGACY_API_EXECUTION_ADS` | `0` = ads via Celery (recommandé) |
+| `ADS_PACING_AUTO_PAUSE` | Beat : pause auto campagnes en dépassement |
+| `ADS_BID_AUTO_APPLY` | Beat : application auto enchères sûres |
+
+### IA (par workspace — pas dans `.env`)
+
+Les clés `GEMINI_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY` ne vont **pas** dans `.env`. Les configurer dans l'UI (**Settings → AI**) ; stockage chiffré dans `integrations`.
+
+### OAuth (selon plateformes)
+
+`LINKEDIN_*`, `INSTAGRAM_*`, `TIKTOK_*`, `TWITTER_*`, `META_*`, `GOOGLE_ADS_*` — voir `.env.example`.
 
 ---
 
 ## 12. Conventions de code
 
-- **Backend Node** : ES Modules (`import`/`export`), pas de TypeScript
-- **Frontend** : Next.js App Router, CSS pur (pas de framework CSS)
+- **Backend Node** : ES Modules, pas de TypeScript
+- **Frontend** : Next.js App Router, CSS pur
 - **Python** : PEP 8, type hints recommandés
-- **Base de données** : MongoDB driver natif (pas d'ODM type Mongoose)
-- **Événements** : tout passe par Redis pub/sub → SocketCluster
-- **Queues** : jobs Celery via Redis broker (`enqueueCeleryTask` / `send_task`) — pas de drainers Redis list séparés
+- **Base de données** : driver MongoDB natif (modèles dans `apps/api/src/models/`)
+- **Événements** : Redis pub/sub → SocketCluster (`lib/events.js`)
+- **Queues** : Celery uniquement — `enqueueCeleryTask()` LPUSH sur `CELERY_REDIS_LIST`, drainé par Beat
+- **Publish posts** : worker appelle l'API interne, pas de mutation directe Mongo côté worker pour les posts
 
 ---
 
-_Document généré pour l'onboarding — à maintenir à jour au fur et à mesure de l'avancement du projet._
+_Document d'onboarding — à maintenir avec le code (routes, collections, beat schedule)._
