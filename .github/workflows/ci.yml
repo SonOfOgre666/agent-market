@@ -145,6 +145,11 @@ jobs:
           ssh -o StrictHostKeyChecking=accept-new "$REMOTE" bash -s <<EOF
           set -euo pipefail
           cd "$DEPLOY_PATH"
+          if [ ! -d apps/api/uploads ] || [ ! -w apps/api/uploads ]; then
+            rm -rf apps
+            mkdir -p apps/api/uploads
+            chown -R "\$(id -u):\$(id -g)" apps/api/uploads
+          fi
           echo "$GITHUB_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
           IMAGE_TAG=$IMAGE_TAG docker compose -f docker-compose.yml -f docker-compose.prebuilt.yml pull
           IMAGE_TAG=$IMAGE_TAG docker compose -f docker-compose.yml -f docker-compose.prebuilt.yml up -d --remove-orphans
