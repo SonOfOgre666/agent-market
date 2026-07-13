@@ -1,33 +1,59 @@
 # Agent Market
 
-Monorepo **marketing multi-canal** : publication sociale, campagnes publicitaires (Google Ads, Meta), génération IA (Gemini via worker Celery), dashboard Next.js, temps réel SocketCluster.
+Plateforme **marketing multi-canal pilotée par l'IA** : réseaux sociaux, campagnes publicitaires (Google Ads, Meta), SEO, agent IA conversationnel, génération de contenu (LLM via worker Celery), dashboard Next.js et temps réel SocketCluster.
 
-## Documentation (source de vérité)
+Chaque utilisateur travaille dans un **workspace** (JWT). Les clés IA (Gemini, OpenAI, Anthropic) se configurent **par workspace** dans l'interface web — pas dans `.env`.
+
+---
+
+## Documentation
 
 | Document | Contenu |
 | -------- | ------- |
-| **[Rules/ARCHITECTURE_RULES.md](Rules/ARCHITECTURE_RULES.md)** | Règles strictes des couches (API, worker Celery, connecteurs, temps réel). |
-| **[Rules/CLEAN_ARCHITECTURE_ROADMAP.md](Rules/CLEAN_ARCHITECTURE_ROADMAP.md)** | Roadmap d’alignement repo (phases P0–P5, persistence, événements, LLM `lib/llm/`). |
-| **[docs/ONBOARDING.md](docs/ONBOARDING.md)** | Stack, architecture, **référence détaillée par zone** (API, web, worker, collections Mongo), setup local. |
-| **[docs/FILE_INDEX.md](docs/FILE_INDEX.md)** | **Inventaire d’un fichier → une ligne d’explication** pour les chemins importants du dépôt (hors `node_modules`, caches, etc.) — **maintenu à la main**. |
-| **[docs/MIGRATION_PLAN.md](docs/MIGRATION_PLAN.md)** | Exécution **Celery-only** : pont Redis, Beat, suppression du worker Node BLPOP. |
-| **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** | Vue des composants runtime. |
-| **[docs/api_postman_collection.json](docs/api_postman_collection.json)** | Collection Postman pour l’API. |
+| **[docs/ONBOARDING.md](docs/ONBOARDING.md)** | Stack, architecture, collections MongoDB, endpoints API, état d'avancement des fonctionnalités, setup local détaillé. |
+| **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** | Vue des composants runtime et flux de données. |
 
-Le **README** ci-dessous résume le démarrage ; le détail des fichiers et du produit est dans les liens ci-dessus.
+Le **README** ci-dessous résume le produit et le démarrage. Le détail API, worker et collections est dans **ONBOARDING**.
+
+---
+
+## Fonctionnalités (aperçu)
+
+| Module | Web (`apps/web/app/`) | API (`apps/api/src/routes/`) | Worker Celery (`services/ai-worker/tasks/`) |
+| ------ | --------------------- | ---------------------------- | ------------------------------------------- |
+| **Auth & workspaces** | `login`, `register`, `team` | `auth.js`, `workspace.js` | — |
+| **Posts sociaux** | `posts/`, `calendar/` | `posts.js`, `calendar.js` | `social/` (publish, schedule, comments) |
+| **Comptes & OAuth** | `accounts/`, `integrations/` | `accounts.js`, `integrations.js`, `callback.js` | `imports/` (followers, insights, media) |
+| **Médias** | `media/` | `media.js` | — |
+| **Ads (Google + Meta)** | `ads/` (campagnes, perf, leads, landing pages) | `ads.js` | `ads/` (publish, sync, reporting, tools) |
+| **SEO** | `seo/` | `seo.js` | `seo/` (cluster, rank check, audit) |
+| **Agent IA** | `agent/` | `agent.js` | `agent/` (plan, execute workflow) |
+| **IA synchrone** | `ai-providers/`, `ai-integrations/` | `ai.js`, `aiWorkspace.js` | `ai/` (gemini_sync) |
+| **Budget & rapports** | `budget/`, `reports/` | `ads.js`, `reports.js`, `dashboard.js` | schedulers Beat |
+| **Landing pages** | `landing-pages/`, `lp/[slug]/` | `ads.js` | — |
+| **Leads** | `leads/` | `ads.js` | — |
+| **Paramètres** | `profile/`, `preferences/` | `profile.js`, `settings.js`, `system.js` | — |
+| **Commentaires sociaux** | (dans posts) | `socialComments.js` | `social/analyze_post_comment`, `reply_to_comment` |
+| **Temps réel** | dashboard, `RealtimeProvider` | `lib/events.js` | événements via Redis pub/sub |
+
+Diagnostic intégrations : `GET /api/integrations/diagnostics` (JWT workspace).
 
 ---
 
 ## Structure du dépôt
 
-| Dossier | Rôle |
-| ------- | ---- |
-| `apps/web` | Interface **Next.js** (App Router, CSS global). |
+| Dossier / fichier | Rôle |
+| ----------------- | ---- |
+| `apps/web` | Interface **Next.js 15** (App Router, CSS global). |
 | `apps/api` | API **Fastify** : CRUD, auth JWT, enqueue **Celery** via liste Redis `CELERY_REDIS_LIST`. |
 | `services/realtime` | **SocketCluster** : relais Redis pub/sub → WebSocket. |
-| `services/ai-worker` | **Celery** (worker + logique Beat dans `celery_app.py`) : publish, imports, métriques, Gemini, schedulers. |
-| `docs/` | Guides, politiques, index de fichiers, Postman. |
-| `scripts/` | Utilitaires (ex. **`get-meta-credentials.js`** Meta). |
+| `services/ai-worker` | **Celery** (worker + Beat dans `celery_app.py`) : publish, imports, métriques, LLM, schedulers. |
+| `docs/` | Guides développeur (`ONBOARDING.md`, `ARCHITECTURE.md`). |
+| `scripts/` | Utilitaires (ex. `get-meta-credentials.js` pour Meta). |
+| `start.sh` | Démarrage local complet sans Docker app (npm + Celery + tunnels ngrok/cloudflared pour OAuth). |
+| `start_with_docker.sh` | `docker compose up -d` + tunnels pour callbacks OAuth distants. |
+| `Makefile` | Raccourcis : `up`, `down`, `dev`, `worker`, `beat`, `check`. |
+| `UML/` | Diagrammes PlantUML (architecture, séquences). |
 | `.github/workflows/` | Pipeline **CI/CD** (tests, build Docker, publication GHCR). |
 
 ---
@@ -37,6 +63,7 @@ Le **README** ci-dessous résume le démarrage ; le détail des fichiers et du p
 - Node.js **20+**
 - Python **3.11+** (CI utilise **3.12**)
 - Docker + Docker Compose (recommandé)
+- **ffmpeg** / **ffprobe** (traitement média, voir `.env.example`)
 
 ---
 
@@ -46,16 +73,36 @@ Le **README** ci-dessous résume le démarrage ; le détail des fichiers et du p
 
 ```bash
 cp .env.example .env
-# Éditer .env : MONGODB_URI, REDIS_*, JWT_SECRET, APP_KEY, GEMINI_API_KEY, clés OAuth…
 ```
 
+Variables **obligatoires** en local :
+
+| Variable | Rôle |
+| -------- | ---- |
+| `MONGODB_URI` | MongoDB (local Docker ou Atlas) |
+| `REDIS_HOST`, `REDIS_PORT`, `REDIS_PASSWORD` | Redis (broker Celery + cache + événements) |
+| `JWT_SECRET` | Auth API (ex. `openssl rand -base64 48`) |
+| `APP_KEY` | Chiffrement config services (32 premiers caractères ; identique côté worker) |
+| `WORKER_API_SECRET` | Secret worker → API (ex. `openssl rand -hex 24`) |
+| `INTERNAL_API_URL` | URL API vue par le worker (`http://127.0.0.1:4010` en local ; `http://api:4010` en Docker) |
+
+Variables **OAuth** selon les plateformes à connecter : voir section [OAuth](#oauth--redirect-uris-exemples-locaux) et `.env.example`.
+
+> **IA :** ne pas mettre `GEMINI_API_KEY`, `OPENAI_API_KEY` ou `ANTHROPIC_API_KEY` dans `.env`. Les configurer dans l'UI : **Settings → AI** (par workspace).
+
 ### 2. Infrastructure
+
+**Stack complète en Docker** (MongoDB, Redis, api, web, realtime, celery-worker, celery-beat) :
 
 ```bash
 docker compose up -d
 ```
 
-Lève **MongoDB**, **Redis**, et la stack applicative (**api**, **web**, **realtime**, **celery-worker**, **celery-beat**) selon votre `docker-compose.yml`.
+**Infra seule** (Mongo + Redis) pour développer l'app en local avec `npm run dev` :
+
+```bash
+docker compose up -d mongo redis
+```
 
 ### 3. Dépendances Node
 
@@ -66,38 +113,50 @@ npm run dev
 
 Lance **API** (:4010), **Web** (:3000), **Realtime** (:8000) (voir `package.json` racine).
 
-### 4. Celery (obligatoire pour publish, imports, `/api/ai/*`)
+### 4. Celery (obligatoire pour publish, imports, `/api/ai/*`, agent)
 
-Renseigner dans **`.env`** au minimum **`WORKER_API_SECRET`** (≥ 8 caractères, ex. `openssl rand -hex 24`) et **`INTERNAL_API_URL`** (`http://127.0.0.1:4010` en local). Sans cela, la publication des posts (`tasks.social.publish_post`) et le beat **`tick_due_posts`** ne peuvent pas appliquer les changements via l’API.
+Sans **`WORKER_API_SECRET`** + **`INTERNAL_API_URL`**, la publication des posts (`tasks.social.publish_post`) et le beat `tick_due_posts` échouent.
 
-Depuis la **racine** du dépôt :
+**Avec Docker** : `celery-worker` et `celery-beat` sont déjà dans `docker compose up -d`.
+
+**Sans Docker app** — depuis la racine :
 
 ```bash
 make worker
 make beat
 ```
 
-Équivalent manuel (après `python3 -m venv .venv` + `pip install -r requirements.txt` dans `services/ai-worker`) :
+Équivalent manuel :
 
 ```bash
 cd services/ai-worker
-source .venv/bin/activate
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
 celery -A celery_app:celery_app worker -l info
 # autre terminal :
 celery -A celery_app:celery_app beat -l info
 ```
 
-> **`npm run worker` dans `apps/api` est volontairement inop** : l’exécution des jobs se fait uniquement dans **Celery**.
+> L'exécution des jobs se fait **uniquement dans Celery** (pas de worker Node BLPOP).
 
-### 5. Vérification locale (sans Docker)
+### 5. Scripts de démarrage (optionnel)
 
-Contrôle syntaxique rapide (équivalent partiel du job CI `api-syntax` + compileall Python) :
+Pour OAuth avec tunnels publics (ngrok / cloudflared) :
 
 ```bash
-make check
+./start_with_docker.sh   # Docker stack + tunnels
+./start.sh               # npm local + Celery + tunnels (Mongo/Redis requis)
 ```
 
-Tests worker (équivalent du job CI `worker-tests`) :
+Voir les commentaires en tête de chaque script pour les prérequis.
+
+### 6. Vérification locale
+
+```bash
+make check   # syntaxe JS API + compileall Python worker
+```
+
+Tests worker (équivalent CI `worker-tests`) :
 
 ```bash
 cd services/ai-worker
@@ -110,7 +169,7 @@ python -m pytest tests/ -q --ignore=tests/test_competitive_intel.py
 
 ## CI/CD
 
-Le workflow **`.github/workflows/ci.yml`** s’exécute sur chaque **push** vers `main` / `master`, sur les **tags** `v*`, et sur les **pull requests**.
+Le workflow **`.github/workflows/ci.yml`** s'exécute sur chaque **push** vers `main` / `master`, sur les **tags** `v*`, et sur les **pull requests**.
 
 | Job | Rôle |
 | --- | ---- |
@@ -120,11 +179,9 @@ Le workflow **`.github/workflows/ci.yml`** s’exécute sur chaque **push** vers
 
 Comportement :
 
-- **Pull request** : build des images uniquement (pas de push) — détecte les régressions Dockerfile.
+- **Pull request** : build des images uniquement (pas de push).
 - **Push sur `main`** : build **et publication** sur **GitHub Container Registry (GHCR)**.
 - **Tag `v*`** : publication avec tag semver en plus de `latest` et du SHA.
-
-Images publiées (exemple pour ce dépôt) :
 
 | Service | Image GHCR |
 | ------- | ---------- |
@@ -133,96 +190,89 @@ Images publiées (exemple pour ce dépôt) :
 | Realtime | `ghcr.io/sonofogre666/agent-market-realtime` |
 | Worker Celery | `ghcr.io/sonofogre666/agent-market-ai-worker` |
 
-Tags typiques : `latest`, nom de branche, SHA du commit, et version semver sur tag Git.
-
-Suivi des runs : onglet **Actions** du dépôt GitHub.
-
-Variables optionnelles (repo → **Settings → Secrets and variables → Actions → Variables**) pour le build Next.js :
-
-- `NEXT_PUBLIC_API_URL`
-- `NEXT_REWRITE_API_URL`
-- `NEXT_PUBLIC_SC_HOST`
-- `NEXT_PUBLIC_SC_PORT`
-- `NEXT_PUBLIC_SC_SECURE`
-
-Sans ces variables, le build web utilise les valeurs locales par défaut (`http://localhost:4010`, etc.).
+Variables optionnelles (repo → **Settings → Secrets and variables → Actions → Variables**) pour le build Next.js : `NEXT_PUBLIC_API_URL`, `NEXT_REWRITE_API_URL`, `NEXT_PUBLIC_SC_HOST`, `NEXT_PUBLIC_SC_PORT`, `NEXT_PUBLIC_SC_SECURE`.
 
 ---
 
 ## Déploiement (images GHCR)
 
-La CI **publie** les images dans GHCR ; le **déploiement** consiste à les **télécharger et les lancer** sur une machine (PC, VPS, etc.).
-
-### Lancer la stack depuis les images CI
-
 1. Copier et configurer **`.env`** (voir Quick start §1).
-2. S’authentifier sur GHCR (packages **privés** par défaut) :
+2. S'authentifier sur GHCR :
 
 ```bash
 docker login ghcr.io
-# Utilisateur GitHub + Personal Access Token (scope read:packages)
 ```
 
-3. Tirer et démarrer (Mongo/Redis restent les images publiques du `docker-compose.yml` de base) :
+3. Tirer et démarrer :
 
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.prebuilt.yml pull
 docker compose -f docker-compose.yml -f docker-compose.prebuilt.yml up -d
 ```
 
-Épingler une version précise :
+Épingler une version : `IMAGE_TAG=<sha> docker compose -f docker-compose.yml -f docker-compose.prebuilt.yml pull up -d`.
 
-```bash
-IMAGE_TAG=7b5b0f3 docker compose -f docker-compose.yml -f docker-compose.prebuilt.yml pull
-IMAGE_TAG=7b5b0f3 docker compose -f docker-compose.yml -f docker-compose.prebuilt.yml up -d
-```
+Le fichier **`docker-compose.prebuilt.yml`** remplace les blocs `build:` par les images GHCR.
 
-Le fichier **`docker-compose.prebuilt.yml`** remplace les blocs `build:` par les images GHCR ci-dessus.
-
-### Rendre les images téléchargeables par d’autres utilisateurs
-
-Par défaut, les packages GHCR peuvent être **privés**. Pour qu’un tiers puisse `docker pull` sans compte GitHub :
-
-1. GitHub → **Packages** → package `agent-market-*`
-2. **Package settings** → visibilité **Public**
-
-Même avec des images publiques, il faut toujours ce dépôt (ou au minimum `docker-compose.yml`, `.env.example` et `docker-compose.prebuilt.yml`) pour lancer toute la stack.
-
-> **Note :** la CI ne déploie pas automatiquement sur un serveur. Un déploiement auto (SSH, Watchtower, etc.) reste une étape optionnelle à ajouter.
+> La CI ne déploie pas automatiquement sur un serveur distant.
 
 ---
 
 ## Endpoints utiles
 
-- **API** : `http://localhost:4010/`
-- **Santé** : `GET http://localhost:4010/api/health`
-- **Web** : `http://localhost:3000`
-- **WebSocket** : `ws://localhost:8000` (SocketCluster)
+| Service | URL |
+| ------- | --- |
+| API | `http://localhost:4010/` |
+| Santé | `GET http://localhost:4010/api/health` |
+| Web | `http://localhost:3000` |
+| WebSocket | `ws://localhost:8000` (SocketCluster) |
 
-Les routes complètes (souvent sous **`/api`** avec JWT) sont décrites dans **`docs/ONBOARDING.md`** et testables via **`docs/api_postman_collection.json`**.
+### Routes API (JWT workspace sauf auth / callbacks / health)
 
-Exemples historiques (certaines routes peuvent exiger un workspace JWT plutôt que `userId` en query — vérifier le code des routes) :
+Enregistrées dans `apps/api/src/registerRoutes.js` :
 
-- Social (collection legacy **`social_posts`** via `routes/social.js`) : draft, schedule, publish-now…
-- Posts principaux (**`posts`**) : voir `routes/posts.js` et UI `apps/web/app/posts/`.
-- Ads : campagnes, landing pages, leads — `routes/ads.js`.
-- Intégrations OAuth : `routes/integrations.js`, callbacks dans `routes/callback.js`.
+| Préfixe / fichier | Domaine |
+| ---------------- | ------- |
+| `auth.js` | Inscription, connexion, tokens |
+| `workspace.js` | Membres, invitations |
+| `posts.js` | CRUD posts, publish, schedule |
+| `accounts.js` | Comptes connectés (social + ads) |
+| `integrations.js` | OAuth connect (LinkedIn, Instagram, TikTok, Google Ads) |
+| `callback.js` | Callbacks OAuth (`/callback/*`), webhooks Meta |
+| `ads.js` | Campagnes, keywords, landing pages, leads, budget, reporting |
+| `seo.js` | Clustering keywords, rank check, audit landing |
+| `agent.js` | Agent IA, workflows |
+| `ai.js`, `aiWorkspace.js` | Exécution IA synchrone (Celery round-trip) |
+| `calendar.js` | Suggestions calendrier éditorial |
+| `media.js` | Upload / bibliothèque média |
+| `socialComments.js` | Commentaires, analyse LLM |
+| `dashboard.js`, `reports.js` | KPIs, rapports |
+| `settings.js`, `profile.js`, `system.js` | Préférences, config workspace |
+| `worker_internal.js` | Endpoints internes worker → API (`WORKER_API_SECRET`) |
+
+Liste détaillée des endpoints : **`docs/ONBOARDING.md` §7**.
 
 ---
 
 ## OAuth — redirect URIs (exemples locaux)
 
-À déclarer chez chaque fournisseur (voir `.env.example` pour les noms exacts de variables) :
+À déclarer chez chaque fournisseur (noms de variables dans `.env.example`) :
 
-- `http://localhost:4010/api/integrations/linkedin/callback`
-- `http://localhost:4010/api/integrations/instagram/callback`
-- `http://localhost:4010/api/integrations/tiktok/callback`
-- `http://localhost:4010/api/integrations/twitter/callback`
-- `http://localhost:4010/api/integrations/facebook_page/callback`
-- `http://localhost:4010/api/integrations/instagram_login/callback`
-- `http://localhost:4010/api/integrations/google-ads/callback`
+| Plateforme | URI locale typique |
+| ---------- | ------------------ |
+| LinkedIn | `http://localhost:4010/api/integrations/linkedin/callback` |
+| Instagram (Meta) | `http://localhost:4010/api/integrations/instagram/callback` |
+| TikTok | `http://localhost:4010/api/integrations/tiktok/callback` |
+| Twitter/X | `http://localhost:4010/api/integrations/twitter/callback` |
+| Facebook Page | `http://localhost:4010/api/integrations/facebook_page/callback` |
+| Instagram Login | `http://localhost:4010/api/integrations/instagram_login/callback` |
+| Google Ads (intégrations) | `http://localhost:4010/api/integrations/google-ads/callback` |
+| Google Ads (comptes) | `http://localhost:4010/callback/google_ads` (`GOOGLE_ADS_CALLBACK_URL`) |
+| Meta Ads | `http://localhost:4010/callback/meta_ads` |
 
-Flux typique : `GET /api/integrations/:provider/connect` → navigateur → callback → compte dans **`accounts`**.
+Flux typique : `GET /api/integrations/:provider/connect` → navigateur → callback → compte dans collection **`accounts`**.
+
+Pour les callbacks distants (tunnel), utiliser `start.sh` / `start_with_docker.sh` ou ajuster `NEXT_PUBLIC_API_URL` et les URIs chez le fournisseur.
 
 ---
 
@@ -230,20 +280,15 @@ Flux typique : `GET /api/integrations/:provider/connect` → navigateur → call
 
 - Canal Redis : **`EVENTS_CHANNEL`** (défaut `agent_market:events`).
 - **`services/realtime`** relaie vers le canal SocketCluster **`events`**.
-- Le dashboard consomme les événements via **`apps/web/lib/socket.js`**.
+- Le dashboard consomme les événements via **`apps/web/lib/socket.js`** et **`RealtimeProvider`**.
 
 ---
 
-## Inventaire des fichiers
+## Pistes d'évolution (non exhaustif)
 
-Voir **`docs/FILE_INDEX.md`** (tableau maintenu à la main).
-
----
-
-## Pistes d’évolution (non exhaustif)
-
-1. Étendre **`publish_native.py`** (et flux associés) pour chaque réseau requis en production.
+1. Étendre **`publish_native.py`** pour chaque réseau requis en production.
 2. Renforcer tests E2E (OAuth, publish, webhooks).
-3. Option : passer **`/api/ai/*`** en **202 + polling** côté web pour ne plus bloquer la requête HTTP sur le worker.
+3. Passer **`/api/ai/*`** en **202 + polling** côté web pour ne plus bloquer la requête HTTP sur le worker.
+4. Compléter crawl SEO live (au-delà des règles Mongo actuelles).
 
-Pour l’historique migration Node → Celery, voir **`docs/MIGRATION_PLAN.md`**.
+État d'avancement détaillé : **`docs/ONBOARDING.md` §9**.
