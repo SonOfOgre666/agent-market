@@ -6,8 +6,9 @@ import Link from 'next/link'
 import {
   LayoutDashboard, BarChart3, FileText, CheckCircle2, AlertCircle,
 } from 'lucide-react'
+import { accountProviderLabel } from '../lib/accountKinds.js'
+import { AccountAvatar } from '../components/AccountAvatar.js'
 
-const PROVIDER_ICON = { twitter: '𝕏', facebook: 'f', instagram: '⊙' }
 const STATUS_BADGE = { 0: 'badge-draft', 1: 'badge-scheduled', 2: 'badge-published', 3: 'badge-failed' }
 const STATUS_LABEL = { 0: 'Draft', 1: 'Scheduled', 2: 'Published', 3: 'Failed' }
 
@@ -121,12 +122,12 @@ export default function DashboardPage() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
               {data.accounts.map((acc) => (
                 <div key={acc.id} className="flex items-center gap-3">
-                  {acc.media?.avatar
-                    ? <img src={acc.media.avatar} alt="" className="avatar" />
-                    : <div className={`avatar provider-${acc.provider}`}>{PROVIDER_ICON[acc.provider]}</div>}
+                  <AccountAvatar account={acc} />
                   <div>
                     <div style={{ fontWeight: 500 }}>{acc.name}</div>
-                    <div className="text-muted text-xs">@{acc.username} · {acc.provider}</div>
+                    <div className="text-muted text-xs">
+                      @{acc.username || '—'} · {accountProviderLabel(acc.provider)}
+                    </div>
                   </div>
                   <span className={`badge ${acc.authorized ? 'badge-published' : 'badge-failed'}`} style={{ marginLeft: 'auto' }}>
                     {acc.authorized ? 'Active' : 'Unauthorized'}

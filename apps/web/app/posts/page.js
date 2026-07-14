@@ -255,7 +255,6 @@ export default function PostsPage() {
                 </div>
                 <div>
                   <div style={{ fontSize: '0.875rem', fontWeight: 700 }}>Create post</div>
-                  <div style={{ fontSize: '0.68rem', color: 'hsl(var(--fg-muted))' }}>Agent-style workflow — type → content → media → publish</div>
                 </div>
               </div>
               <button className="btn btn-ghost btn-sm" onClick={() => setShowWizard(false)} style={{ padding: '0.375rem' }}>

@@ -10,7 +10,9 @@ export function RealtimeProvider({ children }) {
 
   useEffect(() => {
     // All events arrive on the single 'events' channel (relayed from EVENTS_CHANNEL Redis key)
-    const unsub = subscribe('events', (data) => {
+    let unsub = () => {}
+    try {
+      unsub = subscribe('events', (data) => {
       const event = data?.event || data
 
       switch (event) {
@@ -124,7 +126,10 @@ export function RealtimeProvider({ children }) {
         default:
           break
       }
-    })
+      })
+    } catch (err) {
+      console.warn('[realtime] socket subscribe failed', err)
+    }
 
     return () => typeof unsub === 'function' && unsub()
   }, [])

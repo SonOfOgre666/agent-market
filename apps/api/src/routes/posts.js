@@ -68,8 +68,8 @@ export default async function postRoutes(app) {
       const sc = Number(json.status) || 502
       return reply.code(sc >= 400 && sc < 600 ? sc : 502).send({ error: json.error || 'Worker error' })
     }
-    const postId = json.data?.post_id
-    if (!postId) return reply.code(502).send({ error: 'Worker did not return post_id' })
+    const postId = json.data?.id || json.data?.post_id
+    if (!postId) return reply.code(502).send({ error: 'Worker did not return post id' })
     const post = await Post.findById(postId, wid)
     if (!post) return reply.code(502).send({ error: 'Post created but not found' })
     return reply.code(201).send(Post.serialize(post))
@@ -135,7 +135,7 @@ export default async function postRoutes(app) {
       const sc = Number(json.status) || 502
       return reply.code(sc >= 400 && sc < 600 ? sc : 502).send({ error: json.error || 'Worker error' })
     }
-    const updated = await Post.findById(json.data?.post_id || post._id.toString(), wid)
+    const updated = await Post.findById(json.data?.id || json.data?.post_id || post._id.toString(), wid)
     if (!updated) return reply.code(502).send({ error: 'Post scheduled but not found' })
     return reply.send(Post.serialize(updated))
   })
@@ -174,7 +174,7 @@ export default async function postRoutes(app) {
         const sc = Number(json.status) || 502
         return reply.code(sc >= 400 && sc < 600 ? sc : 502).send({ error: json.error || 'Worker error' })
       }
-      const updated = await Post.findById(json.data?.post_id || post._id.toString(), wid)
+      const updated = await Post.findById(json.data?.id || json.data?.post_id || post._id.toString(), wid)
       return reply.send(Post.serialize(updated))
     }
 

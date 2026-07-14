@@ -80,6 +80,26 @@ class PayloadResolveUpstreamFailureTest(unittest.TestCase):
         self.assertIn('1885183', str(ctx.exception))
         self.assertIn('step_5 failed', str(ctx.exception))
 
+    def test_resolves_draft_id_for_publish(self):
+        results = {
+            'step_2': {
+                'status': 'completed',
+                'tool_id': 'create_draft_post',
+                'output': {
+                    'id': '6a56514e6cadc5620ba52b07',
+                    'uuid': 'EVRWlIRA0buDwZGDNRSRC',
+                    'status': 0,
+                    'account_ids': [],
+                },
+            },
+        }
+        resolved = resolve_step_payload(
+            {'post_id': 'step_2.output.id'},
+            results,
+            {},
+        )
+        self.assertEqual(resolved['post_id'], '6a56514e6cadc5620ba52b07')
+
 
 if __name__ == '__main__':
     unittest.main()

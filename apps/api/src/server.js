@@ -49,7 +49,13 @@ await app.register(rateLimit, {
   allowList: (req) => {
     if (req.method === 'OPTIONS') return true
     const path = (req.url || '').split('?')[0]
-    if (req.method === 'GET' && (path.startsWith('/api/agent/jobs/') || path.startsWith('/api/ai/jobs/'))) {
+    if (req.method !== 'GET') return false
+    // Agent UI polls these while a workflow runs (esp. when realtime WS is down).
+    if (
+      path.startsWith('/api/agent/jobs/') ||
+      path.startsWith('/api/ai/jobs/') ||
+      path.startsWith('/api/agent/workflows/')
+    ) {
       return true
     }
     return false

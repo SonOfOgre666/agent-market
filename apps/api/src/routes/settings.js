@@ -11,7 +11,16 @@ export default async function settingRoutes(app) {
   // PUT /api/settings
   app.put('/settings', { preHandler: [authenticate, requireWorkspaceAdmin] }, async (request, reply) => {
     const body = request.body || {}
-    const allowed = ['timezone', 'date_format', 'time_format', 'week_starts_on', 'admin_email', 'default_accounts', 'auto_analyze_comments']
+    const allowed = [
+      'timezone',
+      'date_format',
+      'time_format',
+      'week_starts_on',
+      'admin_email',
+      'default_accounts',
+      'auto_analyze_comments',
+      'agent_auto_approve',
+    ]
     const toSave = Object.fromEntries(Object.entries(body).filter(([k]) => allowed.includes(k)))
 
     // Validate — mirrors Settings.php rules()

@@ -160,36 +160,13 @@ export default function MetaInsightsPanel({ connection, onToast }) {
     [actId, mongoAccountId, query, onToast],
   )
 
-  const canAutoFetch =
+  const canFetch =
     actId &&
     mongoAccountId &&
     !(query.scope === 'campaign' && !query.scopeCampaignId) &&
     !(query.scope === 'adset' && !query.scopeAdsetId) &&
     !(query.scope === 'ad' && !query.scopeAdId) &&
     !(query.timeMode === 'custom' && (!query.since || !query.until))
-
-  useEffect(() => {
-    if (!canAutoFetch) return
-    fetchInsights()
-  }, [
-    canAutoFetch,
-    fetchInsights,
-    query.timeMode,
-    query.timePreset,
-    query.since,
-    query.until,
-    query.scope,
-    query.scopeCampaignId,
-    query.scopeAdsetId,
-    query.scopeAdId,
-    query.level,
-    query.breakdown,
-    query.actionAttribution.join(','),
-    query.actionBreakdownsMode,
-    query.actionBreakdownsCustom,
-    query.compact,
-    query.limit,
-  ])
 
   const columns = useMemo(
     () => collectInsightColumns(rows, query.breakdown),
@@ -490,8 +467,8 @@ export default function MetaInsightsPanel({ connection, onToast }) {
         )}
 
         <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-          <button type="button" className="btn btn-primary" disabled={loading || !canAutoFetch} onClick={() => fetchInsights()}>
-            {loading ? <span className="spinner" /> : <><RefreshCw size={14} strokeWidth={2} /> Refresh</>}
+          <button type="button" className="btn btn-primary" disabled={loading || !canFetch} onClick={() => fetchInsights()}>
+            {loading ? <span className="spinner" /> : <><RefreshCw size={14} strokeWidth={2} /> Load insights</>}
           </button>
           {nextAfter && (
             <button

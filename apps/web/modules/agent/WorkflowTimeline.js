@@ -29,6 +29,7 @@ export default function WorkflowTimeline({ workflow, busy = false }) {
           stepResults,
           workflowStatus: workflow?.status,
           busy,
+          steps,
         })
         const Icon = ICON[status] || Circle
         const spinning = status === 'running'

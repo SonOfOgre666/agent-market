@@ -66,12 +66,12 @@ export default function AdsPerformancePage() {
           </select>
           {isMeta && (
             <span style={{ fontSize: '0.8rem', color: 'var(--fg-muted)' }}>
-              Updates when you change filters below.
+              Click Load insights to fetch metrics.
             </span>
           )}
           {isGoogle && (
             <span style={{ fontSize: '0.8rem', color: 'var(--fg-muted)' }}>
-              Updates when you change filters below.
+              Click Run report to fetch metrics.
             </span>
           )}
         </div>

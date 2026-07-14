@@ -2,7 +2,7 @@ import { SocialConnectIcon } from './SocialConnectIcon.js'
 
 function providerColorClass(provider) {
   if (provider === 'facebook_page') return 'provider-facebook'
-  if (provider === 'instagram_login') return 'provider-instagram_login'
+  if (provider === 'instagram_login') return 'provider-instagram'
   return `provider-${provider}`
 }
 

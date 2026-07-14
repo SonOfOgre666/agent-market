@@ -13,7 +13,7 @@ import {
 } from '../../lib/workspaceSettings.js'
 import TimezoneSelect from '../../components/TimezoneSelect.js'
 import CommentPlatformSupportNote from '../../components/CommentPlatformSupportNote.js'
-import { Settings, Save, Clock, Calendar, Users, MessageSquare } from 'lucide-react'
+import { Settings, Save, Clock, Calendar, Users, MessageSquare, Bot } from 'lucide-react'
 
 const WEEK_OPTIONS = [
   { value: 1, label: 'Monday' },
@@ -84,175 +84,204 @@ export default function SettingsPage() {
             <h1 className="page-title">Preferences</h1>
           </div>
           <p className="page-header-desc">
-            Timezone, date display, calendar layout, and default posting accounts for this workspace.
+            Timezone, date display, calendar layout, AI Agent, and default posting accounts for this workspace.
           </p>
         </div>
       </div>
 
-      <div className="grid-2" style={{ maxWidth: 960, alignItems: 'start' }}>
-        <div className="card">
-          <form onSubmit={save}>
-            <div className="card-title" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <Clock size={16} /> Regional &amp; display
-            </div>
-
-            <div className="form-group">
-              <label className="form-label" htmlFor="timezone">Timezone</label>
-              <TimezoneSelect
-                id="timezone"
-                value={form.timezone}
-                onChange={tz => setForm(s => ({ ...s, timezone: tz }))}
-              />
-              <p className="text-xs text-muted" style={{ marginTop: 6 }}>
-                Calendar days, scheduling, and timestamps across the app use this timezone.
-              </p>
-            </div>
-
-            <div className="form-group">
-              <label className="form-label">Time format</label>
-              <div className="flex gap-3">
-                {[[12, '12-hour (2:30 PM)'], [24, '24-hour (14:30)']].map(([v, l]) => (
-                  <label key={v} className="flex items-center gap-2" style={{ cursor: 'pointer' }}>
-                    <input
-                      type="radio"
-                      name="time_format"
-                      value={v}
-                      checked={Number(form.time_format) === v}
-                      onChange={() => setForm(s => ({ ...s, time_format: v }))}
-                    />
-                    <span className="text-sm">{l}</span>
-                  </label>
-                ))}
+      <form onSubmit={save} className="prefs-form">
+        <div className="prefs-layout">
+          <div className="prefs-main">
+            <div className="card">
+              <div className="card-title" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <Clock size={16} /> Regional &amp; display
               </div>
-            </div>
 
-            <div className="form-group">
-              <label className="form-label">Date display</label>
-              <div className="flex gap-3">
-                {[['human', 'Relative (Today at 2:30 PM, 3 days ago)'], ['full', 'Always absolute']].map(([v, l]) => (
-                  <label key={v} className="flex items-center gap-2" style={{ cursor: 'pointer' }}>
-                    <input
-                      type="radio"
-                      name="date_format"
-                      value={v}
-                      checked={form.date_format === v}
-                      onChange={() => setForm(s => ({ ...s, date_format: v }))}
-                    />
-                    <span className="text-sm">{l}</span>
-                  </label>
-                ))}
-              </div>
-            </div>
-
-            <div className="form-group">
-              <label className="form-label">Week starts on</label>
-              <select
-                className="form-input"
-                value={form.week_starts_on}
-                onChange={e => setForm(s => ({ ...s, week_starts_on: Number(e.target.value) }))}
-              >
-                {WEEK_OPTIONS.map(o => (
-                  <option key={o.value} value={o.value}>{o.label}</option>
-                ))}
-              </select>
-              <p className="text-xs text-muted" style={{ marginTop: 6 }}>
-                Controls the calendar grid column order.
-              </p>
-            </div>
-
-            <div className="card-title" style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: '1.5rem' }}>
-              <MessageSquare size={16} /> Comment inbox
-            </div>
-
-            <div className="form-group">
-              <label className="flex items-center gap-2" style={{ cursor: 'pointer' }}>
-                <input
-                  type="checkbox"
-                  checked={form.auto_analyze_comments === true}
-                  onChange={(e) => setForm((s) => ({ ...s, auto_analyze_comments: e.target.checked }))}
-                />
-                <span className="text-sm">Auto-analyze comments when synced from platforms</span>
-              </label>
-              <p className="text-xs text-muted" style={{ marginTop: 6 }}>
-                When enabled, newly synced comments are analyzed automatically. Applies only to platforms that support comment sync.
-              </p>
-              <div style={{ marginTop: 12 }}>
-                <CommentPlatformSupportNote variant="detail" />
-              </div>
-            </div>
-
-            <div className="card-title" style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: '1.5rem' }}>
-              <Users size={16} /> Posting defaults
-            </div>
-
-            <div className="form-group">
-              <label className="form-label">Default accounts for new posts</label>
-              {loadingAccounts ? (
-                <p className="text-muted text-sm">Loading accounts…</p>
-              ) : accounts.length === 0 ? (
-                <p className="text-muted text-sm">Connect social accounts first under Accounts.</p>
-              ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 220, overflowY: 'auto' }}>
-                  {accounts.map(acc => (
-                    <label key={acc.id} className="flex items-center gap-2" style={{ cursor: 'pointer' }}>
-                      <input
-                        type="checkbox"
-                        checked={(form.default_accounts || []).includes(acc.id)}
-                        onChange={() => toggleDefaultAccount(acc.id)}
-                      />
-                      <span className="text-sm">{acc.name || acc.username || acc.id}</span>
-                      {acc.provider && (
-                        <span className="text-xs text-muted">({acc.provider})</span>
-                      )}
-                    </label>
-                  ))}
+              <div className="prefs-regional-grid">
+                <div className="form-group" style={{ marginBottom: 0 }}>
+                  <label className="form-label" htmlFor="timezone">Timezone</label>
+                  <TimezoneSelect
+                    id="timezone"
+                    value={form.timezone}
+                    onChange={tz => setForm(s => ({ ...s, timezone: tz }))}
+                  />
+                  <p className="text-xs text-muted" style={{ marginTop: 6 }}>
+                    Calendar days, scheduling, and timestamps across the app use this timezone.
+                  </p>
                 </div>
-              )}
-              <p className="text-xs text-muted" style={{ marginTop: 6 }}>
-                Pre-selected when you create a new post (you can still change them in the editor).
-              </p>
+
+                <div className="form-group" style={{ marginBottom: 0 }}>
+                  <label className="form-label">Week starts on</label>
+                  <select
+                    className="form-input"
+                    value={form.week_starts_on}
+                    onChange={e => setForm(s => ({ ...s, week_starts_on: Number(e.target.value) }))}
+                  >
+                    {WEEK_OPTIONS.map(o => (
+                      <option key={o.value} value={o.value}>{o.label}</option>
+                    ))}
+                  </select>
+                  <p className="text-xs text-muted" style={{ marginTop: 6 }}>
+                    Controls the calendar grid column order.
+                  </p>
+                </div>
+
+                <div className="form-group" style={{ marginBottom: 0 }}>
+                  <label className="form-label">Time format</label>
+                  <div className="prefs-choice-list">
+                    {[[12, '12-hour (2:30 PM)'], [24, '24-hour (14:30)']].map(([v, l]) => (
+                      <label key={v} className="flex items-center gap-2" style={{ cursor: 'pointer' }}>
+                        <input
+                          type="radio"
+                          name="time_format"
+                          value={v}
+                          checked={Number(form.time_format) === v}
+                          onChange={() => setForm(s => ({ ...s, time_format: v }))}
+                        />
+                        <span className="text-sm">{l}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="form-group" style={{ marginBottom: 0 }}>
+                  <label className="form-label">Date display</label>
+                  <div className="prefs-choice-list">
+                    {[['human', 'Relative (Today at 2:30 PM, 3 days ago)'], ['full', 'Always absolute']].map(([v, l]) => (
+                      <label key={v} className="flex items-center gap-2" style={{ cursor: 'pointer' }}>
+                        <input
+                          type="radio"
+                          name="date_format"
+                          value={v}
+                          checked={form.date_format === v}
+                          onChange={() => setForm(s => ({ ...s, date_format: v }))}
+                        />
+                        <span className="text-sm">{l}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              </div>
             </div>
 
-            <button className="btn btn-primary" type="submit" disabled={saving} style={{ marginTop: '0.5rem' }}>
+            <div className="prefs-pair">
+              <div className="card">
+                <div className="card-title" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <Bot size={16} /> AI Agent
+                </div>
+                <div className="form-group" style={{ marginBottom: 0 }}>
+                  <label className="flex items-center gap-2" style={{ cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={form.agent_auto_approve === true}
+                      onChange={(e) => setForm((s) => ({ ...s, agent_auto_approve: e.target.checked }))}
+                    />
+                    <span className="text-sm">Auto-approve and run workflows</span>
+                  </label>
+                  <p className="text-xs text-muted" style={{ marginTop: 6 }}>
+                    When enabled, the AI Agent skips the Approve / Run confirmation step and executes planned workflows automatically. Turn this off if you want to review each plan first.
+                  </p>
+                </div>
+              </div>
+
+              <div className="card">
+                <div className="card-title" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <Users size={16} /> Posting defaults
+                </div>
+                <div className="form-group" style={{ marginBottom: 0 }}>
+                  <label className="form-label">Default accounts for new posts</label>
+                  {loadingAccounts ? (
+                    <p className="text-muted text-sm">Loading accounts…</p>
+                  ) : accounts.length === 0 ? (
+                    <p className="text-muted text-sm">Connect social accounts first under Accounts.</p>
+                  ) : (
+                    <div className="prefs-accounts">
+                      {accounts.map(acc => (
+                        <label key={acc.id} className="flex items-center gap-2" style={{ cursor: 'pointer' }}>
+                          <input
+                            type="checkbox"
+                            checked={(form.default_accounts || []).includes(acc.id)}
+                            onChange={() => toggleDefaultAccount(acc.id)}
+                          />
+                          <span className="text-sm">{acc.name || acc.username || acc.id}</span>
+                          {acc.provider && (
+                            <span className="text-xs text-muted">({acc.provider})</span>
+                          )}
+                        </label>
+                      ))}
+                    </div>
+                  )}
+                  <p className="text-xs text-muted" style={{ marginTop: 6 }}>
+                    Pre-selected when you create a new post (you can still change them in the editor).
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="card">
+              <div className="card-title" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <MessageSquare size={16} /> Comment inbox
+              </div>
+              <div className="form-group" style={{ marginBottom: 0 }}>
+                <label className="flex items-center gap-2" style={{ cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={form.auto_analyze_comments === true}
+                    onChange={(e) => setForm((s) => ({ ...s, auto_analyze_comments: e.target.checked }))}
+                  />
+                  <span className="text-sm">Auto-analyze comments when synced from platforms</span>
+                </label>
+                <p className="text-xs text-muted" style={{ marginTop: 6 }}>
+                  When enabled, newly synced comments are analyzed automatically. Applies only to platforms that support comment sync.
+                </p>
+                <div style={{ marginTop: 12 }}>
+                  <CommentPlatformSupportNote variant="detail" />
+                </div>
+              </div>
+            </div>
+
+            <button className="btn btn-primary" type="submit" disabled={saving} style={{ alignSelf: 'flex-start' }}>
               {saving ? <span className="spinner" /> : <><Save size={14} strokeWidth={2} /> Save preferences</>}
             </button>
-          </form>
-        </div>
+          </div>
 
-        <div className="card">
-          <div className="card-title" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <Calendar size={16} /> Live preview
-          </div>
-          <p className="text-sm text-muted" style={{ marginBottom: '1rem' }}>
-            These preferences apply across the calendar, posts list, editor, leads, and team pages.
-          </p>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            <div className="glass-card" style={{ padding: '1rem' }}>
-              <div className="text-xs text-muted" style={{ marginBottom: 4 }}>Scheduled time</div>
-              <div style={{ fontWeight: 600 }}>{previewDate}</div>
-            </div>
-            <div className="glass-card" style={{ padding: '1rem' }}>
-              <div className="text-xs text-muted" style={{ marginBottom: 4 }}>Calendar week header</div>
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
-                  .slice(form.week_starts_on)
-                  .concat(['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].slice(0, form.week_starts_on))
-                  .map(d => (
-                    <span key={d} className="ai-tip-chip">{d}</span>
-                  ))}
+          <aside className="prefs-aside">
+            <div className="card prefs-preview-card">
+              <div className="card-title" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <Calendar size={16} /> Live preview
+              </div>
+              <p className="text-sm text-muted" style={{ marginBottom: '1rem' }}>
+                These preferences apply across the calendar, posts list, editor, leads, and team pages.
+              </p>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                <div className="glass-card" style={{ padding: '1rem' }}>
+                  <div className="text-xs text-muted" style={{ marginBottom: 4 }}>Scheduled time</div>
+                  <div style={{ fontWeight: 600 }}>{previewDate}</div>
+                </div>
+                <div className="glass-card" style={{ padding: '1rem' }}>
+                  <div className="text-xs text-muted" style={{ marginBottom: 4 }}>Calendar week header</div>
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                    {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+                      .slice(form.week_starts_on)
+                      .concat(['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].slice(0, form.week_starts_on))
+                      .map(d => (
+                        <span key={d} className="ai-tip-chip">{d}</span>
+                      ))}
+                  </div>
+                </div>
+                <div className="glass-card" style={{ padding: '1rem' }}>
+                  <div className="text-xs text-muted" style={{ marginBottom: 4 }}>Default accounts</div>
+                  <div style={{ fontWeight: 600 }}>
+                    {(form.default_accounts || []).length
+                      ? `${form.default_accounts.length} account(s) pre-selected`
+                      : 'None — pick accounts manually each time'}
+                  </div>
+                </div>
               </div>
             </div>
-            <div className="glass-card" style={{ padding: '1rem' }}>
-              <div className="text-xs text-muted" style={{ marginBottom: 4 }}>Default accounts</div>
-              <div style={{ fontWeight: 600 }}>
-                {(form.default_accounts || []).length
-                  ? `${form.default_accounts.length} account(s) pre-selected`
-                  : 'None — pick accounts manually each time'}
-              </div>
-            </div>
-          </div>
+          </aside>
         </div>
-      </div>
+      </form>
     </AppLayout>
     </RequireWorkspaceAdmin>
   )

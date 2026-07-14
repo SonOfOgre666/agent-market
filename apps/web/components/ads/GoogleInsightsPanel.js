@@ -151,10 +151,6 @@ export default function GoogleInsightsPanel({ connection, onToast }) {
     }
   }, [mongoAccountId, customerReady, query, viewMeta, onToast])
 
-  useEffect(() => {
-    if (mongoAccountId && customerReady) runReport()
-  }, [mongoAccountId, customerReady, query.view, query.dateRange, query.campaignId, query.status])
-
   if (!customerReady) {
     return (
       <div
@@ -227,7 +223,7 @@ export default function GoogleInsightsPanel({ connection, onToast }) {
           )}
           <div>
             <button type="button" className="btn btn-primary" onClick={runReport} disabled={loading}>
-              <RefreshCw size={14} strokeWidth={2} /> Refresh
+              <RefreshCw size={14} strokeWidth={2} /> {loading ? 'Loading…' : 'Run report'}
             </button>
           </div>
         </div>

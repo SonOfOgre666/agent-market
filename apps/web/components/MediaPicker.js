@@ -1,7 +1,7 @@
 'use client'
 import { useState, useEffect, useRef, useMemo } from 'react'
 import { api } from '../lib/api.js'
-import { getMediaPreviewUrl } from '../lib/mediaPreview.js'
+import { getMediaPreviewUrl, getMediaSourceUrl, getMediaThumbnailUrl } from '../lib/mediaPreview.js'
 import { useToast } from './Toast.js'
 
 const TABS = ['uploads', 'stock', 'gifs']
@@ -23,11 +23,17 @@ function visibleTabsForKind(mediaKind) {
 }
 
 function MediaThumb({ item }) {
-  const [src, setSrc] = useState(() => getMediaPreviewUrl(item))
   const isVideo = item.mime_type?.startsWith('video')
+  const sourceUrl = getMediaSourceUrl(item)
+  const thumbUrl = getMediaThumbnailUrl(item)
+  const [src, setSrc] = useState(() => (isVideo ? sourceUrl : getMediaPreviewUrl(item)))
 
   const onError = () => {
-    const fallback = getMediaPreviewUrl({ ...item, conversions: [] })
+    if (isVideo) {
+      // Keep poster visible; don't swap video src to a jpeg.
+      return
+    }
+    const fallback = getMediaPreviewUrl({ ...item, conversions: [], thumb: null, preview: null, small: null })
     if (fallback && fallback !== src) setSrc(fallback)
   }
 
@@ -35,9 +41,13 @@ function MediaThumb({ item }) {
     return (
       <video
         src={src}
+        poster={thumbUrl || undefined}
         muted
+        autoPlay
+        loop
+        playsInline
         preload="metadata"
-        style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+        style={{ width: '100%', height: '100%', objectFit: 'cover', pointerEvents: 'none' }}
         onError={onError}
       />
     )

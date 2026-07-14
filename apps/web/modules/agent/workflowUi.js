@@ -2,10 +2,40 @@ const INTERRUPTED_MSG = 'Step interrupted — worker stopped before completion.'
 
 const TERMINAL_STEP_STATUSES = new Set(['completed', 'failed', 'skipped'])
 
+const CANCELLABLE_WORKFLOW_STATUSES = new Set([
+  'planning', 'planned', 'awaiting_approval', 'approved', 'queued', 'running', 'pending',
+])
+
+const WORKER_ACTIVE_STATUSES = new Set(['planning', 'running', 'queued'])
+
+export function isCancellableWorkflowStatus(status) {
+  return CANCELLABLE_WORKFLOW_STATUSES.has(status)
+}
+
+export function isWorkerActiveWorkflowStatus(status) {
+  return WORKER_ACTIVE_STATUSES.has(status)
+}
+
+export function findCancellableWorkflow(workflows, preferredId) {
+  if (!workflows || typeof workflows !== 'object') return preferredId || null
+  if (preferredId && isCancellableWorkflowStatus(workflows[preferredId]?.status)) {
+    return preferredId
+  }
+  const hit = Object.entries(workflows).find(([, w]) => isCancellableWorkflowStatus(w?.status))
+  return hit?.[0] || preferredId || null
+}
+
+export function hasWorkerActiveWorkflow(workflows) {
+  return Object.values(workflows || {}).some((w) => isWorkerActiveWorkflowStatus(w?.status))
+}
+
 /** Merge server refresh without downgrading steps the socket already finished. */
 export function mergeWorkflowRefresh(local, server) {
   if (!server) return local
   if (!local) return server
+  if (local.status === 'cancelled' && server.status === 'running') {
+    return local
+  }
   const localResults = local.step_results || {}
   const serverResults = server.step_results || {}
   const mergedResults = { ...serverResults }
@@ -60,7 +90,7 @@ export function normalizeStepResults(stepResults, workflowStatus) {
 }
 
 /** Effective step status for timeline (handles stale DB + optimistic UI). */
-export function resolveStepStatus({ step, stepResults, workflowStatus, busy }) {
+export function resolveStepStatus({ step, stepResults, workflowStatus, busy, steps = null }) {
   const result = stepResults[step.step_id]
   let status = result?.status || 'pending'
 
@@ -75,8 +105,27 @@ export function resolveStepStatus({ step, stepResults, workflowStatus, busy }) {
       const st = stepResults[d]?.status
       return st === 'completed' || st === 'skipped'
     })
-    const anyRunning = Object.values(stepResults).some((r) => r.status === 'running')
-    if (depsDone && !anyRunning) status = 'running'
+    const anyRunning = Object.values(stepResults).some((r) => r?.status === 'running')
+    if (depsDone && !anyRunning) {
+      // Only the first ready pending step gets an optimistic spinner — not every unmet step.
+      const ordered = Array.isArray(steps) && steps.length ? steps : null
+      if (!ordered) {
+        status = 'running'
+      } else {
+        const firstReady = ordered.find((s) => {
+          const st = stepResults[s.step_id]?.status
+          if (st === 'completed' || st === 'failed' || st === 'skipped' || st === 'running') {
+            return false
+          }
+          const d = s.depends_on || []
+          return d.every((dep) => {
+            const ds = stepResults[dep]?.status
+            return ds === 'completed' || ds === 'skipped'
+          })
+        })
+        if (firstReady?.step_id === step.step_id) status = 'running'
+      }
+    }
   }
 
   return { status, error: result?.error, result }

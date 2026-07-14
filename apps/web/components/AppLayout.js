@@ -15,7 +15,6 @@ import {
   BarChart3,
   Target,
   TrendingUp,
-  Wallet,
   Users,
   Settings,
   Menu,
@@ -25,13 +24,11 @@ import {
   Shield,
   Globe,
   UserCheck,
-  Bot,
   // Search,
 } from 'lucide-react'
 
 const NAV = [
   { section: 'Workspace', href: '/', label: 'Overview', icon: LayoutDashboard },
-  { section: 'Workspace', href: '/agent', label: 'AI Agent', icon: Bot },
   { section: 'Workspace', href: '/posts', label: 'Posts', icon: FileText },
   { section: 'Workspace', href: '/calendar', label: 'Calendar', icon: Calendar },
   { section: 'Workspace', href: '/media', label: 'Media', icon: Image },
@@ -41,7 +38,7 @@ const NAV = [
   { section: 'Marketing', href: '/landing-pages', label: 'Landing Pages', icon: Globe },
   // { section: 'Marketing', href: '/seo', label: 'SEO', icon: Search },
   { section: 'Marketing', href: '/leads', label: 'Leads', icon: UserCheck },
-  { section: 'Marketing', href: '/budget', label: 'Budget', icon: Wallet },
+  // { section: 'Marketing', href: '/budget', label: 'Budget', icon: Wallet },
   { section: 'Operations', href: '/accounts', label: 'Accounts', icon: Users },
   { section: 'Operations', href: '/integrations', label: 'Integrations', icon: Settings, adminOnly: true },
   { section: 'Operations', href: '/ai-integrations', label: 'AI Integrations', icon: Sparkles, adminOnly: true },

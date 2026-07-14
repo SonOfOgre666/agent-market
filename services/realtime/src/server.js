@@ -44,7 +44,16 @@ sub.on('message', (channel, message) => {
   let data
   try { data = JSON.parse(message) } catch { data = message }
   console.log(`[Realtime] Relay ${channel} →`, data?.event || data)
-  agServer.exchange.publish('events', data)
+  // socketcluster-server v17+: transmitPublish (not legacy exchange.publish)
+  if (typeof agServer.exchange.transmitPublish === 'function') {
+    agServer.exchange.transmitPublish('events', data)
+  } else if (typeof agServer.exchange.invokePublish === 'function') {
+    agServer.exchange.invokePublish('events', data).catch((err) => {
+      console.error('[Realtime] invokePublish failed', err)
+    })
+  } else {
+    console.error('[Realtime] No publish method on exchange')
+  }
 })
 
 httpServer.listen(PORT, '0.0.0.0', () => {

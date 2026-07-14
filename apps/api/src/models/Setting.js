@@ -12,6 +12,7 @@ const DEFAULTS = {
   admin_email:    '',
   default_accounts: [],
   auto_analyze_comments: false,
+  agent_auto_approve: false,
 }
 
 // Mirrors Settings.php rules()
@@ -52,6 +53,9 @@ export function validate(settings) {
   }
   if (settings.auto_analyze_comments !== undefined && typeof settings.auto_analyze_comments !== 'boolean') {
     errors.auto_analyze_comments = 'Must be true or false'
+  }
+  if (settings.agent_auto_approve !== undefined && typeof settings.agent_auto_approve !== 'boolean') {
+    errors.agent_auto_approve = 'Must be true or false'
   }
   return Object.keys(errors).length ? errors : null
 }

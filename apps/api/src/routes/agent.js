@@ -13,6 +13,7 @@ import {
 } from '../lib/agentValidation.js'
 import { publishEvent } from '../lib/events.js'
 import { cancelWorkflowForWorkspace } from '../lib/workflowCancel.js'
+import { maybeAutoApproveAndRun } from '../lib/agentAutoApprove.js'
 import * as Media from '../models/Media.js'
 
 export default async function agentRoutes(fastify) {
@@ -183,6 +184,7 @@ export default async function agentRoutes(fastify) {
   /** Persist assistant reply after client polled planner job (worker already saved graph). */
   fastify.post('/agent/chat/complete', { onRequest: [authenticate] }, async (request, reply) => {
     const wid = request.workspace_id
+    const userId = request.user?.id
     const {
       conversation_id: conversationId,
       workflow_id: workflowId,
@@ -210,14 +212,29 @@ export default async function agentRoutes(fastify) {
       ...(chatOnly ? {} : { workflow_id: workflowId }),
     })
 
-    const updated = await AgentWorkflow.findById(workflowId, wid)
+    let updated = await AgentWorkflow.findById(workflowId, wid)
+    let autoApproved = false
+    let jobId = null
+
+    if (!chatOnly) {
+      try {
+        const auto = await maybeAutoApproveAndRun(updated, { workspaceId: wid, userId })
+        updated = auto.workflow || updated
+        autoApproved = Boolean(auto.started)
+        jobId = auto.job_id || null
+      } catch (err) {
+        fastify.log.error(err, 'agent auto-approve failed')
+      }
+    }
 
     return reply.send({
       conversation_id: conversationId,
       workflow: chatOnly ? null : AgentWorkflow.serialize(updated),
       assistant_message: assistantMessage.trim(),
-      requires_approval: chatOnly ? false : Boolean(graph.requires_approval),
+      requires_approval: chatOnly ? false : Boolean(graph.requires_approval) && !autoApproved,
       chat_only: chatOnly,
+      auto_approved: autoApproved,
+      job_id: jobId,
     })
   })
 

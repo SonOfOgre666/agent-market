@@ -35,23 +35,8 @@ from lib.planner.intent_router import (
     route_workflow_intent,
 )
 from lib.planner.social_fallback import (
-    build_fallback_social_workflow,
-    detect_dual_publish_schedule,
-    detect_outcome_mode,
-    expected_fallback_step_count,
-    is_actionable_social_request,
     normalize_planner_payload,
-    parse_post_count,
 )
-from lib.planner.landing_page_fallback import (
-    build_fallback_landing_page_workflow,
-    is_actionable_landing_page_request,
-)
-from lib.planner.seo_fallback import (
-    build_fallback_seo_workflow,
-    is_actionable_seo_request,
-)
-from lib.planner.intent_router import message_mentions_ads
 from lib.validation.workflow_graph import validate_workflow_graph
 
 logger = logging.getLogger(__name__)
@@ -71,35 +56,13 @@ def _finalize_graph(
     raw_fallback: str = '',
     conversation_history: list[dict[str, Any]] | None = None,
 ) -> dict:
+    """Validate/reconcile the planner LLM graph — do not replace it with heuristic workflows."""
     parsed = normalize_planner_payload(parsed)
     if media:
         parsed = reconcile_attached_media_steps(parsed, media)
 
-    if is_actionable_social_request(user_message) and not parsed.get('steps'):
-        logger.warning('Planner returned no steps for actionable social request — using fallback graph')
-        parsed = build_fallback_social_workflow(user_message, ctx)
-
-    if is_actionable_social_request(user_message):
-        n_posts = parse_post_count(user_message)
-        if n_posts >= 2:
-            dual, _ = detect_dual_publish_schedule(user_message)
-            mode = detect_outcome_mode(user_message)
-            min_steps = expected_fallback_step_count(
-                post_count=n_posts,
-                mode=mode,
-                dual_publish_schedule=dual,
-                max_steps=max_steps,
-            )
-            if len(parsed.get('steps') or []) < min_steps:
-                logger.warning(
-                    'Planner returned %s steps for %s-post request (need %s, max %s) — using fallback',
-                    len(parsed.get('steps') or []),
-                    n_posts,
-                    min_steps,
-                    max_steps,
-                )
-                parsed = build_fallback_social_workflow(user_message, ctx)
-
+    # Ads campaign collection remains a guided multi-turn spec (clarification → compile),
+    # not a silent replacement of a social/LLM plan.
     workflow_intent_id = (ctx.get('workflow_intent') or '') if ctx else ''
     if workflow_intent_id.startswith(('google_', 'meta_')) and not parsed.get('steps'):
         logger.warning('Planner returned no steps for ads workflow — routing to ads spec')
@@ -260,42 +223,8 @@ def plan_workflow(
 
     ads_followup = is_ads_clarification_followup(user_message, conversation_history)
 
-    if route == 'landing_page' or (
-        is_actionable_landing_page_request(planning_message)
-        and not message_mentions_ads(planning_message)
-        and not is_actionable_social_request(planning_message)
-    ):
-        lp_graph = build_fallback_landing_page_workflow(planning_message, ctx)
-        if lp_graph.get('steps'):
-            logger.info('Landing page workflow — execute graph (%s steps)', len(lp_graph['steps']))
-            return _finalize_graph(
-                lp_graph,
-                user_message=user_message,
-                ctx=ctx,
-                max_steps=max_steps,
-                media=media,
-                conversation_history=conversation_history,
-            )
-
-    if route == 'seo_marketing' or (
-        is_actionable_seo_request(planning_message)
-        and not message_mentions_ads(planning_message)
-        and not is_actionable_social_request(planning_message)
-        and not is_actionable_landing_page_request(planning_message)
-    ):
-        seo_graph = build_fallback_seo_workflow(planning_message, ctx)
-        if seo_graph.get('steps'):
-            logger.info('SEO workflow — execute graph (%s steps)', len(seo_graph['steps']))
-            return _finalize_graph(
-                seo_graph,
-                user_message=user_message,
-                ctx=ctx,
-                max_steps=max_steps,
-                media=media,
-                conversation_history=conversation_history,
-            )
-        if seo_graph.get('chat_only'):
-            return seo_graph
+    # Social / landing / SEO: always use the planner LLM.
+    # Do not short-circuit with deterministic fallback graphs — prompts + tool catalog guide the model.
 
     if should_route_ads_spec(
         message=planning_message,

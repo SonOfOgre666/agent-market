@@ -24,6 +24,7 @@ export default function PlannerActivity({ graph, workflow, busy = false }) {
         stepResults,
         workflowStatus,
         busy,
+        steps,
       })
       if (status === 'pending' || status === 'skipped') return null
       return { toolId: step.tool_id, status, stepId: step.step_id }

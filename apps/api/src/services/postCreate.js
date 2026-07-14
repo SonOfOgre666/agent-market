@@ -478,8 +478,9 @@ export async function createPostFromWorkerPayload(body) {
       account_ids: body.account_ids || [],
       versions: body.versions,
     })
+    const postId = post._id.toString()
     return {
-      post_id: post._id.toString(),
+      id: postId,
       uuid: post.uuid,
       status: post.status,
       scheduled_at: post.scheduled_at ? new Date(post.scheduled_at).toISOString() : null,
@@ -524,8 +525,9 @@ export async function createPostFromAgentPayload(body) {
     versions,
   })
 
+  const postId = post._id.toString()
   return {
-    post_id: post._id.toString(),
+    id: postId,
     uuid: post.uuid,
     status: post.status,
     scheduled_at: post.scheduled_at ? new Date(post.scheduled_at).toISOString() : null,

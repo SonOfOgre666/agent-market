@@ -15,6 +15,7 @@ USER-PROVIDED MEDIA (chat attachment):
 - IMAGE attachment: generate_social_post → create_draft_post with `media_id` (library id from attached_media). Skip generate_image_script and generate_image.
 - VIDEO attachment: generate_social_post (post_type video) → create_draft_post with `media_id`. Skip generate_video_script, generate_video, and thumbnail generation.
 - VIDEO + IMAGE attachments: `media_id` = video, `thumbnail_media_id` = cover image. Skip AI media generation.
+- Attached media + MULTIPLE POSTS: reuse the same `media_id` on each create_draft_post, but run a **separate** generate_social_post (distinct angle) + create_draft_post [→ publish_post | schedule_post] per post.
 - Meta ads with attached image: meta_upload_ad_image with `image_url` from attachment, or creatives.image_url in meta_publish_campaign.
 - Meta ads with attached video: meta_upload_ad_video with `video_url` from attachment.
 - generate_social_post prompt should reference the user's product/campaign; captions describe the attached asset.
@@ -29,20 +30,24 @@ VIDEO POST (7 steps + optional tail):
                         → generate_image_script → generate_image (thumbnail)
                         → create_draft_post [→ schedule_post | publish_post]
 
-1) SAVE AS DRAFT — image: 4 steps; video: 6 steps (no schedule/publish tail)
+ATTACHED MEDIA POST (shorter — prefer this when attached_media is present):
+   generate_social_post → create_draft_post [→ schedule_post | publish_post]
+
+1) SAVE AS DRAFT — image: 4 steps; video: 6 steps; attached: 2 steps (no schedule/publish tail)
 
 2) SCHEDULE FOR LATER — add schedule_post after create_draft_post
 
 3) PUBLISH IMMEDIATELY — add publish_post after create_draft_post (requires_approval: true)
 
-MULTIPLE POSTS ("2 posts", "3 posts", "one now and one in 15 minutes", etc.):
+MULTIPLE POSTS ("2 posts", "3 posts", "one now and one in 2 days", etc.):
 - Count how many distinct posts the user asked for (up to workflow step limit).
-- Build **separate full chains** per post (each: generate_social_post → scripts → media → create_draft_post [→ tail]).
+- Build **separate full chains** per post.
 - Every post needs a **different** generate_social_post prompt (distinct angle; "post 1 of N", "post 2 of N", …).
 - **Same outcome for all posts** (all draft, all schedule, all publish): repeat the chain N times with the same tail on each.
-- **Publish now + schedule later** (mixed): post 1 → publish_post; post 2 → schedule_post (schedule_in_minutes from user message).
+- **Publish now + schedule later** (mixed): post 1 → publish_post; post 2 → schedule_post.
+- Scheduling language: convert natural delays to `schedule_in_minutes` (e.g. "in 2 hours" → 120, "after 2 days" → 2880, "tomorrow" → 1440). Prefer schedule_in_minutes over vague times.
 - Renumber step_ids sequentially across all chains.
-- **Never exceed** the workspace `Maximum Workflow Steps` limit given in WORKSPACE LIMIT (typically 10). Cap post count to fit (e.g. 10 steps → max 2 image posts with schedule/publish tails, or 2 drafts if mixed publish+schedule).
+- **Never exceed** the workspace `Maximum Workflow Steps` limit given in WORKSPACE LIMIT (typically 10). Cap post count to fit (attached multi-post is cheaper: ~3 steps each with publish/schedule tails).
 
 SHARED STEP RULES:
 - generate_social_post: caption, hashtags, hooks, ctas ONLY (no image_prompt, no script)
@@ -83,8 +88,8 @@ Payload hints:
 - generate_image: prompt, style (default marketing for social), purpose (social_post|social_ad). Always generates a universal 1:1 image sized for all feed platforms.
 - generate_video: video_prompt, style. Always generates universal 9:16 vertical video for all video platforms.
 - create_draft_post: caption, hashtags, image (image post or video thumbnail), video (video posts), media_id (user-provided library media — prefer over image/video when attached), thumbnail_media_id (cover image when user attached video + image). Do NOT set account_ids unless user explicitly chose pages at draft time.
-- schedule_post: post_id, platform, account_ids (required — pick connected page from WORKSPACE CONTEXT), schedule_in_minutes OR scheduled_at
-- publish_post: post_id, platform, account_ids (required — pick connected page from WORKSPACE CONTEXT)
+- schedule_post: post_id (MUST be "step_N.output.id" from create_draft_post), platform, account_ids (required — pick connected page from WORKSPACE CONTEXT), schedule_in_minutes OR scheduled_at
+- publish_post: post_id (MUST be "step_N.output.id" from create_draft_post), platform, account_ids (required — pick connected page from WORKSPACE CONTEXT)
 
 SOCIAL PLATFORM SELECTION:
 - If the user names a platform (facebook, instagram, twitter, linkedin, tiktok), use it in schedule_post / publish_post (platform + account_ids from WORKSPACE CONTEXT social_accounts). Do NOT pass platform to generate_social_post — captions are cross-platform.
@@ -158,4 +163,4 @@ NEVER put Meta Graph API fields or Google SDK fields in planner payloads.
 Reference syntax for prior step outputs (strings in payload):
 - "step_1.output.caption"
 - "step_2.output.image"
-- "step_3.output.post_id"
+- "step_3.output.id" (create_draft_post returns id)

@@ -300,6 +300,9 @@ NGROK_API_URL="https://${NGROK_DOMAIN}"
 # ── 7. Update .env (tunnels + browser-safe API base URL) ──────
 set_env_var NEXT_PUBLIC_WEB_URL "$CF_WEB_URL"
 set_env_var NEXT_PUBLIC_SC_HOST "$CF_RT_HOST"
+# Cloudflare tunnel terminates TLS on 443 (forwards to local :8000) — browsers must use wss://host:443
+set_env_var NEXT_PUBLIC_SC_PORT "443"
+set_env_var NEXT_PUBLIC_SC_SECURE "true"
 if grep -q '^NEXT_PUBLIC_API_URL=' "$ENV_FILE"; then
   set_env_var NEXT_PUBLIC_API_URL "$NGROK_API_URL"
 else
@@ -330,6 +333,7 @@ fi
 ok ".env updated:"
 ok "  NEXT_PUBLIC_WEB_URL=${CF_WEB_URL}"
 ok "  NEXT_PUBLIC_SC_HOST=${CF_RT_HOST}"
+ok "  NEXT_PUBLIC_SC_PORT=443 / NEXT_PUBLIC_SC_SECURE=true (wss via Cloudflare tunnel)"
 ok "  NEXT_PUBLIC_API_URL=${NGROK_API_URL} (avoids mixed-content when using Try Cloudflare)"
 ok "  NEXT_REWRITE_API_URL=http://127.0.0.1:4010 (Next /__agentmarket_api → local API; avoids Node→ngrok 502)"
 ok "  INTERNAL_API_URL=http://127.0.0.1:4010 (Celery worker → API internal routes)"

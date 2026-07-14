@@ -2,7 +2,7 @@
 import { useEffect, useState, useRef } from 'react'
 import AppLayout from '../../components/AppLayout.js'
 import { api } from '../../lib/api.js'
-import { getMediaPreviewUrl } from '../../lib/mediaPreview.js'
+import { getMediaPreviewUrl, getMediaSourceUrl, getMediaThumbnailUrl } from '../../lib/mediaPreview.js'
 import { useToast } from '../../components/Toast.js'
 import { useConfirmDialog } from '../../lib/useConfirmDialog.js'
 import { Image, Upload, Trash2, Check } from 'lucide-react'
@@ -97,7 +97,17 @@ export default function MediaPage() {
             {data.items.map(item => (
               <div key={item.id} className={`media-item${selected.includes(item.id) ? ' selected' : ''}`} onClick={() => toggle(item.id)}>
                 {item.mime_type?.startsWith('video')
-                  ? <video src={getMediaPreviewUrl(item)} muted />
+                  ? (
+                    <video
+                      src={getMediaSourceUrl(item)}
+                      poster={getMediaThumbnailUrl(item) || undefined}
+                      muted
+                      autoPlay
+                      loop
+                      playsInline
+                      preload="metadata"
+                    />
+                  )
                   : <img src={getMediaPreviewUrl(item)} alt="" loading="lazy" />}
                 {selected.includes(item.id) && (
                   <div className="media-check">

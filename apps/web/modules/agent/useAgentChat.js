@@ -3,8 +3,16 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
 import { api } from '../../lib/api.js'
 import { subscribe } from '../../lib/socket.js'
+import { useWorkspaceSettings } from '../../components/WorkspaceSettingsProvider.js'
 import { pollAgentJob } from './pollAgentJob.js'
-import { isTerminalWorkflowStatus, mergeWorkflowRefresh } from './workflowUi.js'
+import {
+  isTerminalWorkflowStatus,
+  mergeWorkflowRefresh,
+  findCancellableWorkflow,
+  hasWorkerActiveWorkflow,
+} from './workflowUi.js'
+
+const MAX_AUTO_APPROVE_DEPTH = 5
 
 function summarizeExecution(workflow) {
   const results = workflow?.step_results || {}
@@ -65,6 +73,11 @@ function applyStepEvent(workflow, event, data) {
  * Chat command interface — enqueues via API, polls jobs, never executes locally.
  */
 export function useAgentChat({ onToast } = {}) {
+  const { settings } = useWorkspaceSettings()
+  const autoApprove = settings.agent_auto_approve === true
+  const autoApproveRef = useRef(autoApprove)
+  autoApproveRef.current = autoApprove
+
   const [messages, setMessages] = useState([])
   const [conversationId, setConversationId] = useState(null)
   const [workflows, setWorkflows] = useState({})
@@ -113,6 +126,70 @@ export function useAgentChat({ onToast } = {}) {
     return workflow
   }, [])
 
+  const reportExecutionOutcome = useCallback((workflow, jobResult) => {
+    const summary = summarizeExecution(workflow)
+    const errs = workflow?.execution_errors || []
+
+    if (workflow?.status === 'completed') {
+      onToast?.success?.(summary ? `Workflow finished: ${summary}` : 'Workflow completed')
+    } else if (workflow?.status === 'failed') {
+      const partial = workflow?.graph?.steps?.length &&
+        Object.values(workflow?.step_results || {}).some(r => r.status === 'completed')
+      if (partial) {
+        onToast?.info?.(errs[0] || 'Some steps failed — your post may still have been saved or scheduled')
+      } else {
+        onToast?.error?.(errs[0] || summary || 'Workflow failed')
+      }
+    } else if (workflow?.status === 'awaiting_approval') {
+      onToast?.info?.('Some steps still need approval')
+    } else if (jobResult && !jobResult.ok) {
+      onToast?.error?.(jobResult.error || 'Workflow execution failed')
+    } else {
+      onToast?.info?.(`Workflow status: ${workflow?.status || 'updated'}`)
+    }
+  }, [onToast])
+
+  const pollExecutionJob = useCallback(async (wfId, jobId, runId, { depth = 0 } = {}) => {
+    const stepCount = workflowsRef.current[wfId]?.graph?.steps?.length || 0
+    setExecutionNote(
+      stepCount > 6
+        ? 'Running workflow — image/video steps may take several minutes…'
+        : 'Running steps (AI generation may take 1–2 min)…',
+    )
+    actionBusyRef.current = wfId
+    activeWorkflowRef.current = wfId
+    setActionBusy(wfId)
+
+    const jobResult = await pollAgentJob(jobId, {
+      maxWaitMs: stepCount > 6 ? 1_800_000 : 600_000,
+      intervalMs: 2000,
+      shouldAbort: shouldAbortPoll,
+      onTick: () => refreshWorkflow(wfId).catch(() => {}),
+    })
+    if (wasStopped({ runId, jobResult })) return null
+
+    const workflow = await refreshWorkflow(wfId)
+    if (wasStopped({ runId }) || workflow?.status === 'cancelled') return workflow
+
+    if (
+      workflow?.status === 'awaiting_approval' &&
+      autoApproveRef.current &&
+      depth < MAX_AUTO_APPROVE_DEPTH
+    ) {
+      onToast?.info?.('Auto-approving next step…')
+      setExecutionNote('Auto-approved — executing…')
+      const start = await api.agentApproveWorkflow(wfId)
+      if (wasStopped({ runId }) || !start?.job_id) {
+        reportExecutionOutcome(workflow, jobResult)
+        return workflow
+      }
+      return pollExecutionJob(wfId, start.job_id, runId, { depth: depth + 1 })
+    }
+
+    reportExecutionOutcome(workflow, jobResult)
+    return workflow
+  }, [onToast, refreshWorkflow, reportExecutionOutcome, shouldAbortPoll, wasStopped])
+
   useEffect(() => {
     const unsub = subscribe('events', (data) => {
       const event = data?.event || data
@@ -125,10 +202,14 @@ export function useAgentChat({ onToast } = {}) {
       if (!match?.id) return
 
       if (event?.startsWith('step.')) {
-        setWorkflows(prev => ({
-          ...prev,
-          [match.id]: applyStepEvent(prev[match.id] || match, event, data),
-        }))
+        setWorkflows(prev => {
+          const current = prev[match.id] || match
+          if (current.status === 'cancelled') return prev
+          return {
+            ...prev,
+            [match.id]: applyStepEvent(current, event, data),
+          }
+        })
         if (event === 'step.running') {
           setExecutionNote(`Running: ${data.tool_id || data.step_id || '…'}`)
         }
@@ -143,10 +224,14 @@ export function useAgentChat({ onToast } = {}) {
       ) {
         refreshWorkflow(match.id).catch(() => {})
         if (event === 'workflow.running') {
-          setWorkflows(prev => ({
-            ...prev,
-            [match.id]: { ...(prev[match.id] || match), status: 'running' },
-          }))
+          setWorkflows(prev => {
+            const current = prev[match.id] || match
+            if (current.status === 'cancelled') return prev
+            return {
+              ...prev,
+              [match.id]: { ...current, status: 'running' },
+            }
+          })
         }
         if (
           event === 'workflow.completed' ||
@@ -169,8 +254,8 @@ export function useAgentChat({ onToast } = {}) {
     return () => typeof unsub === 'function' && unsub()
   }, [refreshWorkflow, clearRunState])
 
-  const stopProcessing = useCallback(async () => {
-    const wfId = activeWorkflowRef.current || actionBusyRef.current
+  const stopProcessing = useCallback(async (explicitWfId) => {
+    const wfId = findCancellableWorkflow(workflowsRef.current, explicitWfId || activeWorkflowRef.current || actionBusyRef.current)
     abortRunRef.current = true
     activeRunRef.current += 1
     setExecutionNote('Stopping…')
@@ -211,10 +296,20 @@ export function useAgentChat({ onToast } = {}) {
         conversation_id: conversationId,
         attachments: media.length ? media : undefined,
       })
-      if (wasStopped({ runId })) return
+      if (start.workflow_id) activeWorkflowRef.current = start.workflow_id
+      if (wasStopped({ runId })) {
+        if (start.workflow_id) {
+          try {
+            const res = await api.agentCancelWorkflow(start.workflow_id)
+            if (res.workflow) {
+              setWorkflows(prev => ({ ...prev, [start.workflow_id]: res.workflow }))
+            }
+          } catch { /* ignore cancel race */ }
+        }
+        return
+      }
 
       if (start.conversation_id) setConversationId(start.conversation_id)
-      if (start.workflow_id) activeWorkflowRef.current = start.workflow_id
 
       if (start.status === 'planning' && start.job_id) {
         const planJob = await pollAgentJob(start.job_id, {
@@ -263,6 +358,29 @@ export function useAgentChat({ onToast } = {}) {
         }
         if (completed.workflow && !completed.chat_only) {
           setWorkflows(prev => ({ ...prev, [completed.workflow.id]: completed.workflow }))
+          const wfId = completed.workflow.id
+          let jobId = completed.job_id || null
+
+          if (!jobId && autoApproveRef.current) {
+            if (completed.workflow.status === 'awaiting_approval') {
+              setExecutionNote('Auto-approved — executing…')
+              onToast?.info?.('Auto-approved — running workflow…')
+              const start = await api.agentApproveWorkflow(wfId)
+              jobId = start?.job_id || null
+            } else if (completed.workflow.status === 'planned') {
+              setExecutionNote('Auto-running workflow…')
+              onToast?.info?.('Auto-running workflow…')
+              const start = await api.agentExecuteWorkflow(wfId)
+              jobId = start?.job_id || null
+            }
+          } else if (completed.auto_approved && jobId) {
+            setExecutionNote('Auto-approved — executing…')
+            onToast?.info?.('Auto-approved — running workflow…')
+          }
+
+          if (jobId && !wasStopped({ runId })) {
+            await pollExecutionJob(wfId, jobId, runId)
+          }
         }
       }
     } catch (err) {
@@ -273,11 +391,10 @@ export function useAgentChat({ onToast } = {}) {
       if (runId === activeRunRef.current) {
         abortRunRef.current = false
         setSending(false)
-        setExecutionNote(null)
-        activeWorkflowRef.current = null
+        clearRunState()
       }
     }
-  }, [conversationId, sending, onToast, refreshWorkflow, shouldAbortPoll, wasStopped])
+  }, [conversationId, sending, onToast, refreshWorkflow, shouldAbortPoll, wasStopped, pollExecutionJob, clearRunState])
 
   const runWorkflowAction = useCallback(async (wfId, action) => {
     const runId = ++activeRunRef.current
@@ -312,43 +429,7 @@ export function useAgentChat({ onToast } = {}) {
         : await api.agentExecuteWorkflow(wfId)
 
       if (start?.job_id) {
-        const stepCount = workflowsRef.current[wfId]?.graph?.steps?.length || 0
-        setExecutionNote(
-          stepCount > 6
-            ? 'Running workflow — image/video steps may take several minutes…'
-            : 'Running steps (AI generation may take 1–2 min)…',
-        )
-        const jobResult = await pollAgentJob(start.job_id, {
-          maxWaitMs: stepCount > 6 ? 1_800_000 : 600_000,
-          intervalMs: 1200,
-          shouldAbort: shouldAbortPoll,
-          onTick: () => refreshWorkflow(wfId),
-        })
-        if (wasStopped({ runId, jobResult })) return
-
-        const workflow = await refreshWorkflow(wfId)
-        if (wasStopped({ runId }) || workflow?.status === 'cancelled') return
-
-        const summary = summarizeExecution(workflow)
-        const errs = workflow?.execution_errors || []
-
-        if (workflow?.status === 'completed') {
-          onToast?.success?.(summary ? `Workflow finished: ${summary}` : 'Workflow completed')
-        } else if (workflow?.status === 'failed') {
-          const partial = workflow?.graph?.steps?.length &&
-            Object.values(workflow?.step_results || {}).some(r => r.status === 'completed')
-          if (partial) {
-            onToast?.info?.(errs[0] || 'Some steps failed — your post may still have been saved or scheduled')
-          } else {
-            onToast?.error?.(errs[0] || summary || 'Workflow failed')
-          }
-        } else if (workflow?.status === 'awaiting_approval') {
-          onToast?.info?.('Some steps still need approval')
-        } else if (!jobResult.ok) {
-          onToast?.error?.(jobResult.error || 'Workflow execution failed')
-        } else {
-          onToast?.info?.(`Workflow status: ${workflow?.status || 'updated'}`)
-        }
+        await pollExecutionJob(wfId, start.job_id, runId)
       }
     } catch (err) {
       if (!wasStopped({ runId })) {
@@ -361,7 +442,7 @@ export function useAgentChat({ onToast } = {}) {
         clearRunState()
       }
     }
-  }, [onToast, refreshWorkflow, clearRunState, shouldAbortPoll, wasStopped])
+  }, [onToast, refreshWorkflow, clearRunState, wasStopped, pollExecutionJob])
 
   const loadConversation = useCallback(async (id) => {
     const { conversation } = await api.agentConversation(id)
@@ -390,7 +471,7 @@ export function useAgentChat({ onToast } = {}) {
     setExecutionNote(null)
   }, [])
 
-  const isProcessing = sending || Boolean(actionBusy)
+  const isProcessing = sending || Boolean(actionBusy) || hasWorkerActiveWorkflow(workflows)
 
   return {
     messages,

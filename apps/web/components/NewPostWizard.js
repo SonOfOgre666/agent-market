@@ -6,7 +6,7 @@ import { canSelectAccountForPost, filterSelectableAccountIds } from '../lib/acco
 import { useToast } from './Toast.js'
 import { useWorkspaceSettings } from './WorkspaceSettingsProvider.js'
 import MediaPicker from './MediaPicker.js'
-import { getMediaPreviewUrl } from '../lib/mediaPreview.js'
+import { getMediaPreviewUrl, getMediaSourceUrl, getMediaThumbnailUrl } from '../lib/mediaPreview.js'
 import {
   Image, Video, Sparkles, Loader2, ChevronLeft, ChevronRight, Eye,
   Wand2, MessageSquare, Film, Users, Clock, Save, Send, Calendar,
@@ -396,7 +396,6 @@ export default function NewPostWizard({ onClose, onDone }) {
         {step === 0 && (
           <div className="post-wizard-panel animate-fade-in-up">
             <h2 className="post-wizard-title">What kind of post?</h2>
-            <p className="post-wizard-sub">Same flow as the AI agent — image or video, then content and media.</p>
             <div className="post-wizard-type-grid">
               {[
                 { id: 'image', label: 'Image post', desc: 'One image + caption', icon: Image, gradient: 'linear-gradient(135deg, hsl(262 68% 58%), hsl(221 83% 53%))' },
@@ -426,7 +425,7 @@ export default function NewPostWizard({ onClose, onDone }) {
         {step === 1 && (
           <div className="post-wizard-panel animate-fade-in-up">
             <h2 className="post-wizard-title">What&apos;s on your mind?</h2>
-            <p className="post-wizard-sub">We&apos;ll generate caption, hashtags, and hooks — like <code>generate_social_post</code> in the agent.</p>
+            <p className="post-wizard-sub">We&apos;ll generate caption, hashtags, and hooks.</p>
             <textarea
               className="form-input post-wizard-textarea"
               rows={5}
@@ -524,13 +523,14 @@ export default function NewPostWizard({ onClose, onDone }) {
             {displayMediaItems.length > 0 && (
               <div className="post-wizard-media-preview-grid">
                 {displayMediaItems.map((item, i) => {
-                  const src = getMediaPreviewUrl(item)
                   const isVideo = isVideoMediaItem(item)
                   const isCover = isCoverMediaItem(item)
+                  const src = isVideo ? getMediaSourceUrl(item) : getMediaPreviewUrl(item)
+                  const poster = isVideo ? getMediaThumbnailUrl(item) : ''
                   return (
                     <div key={item.id || `${isCover ? 'cover' : isVideo ? 'video' : 'media'}-${i}`} className="post-wizard-media-thumb">
                       {isVideo ? (
-                        <video src={src} muted playsInline style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                        <video src={src} poster={poster || undefined} muted playsInline style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                       ) : (
                         <img src={src} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                       )}
@@ -559,8 +559,12 @@ export default function NewPostWizard({ onClose, onDone }) {
               {postType === 'video' && wizardVideo ? (
                 <div className="post-wizard-preview-media">
                   <video
-                    src={getMediaPreviewUrl(wizardVideo)}
-                    poster={wizardCover ? getMediaPreviewUrl(wizardCover) : undefined}
+                    src={getMediaSourceUrl(wizardVideo)}
+                    poster={
+                      wizardCover
+                        ? getMediaPreviewUrl(wizardCover)
+                        : (getMediaThumbnailUrl(wizardVideo) || undefined)
+                    }
                     controls
                     style={{ width: '100%', maxHeight: 280, borderRadius: 12 }}
                   />

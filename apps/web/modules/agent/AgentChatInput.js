@@ -4,19 +4,20 @@ import { useState, useRef, useEffect } from 'react'
 import { Plus, Send, Loader2, X, Image as ImageIcon, Upload } from 'lucide-react'
 import MediaPicker from '../../components/MediaPicker.js'
 import { api } from '../../lib/api.js'
-import { getMediaPreviewUrl } from '../../lib/mediaPreview.js'
+import { getMediaPreviewUrl, getMediaSourceUrl, getMediaThumbnailUrl } from '../../lib/mediaPreview.js'
 import { useToast } from '../../components/Toast.js'
 import { toAgentAttachment } from './agentAttachments.js'
 
 function AttachmentPreview({ item, onRemove }) {
-  const src = getMediaPreviewUrl(item)
   const isVideo = item.mime_type?.startsWith('video/')
+  const src = isVideo ? getMediaSourceUrl(item) : getMediaPreviewUrl(item)
+  const poster = isVideo ? getMediaThumbnailUrl(item) : ''
 
   return (
     <div className="agent-attach-preview">
       <div className="agent-attach-thumb">
         {isVideo ? (
-          <video src={src} muted preload="metadata" />
+          <video src={src} poster={poster || undefined} muted preload="metadata" />
         ) : (
           <img src={src} alt="" />
         )}

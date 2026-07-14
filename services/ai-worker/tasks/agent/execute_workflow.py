@@ -90,30 +90,6 @@ def execute_workflow_task(
             write(False, None, 'Workflow has no executable steps', 400)
             return
 
-        worker_api.patch_agent_workflow(workflow_id, {'status': 'running'})
-        worker_api.emit_event('workflow.running', {
-            'workflow_id': wf.get('workflow_id') or workflow_id,
-            'workflow_mongo_id': workflow_id,
-            'workspace_id': workspace_id,
-        })
-
-        wf_public_id = wf.get('workflow_id') or workflow_id
-
-        def on_step_event(step_id: str, event: str, payload: dict) -> None:
-            step_results = payload.pop('step_results', None)
-            worker_api.emit_event(event, {
-                'workflow_id': wf_public_id,
-                'workflow_mongo_id': workflow_id,
-                'workspace_id': workspace_id,
-                'step_id': step_id,
-                **payload,
-            })
-            if step_results is not None:
-                worker_api.patch_agent_workflow(workflow_id, {
-                    'status': 'running',
-                    'step_results': step_results,
-                })
-
         if is_workflow_cancelled(workflow_id):
             worker_api.patch_agent_workflow(workflow_id, {
                 'status': 'cancelled',
@@ -135,6 +111,38 @@ def execute_workflow_task(
                 'errors': ['Stopped by user.'],
             }, None, 200)
             return
+
+        worker_api.patch_agent_workflow(workflow_id, {'status': 'running'})
+        worker_api.emit_event('workflow.running', {
+            'workflow_id': wf.get('workflow_id') or workflow_id,
+            'workflow_mongo_id': workflow_id,
+            'workspace_id': workspace_id,
+        })
+
+        wf_public_id = wf.get('workflow_id') or workflow_id
+
+        def _workflow_stopped() -> bool:
+            if is_workflow_cancelled(workflow_id):
+                return True
+            snap = worker_api.get_agent_workflow(workflow_id)
+            return (snap.get('status') or '').lower() == 'cancelled'
+
+        def on_step_event(step_id: str, event: str, payload: dict) -> None:
+            if _workflow_stopped():
+                return
+            step_results = payload.pop('step_results', None)
+            worker_api.emit_event(event, {
+                'workflow_id': wf_public_id,
+                'workflow_mongo_id': workflow_id,
+                'workspace_id': workspace_id,
+                'step_id': step_id,
+                **payload,
+            })
+            if step_results is not None and not _workflow_stopped():
+                worker_api.patch_agent_workflow(workflow_id, {
+                    'status': 'running',
+                    'step_results': step_results,
+                })
 
         outcome = execute_workflow_steps(
             graph,

@@ -1,12 +1,12 @@
 'use client'
 
-import { CheckCircle2, XCircle, Play, ShieldAlert, Loader2, AlertTriangle } from 'lucide-react'
+import { CheckCircle2, XCircle, Play, ShieldAlert, Loader2, AlertTriangle, Square } from 'lucide-react'
 import WorkflowTimeline from './WorkflowTimeline.js'
 import StepResultViewer from './StepResultViewer.js'
 import PlannerActivity from './PlannerActivity.js'
 import { workflowShowsRunning, getPartialSuccessMessage, getActiveStep } from './workflowUi.js'
 
-export default function WorkflowCard({ workflow, busy, onApprove, onExecute, onReject }) {
+export default function WorkflowCard({ workflow, busy, onApprove, onExecute, onReject, onStop }) {
   const graph = workflow?.graph || {}
   const steps = graph.steps || []
   const status = workflow?.status
@@ -86,9 +86,22 @@ export default function WorkflowCard({ workflow, busy, onApprove, onExecute, onR
           </button>
         )}
         {isRunning && (
-          <span className="agent-wf-busy-label">
-            <Loader2 size={14} className="spin" aria-hidden /> Working…
-          </span>
+          <>
+            <span className="agent-wf-busy-label">
+              <Loader2 size={14} className="spin" aria-hidden /> Working…
+            </span>
+            {onStop && (
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm agent-stop-btn"
+                onClick={() => onStop(workflow.id)}
+                aria-label="Stop workflow"
+              >
+                <Square size={12} fill="currentColor" aria-hidden />
+                Stop
+              </button>
+            )}
+          </>
         )}
       </div>
     </div>

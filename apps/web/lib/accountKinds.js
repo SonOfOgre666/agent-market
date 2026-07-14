@@ -20,7 +20,15 @@ export function isSocialProvider(provider) {
 /** User-facing provider slug in account lists (instagram_login → instagram). */
 export function socialProviderSlug(provider) {
   if (provider === 'instagram_login') return 'instagram'
+  if (provider === 'facebook_page') return 'facebook'
   return provider
+}
+
+/** Label shown next to @username in Connected Accounts / account lists. */
+export function accountProviderLabel(provider) {
+  if (provider === 'google_ads') return 'Google Ads'
+  if (provider === 'meta_ads') return 'Meta Ads'
+  return socialProviderSlug(provider)
 }
 
 export function isAdsProvider(provider) {

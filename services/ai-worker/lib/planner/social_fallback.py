@@ -385,7 +385,7 @@ def _append_tail(
 
     if mode == 'schedule':
         schedule_payload: dict[str, Any] = {
-            'post_id': f'{create_step}.output.post_id',
+            'post_id': f'{create_step}.output.id',
             'schedule_in_minutes': schedule_mins if schedule_mins else 60,
             **_schedule_publish_fields(platform, account_ids),
         }
@@ -410,7 +410,7 @@ def _append_tail(
             'step_id': tail_id,
             'tool_id': 'publish_post',
             'payload': {
-                'post_id': f'{create_step}.output.post_id',
+                'post_id': f'{create_step}.output.id',
                 **_schedule_publish_fields(platform, account_ids),
             },
             'depends_on': [create_step],
@@ -478,7 +478,7 @@ def _append_post_tail(
     tail_id = f'step_{tail_step}'
     if mode == 'schedule':
         payload: dict[str, Any] = {
-            'post_id': f'{create_step}.output.post_id',
+            'post_id': f'{create_step}.output.id',
             'schedule_in_minutes': schedule_mins if schedule_mins else 60,
             **_schedule_publish_fields(platform, account_ids),
         }
@@ -494,7 +494,7 @@ def _append_post_tail(
             'step_id': tail_id,
             'tool_id': 'publish_post',
             'payload': {
-                'post_id': f'{create_step}.output.post_id',
+                'post_id': f'{create_step}.output.id',
                 **_schedule_publish_fields(platform, account_ids),
             },
             'depends_on': [create_step],
@@ -614,7 +614,7 @@ def _build_dual_image_publish_schedule(
         'step_id': 'step_5',
         'tool_id': 'publish_post',
         'payload': {
-            'post_id': f'{create1}.output.post_id',
+            'post_id': f'{create1}.output.id',
             **_schedule_publish_fields(platform, account_ids),
         },
         'depends_on': [create1],
@@ -627,7 +627,7 @@ def _build_dual_image_publish_schedule(
         'step_id': 'step_10',
         'tool_id': 'schedule_post',
         'payload': {
-            'post_id': f'{create2}.output.post_id',
+            'post_id': f'{create2}.output.id',
             'schedule_in_minutes': schedule_mins,
             **_schedule_publish_fields(platform, account_ids),
         },

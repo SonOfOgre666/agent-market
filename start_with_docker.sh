@@ -94,6 +94,16 @@ OLD_API_URL=$(grep "^NEXT_PUBLIC_API_URL=" "$ENV_FILE" | cut -d= -f2- || true)
 
 sed -i "s|^NEXT_PUBLIC_WEB_URL=.*|NEXT_PUBLIC_WEB_URL=${CF_WEB_URL}|" "$ENV_FILE"
 sed -i "s|^NEXT_PUBLIC_SC_HOST=.*|NEXT_PUBLIC_SC_HOST=${CF_RT_HOST}|" "$ENV_FILE"
+if grep -q '^NEXT_PUBLIC_SC_PORT=' "$ENV_FILE"; then
+  sed -i "s|^NEXT_PUBLIC_SC_PORT=.*|NEXT_PUBLIC_SC_PORT=443|" "$ENV_FILE"
+else
+  echo "NEXT_PUBLIC_SC_PORT=443" >> "$ENV_FILE"
+fi
+if grep -q '^NEXT_PUBLIC_SC_SECURE=' "$ENV_FILE"; then
+  sed -i "s|^NEXT_PUBLIC_SC_SECURE=.*|NEXT_PUBLIC_SC_SECURE=true|" "$ENV_FILE"
+else
+  echo "NEXT_PUBLIC_SC_SECURE=true" >> "$ENV_FILE"
+fi
 if grep -q '^NEXT_PUBLIC_API_URL=' "$ENV_FILE"; then
   sed -i "s|^NEXT_PUBLIC_API_URL=.*|NEXT_PUBLIC_API_URL=${NGROK_API_URL}|" "$ENV_FILE"
 else
@@ -106,6 +116,7 @@ fi
 ok ".env updated:"
 ok "  NEXT_PUBLIC_WEB_URL=${CF_WEB_URL}"
 ok "  NEXT_PUBLIC_SC_HOST=${CF_RT_HOST}"
+ok "  NEXT_PUBLIC_SC_PORT=443 / NEXT_PUBLIC_SC_SECURE=true"
 ok "  NEXT_PUBLIC_API_URL=${NGROK_API_URL}"
 
 # ── 8. Rebuild web container if public env changed (Next bakes NEXT_PUBLIC_* at build) ─

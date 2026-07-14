@@ -314,7 +314,7 @@ def execute_workflow_steps(
                 sanitized = _sanitize_step_output(tool_id, out)
                 results[sid] = {
                     'status': 'completed',
-                    'output': out,
+                    'output': sanitized,
                     'tool_id': tool_id,
                 }
                 emit(sid, 'step.completed', {'tool_id': tool_id, 'output': sanitized})

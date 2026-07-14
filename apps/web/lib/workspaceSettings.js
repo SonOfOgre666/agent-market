@@ -8,6 +8,7 @@ export const DEFAULT_WORKSPACE_SETTINGS = {
   admin_email: '',
   default_accounts: [],
   auto_analyze_comments: false,
+  agent_auto_approve: false,
 }
 
 const WEEKDAY_NAMES = {
@@ -89,6 +90,7 @@ export function normalizeWorkspaceSettings(raw = {}) {
     week_starts_on: week,
     default_accounts: Array.isArray(merged.default_accounts) ? merged.default_accounts : [],
     auto_analyze_comments: merged.auto_analyze_comments === true,
+    agent_auto_approve: merged.agent_auto_approve === true,
   }
 }
 
@@ -314,6 +316,7 @@ export function settingsToApiPayload(form) {
     week_starts_on: week,
     default_accounts: Array.isArray(form.default_accounts) ? form.default_accounts : [],
     auto_analyze_comments: form.auto_analyze_comments === true,
+    agent_auto_approve: form.agent_auto_approve === true,
   }
 }
 
