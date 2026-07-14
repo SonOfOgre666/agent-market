@@ -49,6 +49,9 @@ await app.register(rateLimit, {
   allowList: (req) => {
     if (req.method === 'OPTIONS') return true
     const path = (req.url || '').split('?')[0]
+    // Celery M2M (X-Worker-Secret) must never share the browser bucket — workflow
+    // execution fans out dozens of patches/events per minute.
+    if (path.startsWith('/api/internal/worker/')) return true
     if (req.method !== 'GET') return false
     // Agent UI polls these while a workflow runs (esp. when realtime WS is down).
     if (

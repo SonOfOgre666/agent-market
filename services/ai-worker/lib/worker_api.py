@@ -75,7 +75,7 @@ def emit_event(event: str, payload: Optional[Dict[str, Any]] = None) -> None:
 
 def claim_due_posts() -> List[str]:
     url = f'{_base()}/api/internal/worker/scheduler/claim-due-posts'
-    r = httpx.post(url, headers=_headers(), timeout=120.0)
+    r = httpx.post(url, headers=_headers(), json={}, timeout=120.0)
     r.raise_for_status()
     data = r.json()
     return list(data.get('ids') or [])
@@ -83,7 +83,7 @@ def claim_due_posts() -> List[str]:
 
 def claim_due_campaigns() -> List[str]:
     url = f'{_base()}/api/internal/worker/scheduler/claim-due-campaigns'
-    r = httpx.post(url, headers=_headers(), timeout=120.0)
+    r = httpx.post(url, headers=_headers(), json={}, timeout=120.0)
     r.raise_for_status()
     data = r.json()
     return list(data.get('ids') or [])
@@ -114,6 +114,18 @@ def list_accounts_authorized(
     r.raise_for_status()
     data = r.json()
     return list(data.get('items') or [])
+
+
+def get_workspace_settings(workspace_id: str) -> Dict[str, Any]:
+    """Preference defaults (e.g. default_accounts) for planner + publish targeting."""
+    wid = str(workspace_id or '').strip()
+    if not wid:
+        return {}
+    url = f'{_base()}/api/internal/worker/workspaces/{wid}/settings'
+    r = httpx.get(url, headers=_headers(), timeout=30.0)
+    r.raise_for_status()
+    data = r.json()
+    return data if isinstance(data, dict) else {}
 
 
 def get_integration_config_decrypted(name: str, workspace_id: Optional[str] = None) -> Dict[str, Any]:

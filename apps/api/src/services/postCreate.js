@@ -15,6 +15,7 @@ import { getDb } from '../lib/mongo.js'
 import * as Post from '../models/Post.js'
 import * as Account from '../models/Account.js'
 import * as Media from '../models/Media.js'
+import * as Setting from '../models/Setting.js'
 import { publishEvent } from '../lib/events.js'
 import { isSocialProvider } from '../constants/accountKinds.js'
 
@@ -96,13 +97,6 @@ function mediaEntryFromRow(media, role) {
   }
 }
 
-function providerQuery(platform) {
-  if (!platform) return null
-  if (platform === 'facebook') return { $in: ['facebook', 'facebook_page'] }
-  if (platform === 'instagram') return { $in: ['instagram', 'instagram_login'] }
-  return platform
-}
-
 export function postHasVideoMedia(post) {
   for (const version of post?.versions || []) {
     for (const block of version?.content || []) {
@@ -128,6 +122,20 @@ async function filterAccountIdsForPostMedia(post, accountIds) {
   return filtered
 }
 
+function accountMatchesPlatform(provider, platform) {
+  if (!platform) return true
+  const p = String(platform).trim().toLowerCase()
+  const prov = String(provider || '').trim().toLowerCase()
+  if (p === 'facebook') return prov === 'facebook' || prov === 'facebook_page'
+  if (p === 'instagram') return prov === 'instagram' || prov === 'instagram_login'
+  return prov === p
+}
+
+/**
+ * Resolve publish targets when the caller omitted account_ids.
+ * Preference `default_accounts` wins when the user/agent did not name pages.
+ * Never silently pick the oldest connected account (that ignored Preferences).
+ */
 export async function resolveSocialAccountIds(workspaceId, { account_ids: accountIds = [], platform } = {}) {
   let ids = Array.isArray(accountIds) ? accountIds.map(String).filter(Boolean) : []
   if (ids.length) {
@@ -135,16 +143,35 @@ export async function resolveSocialAccountIds(workspaceId, { account_ids: accoun
     return ids
   }
 
-  const provFilter = providerQuery(platform)
+  const rawDefaults = await Setting.get('default_accounts', workspaceId)
+  const preferred = Array.isArray(rawDefaults)
+    ? rawDefaults.map(String).filter(Boolean)
+    : []
+
   const q = { workspace_id: workspaceId, authorized: true }
-  if (provFilter) q.provider = provFilter
-  const rows = await getDb().collection('accounts').find(q).sort({ created_at: 1 }).limit(10).toArray()
+  const rows = await getDb().collection('accounts').find(q).sort({ created_at: 1 }).limit(50).toArray()
   const social = rows.filter((a) => isSocialProvider(a.provider))
-  if (!social.length) return []
-  return [social[0]._id.toString()]
+  const byId = new Map(social.map((a) => [a._id.toString(), a]))
+
+  const alivePreferred = preferred.filter((id) => byId.has(id))
+  if (alivePreferred.length) {
+    const filtered = platform
+      ? alivePreferred.filter((id) => accountMatchesPlatform(byId.get(id)?.provider, platform))
+      : alivePreferred
+    if (filtered.length) return filtered
+  }
+
+  if (platform) {
+    const matches = social.filter((a) => accountMatchesPlatform(a.provider, platform))
+    if (matches.length === 1) return [matches[0]._id.toString()]
+    return []
+  }
+
+  if (social.length === 1) return [social[0]._id.toString()]
+  return []
 }
 
-/** Resolve target pages for schedule/publish — payload accounts override post; platform fills when omitted. */
+/** Resolve target pages for schedule/publish — payload accounts override post; prefs fill when omitted. */
 export async function resolveAccountsForScheduleOrPublish(
   workspaceId,
   post,
@@ -164,8 +191,8 @@ export async function resolveAccountsForScheduleOrPublish(
     throw Object.assign(
       new Error(
         plat
-          ? `Select at least one connected page for ${plat} before scheduling or publishing.`
-          : 'Select at least one connected page before scheduling or publishing.',
+          ? `No page selected for ${plat}. Name a connected account, or set default accounts in Preferences.`
+          : 'No publish account selected. Name a connected account in chat, or set default accounts in Preferences.',
       ),
       { statusCode: 422 },
     )

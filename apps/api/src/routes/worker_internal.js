@@ -15,6 +15,7 @@ import * as AiWorkspaceConfig from '../models/AiWorkspaceConfig.js'
 import * as AiExecution from '../models/AiExecution.js'
 import { getCatalog, catalogViews, resolveApiModelId } from '../models/AiCatalog.js'
 import { getWorkspaceCatalogViews } from '../lib/aiCatalogWorkspace.js'
+import * as Setting from '../models/Setting.js'
 import { publishEvent } from '../lib/events.js'
 import { createPostFromWorkerPayload, schedulePostForWorkspace, preparePublishPostForWorkspace } from '../services/postCreate.js'
 import { runLandingPageWorkflow } from '../services/adsLandingPageWorkflow.js'
@@ -475,6 +476,20 @@ export default async function workerInternalRoutes(fastify) {
       )
     }
     return reply.send({ items })
+  })
+
+  // GET /internal/worker/workspaces/:workspaceId/settings — planner + publish defaults
+  fastify.get('/internal/worker/workspaces/:workspaceId/settings', async (request, reply) => {
+    const workspaceId = String(request.params.workspaceId || '').trim()
+    if (!workspaceId) return reply.code(400).send({ error: 'workspaceId required' })
+    const settings = await Setting.getAll(workspaceId)
+    return reply.send({
+      default_accounts: Array.isArray(settings.default_accounts)
+        ? settings.default_accounts.map(String)
+        : [],
+      agent_auto_approve: Boolean(settings.agent_auto_approve),
+      timezone: settings.timezone || 'UTC',
+    })
   })
 
   const integrationConfigDecrypted = async (request, reply) => {

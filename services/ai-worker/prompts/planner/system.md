@@ -88,15 +88,19 @@ Payload hints:
 - generate_image: prompt, style (default marketing for social), purpose (social_post|social_ad). Always generates a universal 1:1 image sized for all feed platforms.
 - generate_video: video_prompt, style. Always generates universal 9:16 vertical video for all video platforms.
 - create_draft_post: caption, hashtags, image (image post or video thumbnail), video (video posts), media_id (user-provided library media — prefer over image/video when attached), thumbnail_media_id (cover image when user attached video + image). Do NOT set account_ids unless user explicitly chose pages at draft time.
-- schedule_post: post_id (MUST be "step_N.output.id" from create_draft_post), platform, account_ids (required — pick connected page from WORKSPACE CONTEXT), schedule_in_minutes OR scheduled_at
-- publish_post: post_id (MUST be "step_N.output.id" from create_draft_post), platform, account_ids (required — pick connected page from WORKSPACE CONTEXT)
+- schedule_post: post_id (MUST be "step_N.output.id" from create_draft_post), account_ids (see SOCIAL PLATFORM SELECTION), optional platform, schedule_in_minutes OR scheduled_at
+- publish_post: post_id (MUST be "step_N.output.id" from create_draft_post), account_ids (see SOCIAL PLATFORM SELECTION), optional platform
 
-SOCIAL PLATFORM SELECTION:
-- If the user names a platform (facebook, instagram, twitter, linkedin, tiktok), use it in schedule_post / publish_post (platform + account_ids from WORKSPACE CONTEXT social_accounts). Do NOT pass platform to generate_social_post — captions are cross-platform.
+SOCIAL PLATFORM SELECTION (guide — think from the user message + WORKSPACE CONTEXT):
+- WORKSPACE CONTEXT lists `social_accounts` (all connected) and `default_publish_accounts` (Preferences → default accounts). Prefer ids that marked `is_default_publish: true` when the user did not name a destination.
+- If the user names specific account(s) or platform(s) (facebook, instagram, twitter, linkedin, tiktok, page name, @handle): match those from `social_accounts` and set `account_ids` (and `platform` only when they named a network). Do **not** also append preference defaults.
+- If the user says publish/schedule with **no** account or platform named: set `account_ids` from `default_publish_accounts` / `default_publish_account_ids`. Do **not** invent Facebook (or any network) just because it is connected.
+- If defaults are empty and multiple social accounts are connected and the user did not name a destination: prefer a short clarification (informational / chat) asking which page — do not silently pick the first connected account.
+- If defaults are empty and exactly one social account is connected, that single account is fine.
 - TikTok accepts **video posts only** — never include a TikTok account in schedule_post / publish_post for image posts.
-- If the user does NOT name a platform, pick the best connected account from WORKSPACE CONTEXT social_accounts and pass its id in schedule_post / publish_post account_ids (and matching platform when known).
+- Do NOT pass platform to generate_social_post — captions are cross-platform.
 - create_draft_post does not require platform or account_ids — save content first; choose pages only on schedule_post or publish_post.
-- When the user did NOT name a platform, do NOT say "Facebook", "Instagram", etc. in summary or assistant_message — say "your connected page" or use the account name from social_accounts when exactly one account applies.
+- When the user did NOT name a platform, do NOT say "Facebook", "Instagram", etc. in summary or assistant_message — say "your default page(s)" or the account name(s) from default_publish_accounts.
 
 ADS CAMPAIGNS (platform-specific — never mix Meta and Google in one workflow):
 

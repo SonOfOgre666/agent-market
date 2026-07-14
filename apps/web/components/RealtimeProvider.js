@@ -27,10 +27,8 @@ export function RealtimeProvider({ children }) {
           toast.info('Post scheduled')
           break
         case 'post.drafted':
-          toast.info('Draft saved')
-          break
         case 'post.publish_requested':
-          toast.info('Publishing post…')
+          // Agent timeline already shows draft/publish progress — avoid mid-run toast spam.
           break
         case 'comment.analyzed':
           toast.info('Comment analyzed')
@@ -88,26 +86,16 @@ export function RealtimeProvider({ children }) {
           break
 
         case 'workflow.planned':
-          toast.info('Assistant planned a workflow')
-          break
         case 'workflow.running':
-          toast.info('Workflow execution started')
-          break
         case 'workflow.completed':
-          toast.success('Workflow completed')
+        case 'approval.required':
+        case 'approval.granted':
+        case 'step.running':
+        case 'step.completed':
+          // AI Agent card is the source of truth for workflow progress.
           break
         case 'workflow.failed':
           toast.error(`Workflow failed${data.error ? `: ${data.error}` : ''}`)
-          break
-        case 'approval.required':
-          toast.info('Workflow requires your approval')
-          break
-        case 'approval.granted':
-          toast.success('Workflow approved')
-          break
-        case 'step.running':
-          break
-        case 'step.completed':
           break
         case 'step.failed':
           toast.error(`Workflow step failed${data.error ? `: ${data.error}` : ''}`)
