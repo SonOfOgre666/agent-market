@@ -50,7 +50,7 @@ Diagnostic intégrations : `GET /api/integrations/diagnostics` (JWT workspace).
 | `services/ai-worker` | **Celery** (worker + Beat dans `celery_app.py`) : publish, imports, métriques, LLM, schedulers. |
 | `docs/` | Guides développeur (`ONBOARDING.md`, `ARCHITECTURE.md`). |
 | `scripts/` | Utilitaires (ex. `get-meta-credentials.js` pour Meta). |
-| `start.sh` | Démarrage local complet sans Docker app (npm + Celery + tunnels ngrok/cloudflared pour OAuth). |
+| `start.sh` | Démarrage local complet sans Docker app (npm + Celery + proxy + ngrok — un seul domaine public pour web/API/realtime). |
 | `start_with_docker.sh` | `docker compose up -d` + tunnels pour callbacks OAuth distants. |
 | `Makefile` | Raccourcis : `up`, `down`, `dev`, `worker`, `beat`, `check`. |
 | `UML/` | Diagrammes PlantUML (architecture, séquences). |
@@ -141,7 +141,7 @@ celery -A celery_app:celery_app beat -l info
 
 ### 5. Scripts de démarrage (optionnel)
 
-Pour OAuth avec tunnels publics (ngrok / cloudflared) :
+Pour OAuth avec un domaine public (ngrok) :
 
 ```bash
 ./start_with_docker.sh   # Docker stack + tunnels

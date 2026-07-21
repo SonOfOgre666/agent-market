@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
-from lib.planner.ads_fallback import (
+from lib.planner.ads_helpers import (
     is_ads_clarification_followup,
     is_meta_campaign_collection_active,
     resolve_ads_planning_message,

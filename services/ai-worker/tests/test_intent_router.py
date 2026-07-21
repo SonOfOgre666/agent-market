@@ -40,7 +40,7 @@ class IntentRouterTest(unittest.TestCase):
 
 class AdsAccountPickTest(unittest.TestCase):
     def test_picks_graph_ad_account_when_multiple_meta_rows(self):
-        from lib.planner.ads_fallback import _pick_ads_account_id
+        from lib.planner.ads_helpers import _pick_ads_account_id
 
         ctx = {
             'ads_accounts': [

@@ -204,7 +204,7 @@ def execute_workflow_task(
 
         graph = wf.get('graph') or {}
         if graph.get('meta_setup_phase') == 'discovery' and wf_status == 'completed':
-            from lib.planner.ads_fallback import meta_content_missing_lines
+            from lib.planner.meta_campaign_spec import meta_content_missing_lines
             from lib.planner.meta_page_selection import (
                 build_meta_setup_clarification_message,
                 usable_pages,
@@ -226,6 +226,37 @@ def execute_workflow_task(
                 'summary': clarification,
             })
 
+        result_message: str | None = None
+        from lib.planner.result_narrator import (
+            apply_result_message,
+            narrate_workflow_result,
+            should_narrate_result,
+        )
+
+        live_graph = (worker_api.get_agent_workflow(workflow_id).get('graph') or graph)
+        if should_narrate_result(status=wf_status, graph=live_graph):
+            try:
+                result_message = narrate_workflow_result(
+                    workspace_id=workspace_id,
+                    user_message=str(wf.get('user_message') or ''),
+                    status=wf_status,
+                    graph=live_graph,
+                    step_results=final_step_results,
+                    errors=outcome.get('errors') or [],
+                )
+                patched_graph = apply_result_message(live_graph, result_message)
+                worker_api.patch_agent_workflow(workflow_id, {
+                    'summary': result_message,
+                    'graph': patched_graph,
+                })
+            except Exception:
+                logger.exception(
+                    'result narration failed workflow_id=%s status=%s',
+                    workflow_id,
+                    wf_status,
+                )
+                result_message = None
+
         event = 'workflow.completed' if wf_status == 'completed' else (
             'workflow.cancelled' if wf_status == 'cancelled' else (
                 'workflow.failed' if wf_status == 'failed' else 'approval.required'
@@ -236,6 +267,7 @@ def execute_workflow_task(
             'workflow_mongo_id': workflow_id,
             'workspace_id': workspace_id,
             'status': wf_status,
+            **({'assistant_message': result_message} if result_message else {}),
         })
 
         write(True, {
@@ -243,6 +275,7 @@ def execute_workflow_task(
             'status': wf_status,
             'step_results': outcome.get('step_results'),
             'errors': outcome.get('errors'),
+            **({'assistant_message': result_message} if result_message else {}),
         }, None, 200)
     except SoftTimeLimitExceeded:
         logger.warning('execute_workflow timed out workflow_id=%s', workflow_id)

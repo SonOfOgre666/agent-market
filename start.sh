@@ -4,16 +4,21 @@
 # Redis: checks local port when REDIS_HOST is localhost; otherwise skips.
 # If local Redis is down and Docker is available, runs: docker compose up -d redis
 # MongoDB: local :27017 only when MONGODB_URI points at this machine; Atlas skips.
-# Starts: ngrok + cloudflared, API + web + realtime (npm), Celery worker + beat (ai-worker).
+# Starts: local reverse proxy + ngrok (one public origin), API + web + realtime (npm),
+# Celery worker + beat (ai-worker). No Cloudflare tunnels.
 # Prerequisite: Redis reachable (e.g. docker compose up -d redis) and Mongo (e.g. Atlas in .env).
 # ─────────────────────────────────────────────────────────────
 set -e
 cd "$(dirname "$0")"
 
 NGROK_DOMAIN="chelsie-unsignalised-noncommendably.ngrok-free.dev"
+NGROK_PUBLIC_URL="https://${NGROK_DOMAIN}"
+PROXY_PORT=8080
 ENV_FILE=".env"
 DEV_LOG="/tmp/agent-market-dev.log"
 DEV_PID_FILE="/tmp/agent-market-dev.pid"
+PROXY_LOG="/tmp/agent-market-proxy.log"
+PROXY_PID_FILE="/tmp/agent-market-proxy.pid"
 CELERY_WORKER_LOG="/tmp/agent-market-celery-worker.log"
 CELERY_BEAT_LOG="/tmp/agent-market-celery-beat.log"
 CELERY_WORKER_PID_FILE="/tmp/agent-market-celery-worker.pid"
@@ -45,32 +50,6 @@ else:
     text += new_line + "\n"
 path.write_text(text, encoding="utf-8")
 PY
-}
-
-# Keep only a real trycloudflare *quick tunnel* URL (not api.trycloudflare.com from error lines).
-# Quick tunnels always look like: https://word-word-word.trycloudflare.com
-is_valid_quick_tunnel_url() {
-  [[ "$1" =~ ^https://[a-z0-9]+(-[a-z0-9]+)+\.trycloudflare\.com/?$ ]]
-}
-
-extract_quick_tunnel_url() {
-  local logfile="$1"
-  local url=""
-  # Banner line: "Visit it at ... https://random-words.trycloudflare.com"
-  url=$(grep -oE 'https://[a-z0-9]+(-[a-z0-9]+)+\.trycloudflare\.com' "$logfile" 2>/dev/null | head -1)
-  if is_valid_quick_tunnel_url "$url"; then
-    printf '%s' "${url%/}"
-    return 0
-  fi
-  printf '%s' ''
-}
-
-sanitize_cf_url() {
-  local candidate
-  candidate=$(printf '%s' "$1" | tr -d '\r\n' | grep -oE 'https://[a-z0-9]+(-[a-z0-9]+)+\.trycloudflare\.com' | head -1)
-  if is_valid_quick_tunnel_url "$candidate"; then
-    printf '%s' "${candidate%/}"
-  fi
 }
 
 need_cmd() {
@@ -116,7 +95,7 @@ try_start_redis_docker() {
   return 1
 }
 
-# Wait until local origins respond (avoids Cloudflare 502 right after script exits).
+# Wait until local origins respond (avoids ngrok 502 right after script exits).
 wait_for_origin_http() {
   local url=$1 label=$2 max_sec=${3:-180}
   local i
@@ -148,17 +127,19 @@ wait_for_origin_tcp() {
   return 1
 }
 
-# ── 0. Stop previous Celery + local dev (same script) ─────────
-for PF in "$CELERY_WORKER_PID_FILE" "$CELERY_BEAT_PID_FILE"; do
+# ── 0. Stop previous Celery + local dev + proxy (same script) ─────────
+for PF in "$CELERY_WORKER_PID_FILE" "$CELERY_BEAT_PID_FILE" "$PROXY_PID_FILE"; do
   if [ -f "$PF" ]; then
     OLD_C=$(cat "$PF" 2>/dev/null || true)
     if [ -n "$OLD_C" ] && kill -0 "$OLD_C" 2>/dev/null; then
-      log "Stopping previous Celery (PID $OLD_C)..."
+      log "Stopping previous process (PID $OLD_C)..."
       kill "$OLD_C" 2>/dev/null || true
     fi
     rm -f "$PF"
   fi
 done
+# Also stop stray proxy by pattern (pid file may be stale)
+pkill -f "scripts/dev-proxy.mjs" 2>/dev/null || true
 sleep 1
 
 if [ -f "$DEV_PID_FILE" ]; then
@@ -171,14 +152,19 @@ if [ -f "$DEV_PID_FILE" ]; then
   rm -f "$DEV_PID_FILE"
 fi
 
-# Cloudflared (web) targets localhost:3000 — Next must bind :3000, not 3001.
+# Next must bind :3000 (proxy + local browser).
 if port_listen 3000; then
-  err "Port 3000 is already in use. Stop that process (e.g. another \`next dev\`) so tunnels match this script, then retry."
+  err "Port 3000 is already in use. Stop that process (e.g. another \`next dev\`) so the proxy can reach this script's web, then retry."
+  exit 1
+fi
+if port_listen "$PROXY_PORT"; then
+  err "Port ${PROXY_PORT} is already in use. Stop whatever is bound there (dev-proxy), then retry."
   exit 1
 fi
 
 # ── 1. Prerequisites: Redis (+ local Mongo only if URI says so) ─
 need_cmd npm
+need_cmd node
 need_cmd python3
 if [ ! -f "$ENV_FILE" ]; then
   err "Missing $ENV_FILE — copy from .env.example and configure"
@@ -222,100 +208,34 @@ else
   ok "MONGODB_URI is Atlas/remote — skipped local :27017 check"
 fi
 
-# ── 2. Kill any stale tunnels ────────────────────────────────
+# ── 2. Kill stale tunnels; start reverse proxy + ngrok ───────
 pkill -f "ngrok" 2>/dev/null || true
 pkill -f "cloudflared tunnel" 2>/dev/null || true
 sleep 1
 
-# ── 3. Start ngrok → API (static URL, never changes) ────────
-log "Starting ngrok → localhost:4010"
-nohup ngrok http --url="$NGROK_DOMAIN" 4010 > /tmp/ngrok-api.log 2>&1 &
+log "Starting reverse proxy → web:3000 api:4010 rt:8000 on :${PROXY_PORT}"
+> "$PROXY_LOG"
+nohup node scripts/dev-proxy.mjs >> "$PROXY_LOG" 2>&1 &
+echo $! > "$PROXY_PID_FILE"
+ok "Proxy PID $(cat "$PROXY_PID_FILE") — log: $PROXY_LOG"
+
+log "Starting ngrok → localhost:${PROXY_PORT} (${NGROK_DOMAIN})"
+nohup ngrok http --url="$NGROK_DOMAIN" "$PROXY_PORT" > /tmp/ngrok-api.log 2>&1 &
 NGROK_PID=$!
 
-# ── 4. Start cloudflare → Web (port 3000) ───────────────────
-log "Starting cloudflared → localhost:3000 (web)..."
-nohup cloudflared tunnel --url http://localhost:3000 > /tmp/cf-web.log 2>&1 &
-CF_WEB_PID=$!
-
-# ── 5. Start cloudflare → Realtime (port 8000) ──────────────
-log "Starting cloudflared → localhost:8000 (realtime)..."
-nohup cloudflared tunnel --url http://localhost:8000 > /tmp/cf-rt.log 2>&1 &
-CF_RT_PID=$!
-
-# ── 6. Wait for tunnel URLs to appear ───────────────────────
-log "Waiting for tunnel URLs..."
-
-get_cf_url() {
-  local logfile="$1"
-  local port="$2"
-  local url=""
-  for attempt in 1 2 3 4 5; do
-    for i in $(seq 1 45); do
-      url=$(extract_quick_tunnel_url "$logfile")
-      if [ -n "$url" ]; then
-        printf '%s' "$url"
-        return 0
-      fi
-      if grep -qE 'context deadline exceeded|failed to request quick Tunnel' "$logfile" 2>/dev/null; then
-        break
-      fi
-      sleep 1
-    done
-    log "Cloudflare quick tunnel not ready on port $port (attempt $attempt/5)..."
-    if grep -q 'api.trycloudflare.com/tunnel' "$logfile" 2>/dev/null; then
-      log "  (cloudflared could not reach Cloudflare — check network/DNS/firewall)"
-    fi
-    pkill -f "cloudflared tunnel --url http://localhost:${port}" 2>/dev/null || true
-    sleep 2
-    > "$logfile"
-    nohup cloudflared tunnel --url "http://localhost:${port}" >> "$logfile" 2>&1 &
-    sleep 3
-  done
-  printf '%s' ''
-}
-
-CF_WEB_URL=$(sanitize_cf_url "$(get_cf_url /tmp/cf-web.log 3000)")
-CF_RT_URL=$(sanitize_cf_url "$(get_cf_url /tmp/cf-rt.log 8000)")
-
-if [ -z "$CF_WEB_URL" ]; then
-  err "Could not detect web cloudflare URL after 5 attempts — check /tmp/cf-web.log"
-  err "If you see 'failed to request quick Tunnel: Post https://api.trycloudflare.com/tunnel', fix outbound HTTPS/DNS and retry."
-  exit 1
-fi
-if [ -z "$CF_RT_URL" ]; then
-  err "Could not detect realtime cloudflare URL after 5 attempts — check /tmp/cf-rt.log"
-  exit 1
-fi
-if ! is_valid_quick_tunnel_url "$CF_WEB_URL" || ! is_valid_quick_tunnel_url "$CF_RT_URL"; then
-  err "Invalid Cloudflare tunnel URL(s) — got web='${CF_WEB_URL}' rt='${CF_RT_URL}'"
-  exit 1
-fi
-
-CF_RT_HOST=$(echo "$CF_RT_URL" | sed 's|https://||')
-
-# Public API URL (HTTPS) — required when the web UI is served over HTTPS
-# (e.g. trycloudflare): the browser blocks fetch() to http://localhost (mixed content).
-NGROK_API_URL="https://${NGROK_DOMAIN}"
-
-# ── 7. Update .env (tunnels + browser-safe API base URL) ──────
-set_env_var NEXT_PUBLIC_WEB_URL "$CF_WEB_URL"
-set_env_var NEXT_PUBLIC_SC_HOST "$CF_RT_HOST"
-# Cloudflare tunnel terminates TLS on 443 (forwards to local :8000) — browsers must use wss://host:443
+# ── 3. Update .env (one public origin for web + API + realtime) ─
+set_env_var NEXT_PUBLIC_WEB_URL "$NGROK_PUBLIC_URL"
+set_env_var NEXT_PUBLIC_API_URL "$NGROK_PUBLIC_URL"
+set_env_var API_URL "$NGROK_PUBLIC_URL"
+set_env_var NEXT_PUBLIC_SC_HOST "$NGROK_DOMAIN"
 set_env_var NEXT_PUBLIC_SC_PORT "443"
 set_env_var NEXT_PUBLIC_SC_SECURE "true"
-if grep -q '^NEXT_PUBLIC_API_URL=' "$ENV_FILE"; then
-  set_env_var NEXT_PUBLIC_API_URL "$NGROK_API_URL"
-else
-  echo "NEXT_PUBLIC_API_URL=${NGROK_API_URL}" >> "$ENV_FILE"
-fi
-# Next.js /__agentmarket_api rewrites must hit the API on this machine (not ngrok) or server-side proxy often 502s.
+
+# Next.js /__agentmarket_api rewrites must hit the API on this machine (not ngrok).
 if grep -q '^NEXT_REWRITE_API_URL=' "$ENV_FILE"; then
   set_env_var NEXT_REWRITE_API_URL "http://127.0.0.1:4010"
 else
   echo "NEXT_REWRITE_API_URL=http://127.0.0.1:4010" >> "$ENV_FILE"
-fi
-if grep -q '^API_URL=' "$ENV_FILE"; then
-  set_env_var API_URL "$NGROK_API_URL"
 fi
 # Celery → Fastify internal routes (machine-local; not the ngrok URL)
 if grep -q '^INTERNAL_API_URL=' "$ENV_FILE"; then
@@ -330,16 +250,27 @@ else
   echo "LEGACY_API_EXECUTION_ADS=0" >> "$ENV_FILE"
 fi
 
-ok ".env updated:"
-ok "  NEXT_PUBLIC_WEB_URL=${CF_WEB_URL}"
-ok "  NEXT_PUBLIC_SC_HOST=${CF_RT_HOST}"
-ok "  NEXT_PUBLIC_SC_PORT=443 / NEXT_PUBLIC_SC_SECURE=true (wss via Cloudflare tunnel)"
-ok "  NEXT_PUBLIC_API_URL=${NGROK_API_URL} (avoids mixed-content when using Try Cloudflare)"
-ok "  NEXT_REWRITE_API_URL=http://127.0.0.1:4010 (Next /__agentmarket_api → local API; avoids Node→ngrok 502)"
-ok "  INTERNAL_API_URL=http://127.0.0.1:4010 (Celery worker → API internal routes)"
-ok "  LEGACY_API_EXECUTION_ADS=0 (ads reporting via Celery worker)"
+# Keep OAuth callbacks on the same static ngrok origin
+set_env_var META_CALLBACK_URL_META_ADS "${NGROK_PUBLIC_URL}/callback/meta_ads"
+set_env_var GOOGLE_ADS_CALLBACK_URL "${NGROK_PUBLIC_URL}/callback/google_ads"
+set_env_var META_CALLBACK_URL_FACEBOOK_PAGE "${NGROK_PUBLIC_URL}/api/integrations/facebook_page/callback"
+set_env_var INSTAGRAM_CALLBACK_URL "${NGROK_PUBLIC_URL}/api/integrations/instagram/callback"
+set_env_var INSTAGRAM_LOGIN_CALLBACK_URL "${NGROK_PUBLIC_URL}/api/integrations/instagram_login/callback"
+set_env_var LINKEDIN_CALLBACK_URL "${NGROK_PUBLIC_URL}/api/integrations/linkedin/callback"
+set_env_var TIKTOK_CALLBACK_URL "${NGROK_PUBLIC_URL}/api/integrations/tiktok/callback"
+set_env_var TWITTER_CALLBACK_URL "${NGROK_PUBLIC_URL}/api/integrations/twitter/callback"
 
-# ── 8. Install root deps if needed ───────────────────────────
+ok ".env updated (unified public origin):"
+ok "  NEXT_PUBLIC_WEB_URL=${NGROK_PUBLIC_URL}"
+ok "  NEXT_PUBLIC_API_URL=${NGROK_PUBLIC_URL}"
+ok "  API_URL=${NGROK_PUBLIC_URL}"
+ok "  NEXT_PUBLIC_SC_HOST=${NGROK_DOMAIN} (wss :443 via ngrok → proxy → :8000)"
+ok "  NEXT_REWRITE_API_URL=http://127.0.0.1:4010"
+ok "  INTERNAL_API_URL=http://127.0.0.1:4010"
+ok "  OAuth callbacks → ${NGROK_PUBLIC_URL}/..."
+ok "  LEGACY_API_EXECUTION_ADS=0"
+
+# ── 4. Install root deps if needed ───────────────────────────
 if [ ! -d node_modules ] || [ ! -x node_modules/.bin/concurrently ]; then
   log "Installing npm dependencies (root)..."
   NODE_ENV=development npm install
@@ -349,7 +280,7 @@ if [ ! -x node_modules/.bin/concurrently ]; then
   exit 1
 fi
 
-# ── 8b. Celery (ai-worker): venv + deps; WORKER_API_SECRET required for worker ↔ API ─
+# ── 5. Celery (ai-worker): venv + deps; WORKER_API_SECRET required for worker ↔ API ─
 WS=$(grep -E '^WORKER_API_SECRET=' "$ENV_FILE" | head -1 | cut -d= -f2- | tr -d '\r' | sed "s/^[\"']//;s/[\"']$//")
 if [ -z "$WS" ] || [ "${#WS}" -lt 8 ]; then
   err "WORKER_API_SECRET must be set in $ENV_FILE (min 8 characters). Example: openssl rand -hex 24"
@@ -394,14 +325,14 @@ log "Installing ai-worker packages (first run can take 1–3 minutes)..."
 }
 ok "Celery environment ready"
 
-# ── 9. Start API, web, realtime (npm workspaces) ─────────────
+# ── 6. Start API, web, realtime (npm workspaces) ─────────────
 log "Starting local dev stack (api :4010, web :3000, realtime :8000)..."
 > "$DEV_LOG"
 nohup npm run dev:all >> "$DEV_LOG" 2>&1 &
 echo $! > "$DEV_PID_FILE"
 ok "Dev PID $(cat "$DEV_PID_FILE") — logs: $DEV_LOG"
 
-# ── 9c. Celery worker + beat (same Redis/Mongo as in .env; INTERNAL_API_URL defaults in worker_api) ─
+# ── 7. Celery worker + beat ──────────────────────────────────
 log "Starting Celery worker..."
 > "$CELERY_WORKER_LOG"
 (
@@ -424,37 +355,44 @@ log "Starting Celery beat..."
 echo $! > "$CELERY_BEAT_PID_FILE"
 ok "Celery beat PID $(cat "$CELERY_BEAT_PID_FILE") — log: $CELERY_BEAT_LOG"
 
-# ── 9b. Wait for origins (Cloudflare 502 if you open the URL before this) ─
+# ── 8. Wait for origins + proxy ──────────────────────────────
 wait_for_origin_tcp 4010 "API" 120 || exit 1
 wait_for_origin_http "http://127.0.0.1:3000/" "Web (Next.js)" 180 || exit 1
 wait_for_origin_tcp 8000 "Realtime (SocketCluster)" 120 || exit 1
+wait_for_origin_tcp "$PROXY_PORT" "Dev proxy" 30 || exit 1
+wait_for_origin_http "http://127.0.0.1:${PROXY_PORT}/api/health" "Proxy → API" 30 || exit 1
 
-# ── 10. Verify ngrok is up ───────────────────────────────────
+# ── 9. Verify ngrok is up ───────────────────────────────────
 sleep 2
 NGROK_STATUS=$(curl -s http://localhost:4040/api/tunnels 2>/dev/null | python3 -c \
   "import sys,json; t=json.load(sys.stdin).get('tunnels',[]); print(t[0]['public_url'] if t else 'not ready')" 2>/dev/null || echo "not ready")
 
-# ── 11. Final summary ───────────────────────────────────────
+# ── 10. Final summary ───────────────────────────────────────
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-ok "Agent Market is running (local Node + Celery + tunnels)"
+ok "Agent Market is running (local Node + Celery + ngrok)"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
-echo "  API       https://${NGROK_DOMAIN}"
-echo "  Health    https://${NGROK_DOMAIN}/api/health"
-echo "  Web       ${CF_WEB_URL}"
-echo "  Realtime  wss://${CF_RT_HOST}"
+echo "  Public    ${NGROK_PUBLIC_URL}"
+echo "  Web       ${NGROK_PUBLIC_URL}/"
+echo "  API       ${NGROK_PUBLIC_URL}/api/health"
+echo "  Realtime  wss://${NGROK_DOMAIN}/socketcluster/"
 echo ""
 echo "  Local:    http://localhost:3000  (web)"
 echo "            http://localhost:4010  (api)"
+echo "            http://localhost:8000  (realtime)"
+echo "            http://127.0.0.1:${PROXY_PORT}  (dev-proxy)"
 echo ""
 echo "  Ngrok UI: http://localhost:4040  (${NGROK_STATUS})"
 echo ""
 echo "  Logs:  tail -f $DEV_LOG"
+echo "         tail -f $PROXY_LOG"
 echo "         tail -f $CELERY_WORKER_LOG"
 echo "         tail -f $CELERY_BEAT_LOG"
-echo "  Note:  Cloudflare shows 502 until Next/realtime are up; this script now waits for that."
-echo "  Stop:  kill \$(cat $DEV_PID_FILE) 2>/dev/null; kill \$(cat $CELERY_WORKER_PID_FILE) 2>/dev/null; kill \$(cat $CELERY_BEAT_PID_FILE) 2>/dev/null"
-echo "         rm -f $DEV_PID_FILE $CELERY_WORKER_PID_FILE $CELERY_BEAT_PID_FILE"
-echo "         pkill -f 'ngrok|cloudflared tunnel'   # optional: tunnels only"
+echo "  Note:  Free ngrok may show a browser warning (ERR_NGROK_6024) on first visit / OAuth —"
+echo "         click Visit Site once, or add header ngrok-skip-browser-warning, then reconnect Meta."
+echo "  Stop:  kill \$(cat $DEV_PID_FILE) 2>/dev/null; kill \$(cat $PROXY_PID_FILE) 2>/dev/null;"
+echo "         kill \$(cat $CELERY_WORKER_PID_FILE) 2>/dev/null; kill \$(cat $CELERY_BEAT_PID_FILE) 2>/dev/null"
+echo "         rm -f $DEV_PID_FILE $PROXY_PID_FILE $CELERY_WORKER_PID_FILE $CELERY_BEAT_PID_FILE"
+echo "         pkill -f 'ngrok|scripts/dev-proxy.mjs'   # optional: tunnel + proxy"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"

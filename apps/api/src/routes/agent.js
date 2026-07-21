@@ -238,6 +238,48 @@ export default async function agentRoutes(fastify) {
     })
   })
 
+  /**
+   * Persist the post-execution narrator reply (after tools ran).
+   * Message comes from the client (already saved on the workflow by the worker).
+   */
+  fastify.post('/agent/chat/execution-result', { onRequest: [authenticate] }, async (request, reply) => {
+    const wid = request.workspace_id
+    const {
+      conversation_id: conversationId,
+      workflow_id: workflowId,
+      assistant_message: assistantMessage,
+    } = request.body || {}
+
+    if (!conversationId || !workflowId || !assistantMessage?.trim()) {
+      return reply.code(400).send({ error: 'conversation_id, workflow_id, and assistant_message are required' })
+    }
+
+    const conversation = await AgentConversation.findById(conversationId, wid)
+    if (!conversation) return reply.code(404).send({ error: 'Conversation not found' })
+
+    const wf = await AgentWorkflow.findById(workflowId, wid)
+    if (!wf) return reply.code(404).send({ error: 'Workflow not found' })
+
+    const msg = assistantMessage.trim()
+    const existing = Array.isArray(conversation.messages) ? conversation.messages : []
+    const alreadyStored = existing.some(
+      (m) => m?.role === 'assistant' && m?.workflow_id === workflowId && m?.content === msg,
+    )
+    if (!alreadyStored) {
+      await AgentConversation.appendMessage(conversationId, wid, {
+        role: 'assistant',
+        content: msg,
+        workflow_id: workflowId,
+      })
+    }
+
+    return reply.send({
+      conversation_id: conversationId,
+      workflow_id: workflowId,
+      assistant_message: msg,
+    })
+  })
+
   fastify.post('/agent/workflows/:id/approve', { onRequest: [authenticate] }, async (request, reply) => {
     const wid = request.workspace_id
     const userId = request.user?.id

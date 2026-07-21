@@ -23,6 +23,7 @@
 \usepackage{caption}
 \usepackage{tocloft}
 \usepackage{longtable}
+\usepackage{url}
 
 
 
@@ -31,9 +32,17 @@
 \setcounter{secnumdepth}{3}
 \setcounter{tocdepth}{3}
 
+% EMSI PFE typography (Times New Roman via newtx):
+% - Body: 12pt, interligne 1,5
+% - Front-matter titles: 24pt bold centered
+% - Chapter titles: 18pt bold
+% - Section (x.1): 16pt bold
+% - Subsection (x.1.1): 14pt bold
+% - Captions: bold centered
+
 % Chapter format
 \titleformat{\chapter}
-  {\normalfont\huge\bfseries\color{titlegreen}}
+  {\normalfont\fontsize{18}{22}\selectfont\bfseries\color{titlegreen}}
   {Chapitre \thechapter.}{1em}{}
 
 % Section numbering
@@ -54,15 +63,15 @@
 \definecolor{tableheadergreen}{RGB}{0,176,80}  % Glossary highlighted rows
 \definecolor{darkgreen}{RGB}{0,128,0}          % Slightly darker green for chapter rules
 
-% ===== Section formatting (numbered green sections) =====
+% ===== Section formatting (EMSI sizes, Times New Roman) =====
 \titleformat{\section}
-  {\Large\bfseries\sffamily\color{titlegreen}}
+  {\fontsize{16}{20}\selectfont\bfseries\color{titlegreen}}
   {\thesection.}{0.6em}{}
 \titleformat{\subsection}
-  {\large\bfseries\sffamily\color{titlegreen}}
+  {\fontsize{14}{18}\selectfont\bfseries\color{titlegreen}}
   {\thesubsection}{0.8em}{}
 \titleformat{\subsubsection}
-  {\normalsize\bfseries\color{titlegreen}}
+  {\fontsize{12}{15}\selectfont\bfseries\color{titlegreen}}
   {\thesubsubsection}{0.5em}{}
 
 \titlespacing*{\section}{0pt}{14pt}{8pt}
@@ -72,9 +81,9 @@
 \setlength{\parindent}{0pt}     % no paragraph indent
 \setlength{\parskip}{0.5em}     % space between paragraphs
 
-% Caption setup (italic captions, no bold "Figure X:")
-\captionsetup{font=it,labelsep=colon,labelfont=it,name=Figure}
-\addto\captionsfrench{\renewcommand{\figurename}{Figure}\renewcommand{\tablename}{Table}}
+% Caption setup (EMSI: gras, centré)
+\captionsetup{font=bf,justification=centering,labelsep=period,labelfont=bf,name=Figure}
+\addto\captionsfrench{\renewcommand{\figurename}{Figure}\renewcommand{\tablename}{Tableau}}
 
 % ===== Header / Footer =====
 \pagestyle{fancy}
@@ -113,13 +122,18 @@
   \renewcommand{\headrulewidth}{0pt}
 }
 
-% Custom heading for sections that should be centered & green (Résumé, Glossaire, etc.)
+% Custom heading for front-matter titles (EMSI: Times New Roman 24pt bold centered)
 \newcommand{\centeredgreentitle}[1]{%
-  \vspace*{0.8cm} % space from header (KEY FIX)
+  \vspace*{0.8cm}%
   \begin{center}
-    {\Huge\bfseries\color{titlegreen} #1}
+    {\fontsize{24}{28}\selectfont\bfseries\color{titlegreen} #1}
   \end{center}
   \vspace{0.5cm}
+}
+
+% Chapter title page (EMSI: 18pt bold)
+\newcommand{\chapterpagetitle}[1]{%
+  {\fontsize{18}{22}\selectfont\bfseries\color{titlegreen} #1}%
 }
 
 % TOC entry helpers
@@ -166,7 +180,7 @@
 \vspace{0.5cm}
 
 \begin{center}
-\itshape
+\fontsize{16}{22}\selectfont\itshape
 Tout d’abord je voudrais remercier le dieu tout puissant et miséricordieux qui m’a donné la force, l’intelligence et la patience pour accomplir ce travail.
 
 A mes chers parents
@@ -191,7 +205,7 @@ Puisse Dieu, le Très Haut, vous accorde santé, bonheur et longue vie et faire 
 \vspace{0.5cm}
 
 \begin{center}
-\itshape
+\fontsize{16}{22}\selectfont\itshape
 Au terme de ce travail, je tiens à exprimer ma profonde gratitude à toutes les personnes qui ont contribué, de près ou de loin, à la réalisation de ce projet.
 
 Je remercie en premier lieu mon encadrant pédagogique, Mme. Mariem Malaine, pour son accompagnement, ses conseils pertinents ainsi que le suivi régulier tout au long de cette période.
@@ -216,7 +230,7 @@ Enfin, je tiens à remercier les membres du jury pour l’intérêt qu’ils por
 \vspace{0.5cm}
 
 \begin{center}
-\itshape
+\fontsize{14}{20}\selectfont
 To complete my computer science education and begin my professional career, I undertook a 4-month internship focused on the development of a web-based platform named \textit{Agent Market}, a solution designed to manage and optimize digital marketing campaigns.
 
 My main project involved designing and developing a full-stack web application for campaign management and automation. I utilized Next.js and React for the front-end, focusing on creating interactive components, responsive interfaces, and optimized user experiences.
@@ -230,8 +244,9 @@ This experience allowed me to strengthen my skills in full-stack web development
 
 \vspace{0.5cm}
 
-\textbf{Keywords :} Web Application, Full Stack Development, Database, UML, Next.js, React, Fastify, MongoDB, Python, Redis, Celery, Docker Compose, Agile, Scrum
-
+\begin{center}
+{\sffamily\fontsize{14}{18}\selectfont\itshape Keywords : Web Application, Full Stack Development, Database, UML, Next.js, React, Fastify, MongoDB, Python, Redis, Celery, Docker Compose, Agile, Scrum}
+\end{center}
 \newpage
 % ===============================================================
 % PAGE 4 — RÉSUMÉ
@@ -242,7 +257,7 @@ This experience allowed me to strengthen my skills in full-stack web development
 \vspace{0.5cm}
 
 \begin{center}
-\itshape
+\fontsize{14}{20}\selectfont
 Afin de compléter ma formation en informatique et de débuter ma carrière professionnelle, j'ai effectué un stage de quatre mois axé sur le développement d'une plateforme web nommée \textit{Agent Market}, une solution conçue pour gérer et optimiser les campagnes de marketing digital. Mon projet principal consistait à concevoir et développer une application web full-stack dédiée à la gestion et à l'automatisation des campagnes. J'ai utilisé Next.js et React pour le développement du front-end, en me concentrant sur la création de composants interactifs, d'interfaces responsives et d'une expérience utilisateur optimisée.
 
 Le processus de développement a suivi une méthodologie Agile, notamment Scrum, afin d'assurer une gestion efficace du projet. Après une analyse approfondie des besoins, j'ai réalisé une conception détaillée à l'aide de UML, en intégrant des technologies telles que MongoDB pour la base de données, Python pour les tâches de traitement intelligent, Redis et Celery pour la gestion des tâches en arrière-plan, ainsi que Docker Compose pour la conteneurisation et le déploiement.
@@ -255,9 +270,9 @@ Cette expérience m'a permis de renforcer mes compétences en développement web
 \vspace{0.8cm}
 
 \begin{center}
-\textbf{Mots clés :} Application Web, Développement Full Stack, Base de données,\\
+{\sffamily\fontsize{14}{18}\selectfont\itshape Mots clés : Application Web, Développement Full Stack, Base de données,\\
 UML, Next.js, React, Fastify, MongoDB, Python, Redis, Celery, Docker\\
-Compose, Agile, Scrum
+Compose, Agile, Scrum}
 \end{center}
 
 \newpage
@@ -364,7 +379,7 @@ Dans ce contexte, ce rapport est structuré en plusieurs chapitres. Le premier c
 
 \vspace{1.5cm}
 \begin{center}
-{\LARGE\bfseries Chapitre \thechapter : Organisme d'accueil et Contexte général du Projet}
+{\chapterpagetitle{Chapitre \thechapter : Organisme d'accueil et Contexte général du Projet}}
 \end{center}
 
 \vspace{1.5cm}
@@ -454,15 +469,22 @@ Email & ak@casky.io \\
 \vspace{0.5cm}
 
 % ===================== NEXT SECTION =====================
-\subsection{Roles de l'entreprise}
+\subsection{Rôles de l'entreprise}
 
-\hspace{1.2em}Tripass joue un rôle important dans la modernisation du transport au Maroc, en particulier à travers sa solution \textbf{WeTaxi}. Cette plateforme permet de digitaliser la gestion des taxis dans plusieurs aéroports importants, notamment : \textbf{Casablanca Mohammed V}, \textbf{Marrakech Ménara} et \textbf{Agadir-Al Massira}.
+\hspace{1.2em}Tripass joue un rôle important dans la modernisation du transport au Maroc, en particulier à travers sa solution \textbf{WeTaxi}. Développé par cette startup marocaine, WeTaxi digitalise le taxi aéroportuaire en reliant les aéroports du Royaume aux centres-villes. Le service est déployé dans plusieurs villes, notamment \textbf{Casablanca}, \textbf{Marrakech}, \textbf{Rabat}, \textbf{Tanger} et \textbf{Agadir}, avec une présence opérationnelle au niveau des aéroports (parmi lesquels Casablanca Mohammed~V, Marrakech Ménara et Agadir Al Massira).
 
 \vspace{0.3cm}
 
-\hspace{1.2em}Son fonctionnement repose sur un système simple et efficace : au lieu de négocier directement avec le chauffeur, le voyageur paie à une borne ou à un guichet automatique. Il reçoit ensuite un ticket contenant un tarif fixe ainsi qu'un \textbf{QR code}, ce qui rend le service plus transparent et plus organisé.
+\hspace{1.2em}Son fonctionnement repose sur un système simple et transparent : grâce à des \textbf{guichets intelligents} et des \textbf{bornes de prépaiement} installés dans les terminaux aéroportuaires, le voyageur règle un \textbf{tarif fixe} affiché à l’avance, avant de monter dans le véhicule. Il reçoit ensuite un ticket (souvent associé à un \textbf{QR code} / reçu de prépaiement), ce qui évite la négociation avec le chauffeur et réduit les litiges tarifaires. Selon les résultats communiqués par Tripass, WeTaxi a déjà transporté plus de \textbf{2,1~millions de passagers}, avec une note moyenne de satisfaction d’environ \textbf{4,3/5}, tout en renforçant la traçabilité des courses (restitution d’objets perdus, suivi des trajets) et l’accompagnement numérique des chauffeurs partenaires.
 
-Tripass vise principalement une clientèle composée de \textbf{touristes} et de voyageurs ayant besoin d'un transport fiable, rapide et structuré. L'entreprise compte environ \textbf{93 salariés}, ce qui témoigne de son développement et de l'importance de son activité.
+\begin{figure}[H]
+\centering
+\safeimage{width=0.92\textwidth}{images/wetaxi_reception_aeroport.jpg}
+\caption{Guichet / accueil WeTaxi dans un aéroport marocain}
+\label{fig:wetaxi_reception}
+\end{figure}
+
+Tripass vise principalement une clientèle composée de \textbf{touristes} et de voyageurs ayant besoin d’un transport fiable, rapide et structuré dès leur arrivée. L’entreprise compte environ \textbf{93 salariés}, ce qui témoigne de son développement et de l’importance de son activité opérationnelle sur le terrain.
 
 \subsection{Organisation de l'entreprise}
 
@@ -856,7 +878,7 @@ En comprenant le contexte général entourant le projet, y compris les objectifs
 \vspace{1.5cm}
 
 \begin{center}
-{\LARGE\bfseries Chapitre \thechapter : Étude fonctionnelle }
+{\chapterpagetitle{Chapitre \thechapter : Étude fonctionnelle }}
 \end{center}
 
 \vspace{1.5cm}
@@ -1100,7 +1122,7 @@ Ce chapitre a formalisé les exigences fonctionnelles, non fonctionnelles et tec
 \vspace{1.5cm}
 
 \begin{center}
-{\LARGE\bfseries Chapitre \thechapter : Étude conceptuelle }
+{\chapterpagetitle{Chapitre \thechapter : Étude conceptuelle }}
 \end{center}
 
 \vspace{1.5cm}
@@ -1813,7 +1835,7 @@ Dans le chapitre suivant, nous présenterons les outils et technologies utilisé
 \vspace{1.5cm}
 
 \begin{center}
-{\LARGE\bfseries Chapitre \thechapter : Outils et technologies de développement }
+{\chapterpagetitle{Chapitre \thechapter : Outils et technologies de développement }}
 \end{center}
 
 \vspace{1.5cm}
@@ -1957,8 +1979,338 @@ Le choix de ces technologies a été guidé par des critères de performance, de
 
 Dans le chapitre suivant, nous présenterons la réalisation de la solution à travers les interfaces de l’application et leurs explications.
 
+\newpage
 
+% ===============================================================
+% CHAPTER 5 — RÉALISATION
+% ===============================================================
 
+\refstepcounter{chapter}
+
+\addcontentsline{toc}{chapter}{Chapitre \thechapter : Réalisation}
+
+\vspace*{8cm}
+
+\noindent\textcolor{darkgreen}{\rule{\textwidth}{4pt}}
+
+\vspace{1.5cm}
+
+\begin{center}
+{\chapterpagetitle{Chapitre \thechapter : Réalisation }}
+\end{center}
+
+\vspace{1.5cm}
+
+\noindent\textcolor{darkgreen}{\rule{\textwidth}{4pt}}
+
+\vfill
+
+\newpage
+
+% ===============================================================
+% CHAPITRE — RÉALISATION
+% ===============================================================
+
+\section{Introduction}
+
+Dans cette phase de réalisation, je vais décrire en détail comment la plateforme \textbf{Agent Market} a été concrètement développée et présentée à l’utilisateur. Nous explorerons les fonctionnalités mises en place, les interfaces graphiques réalisées, ainsi que les parcours utilisateur permettant de concrétiser les modules d’authentification, de gestion sociale, de campagnes publicitaires, de génération de leads et d’assistant IA. Cette section mettra en lumière le travail pratique accompli et l’implémentation des différentes composantes du système.
+
+L’application authentifiée s’organise autour d’une barre latérale structurée en trois piliers — \textbf{Workspace}, \textbf{Marketing} et \textbf{Operations} — d’une barre supérieure affichant le workspace actif, ainsi que d’un bouton flottant donnant accès à l’assistant IA depuis n’importe quelle page.
+
+\section{Interfaces d’authentification et d’accueil}
+
+\subsection{Page de connexion}
+
+Cette interface constitue le point d’entrée de la plateforme. Elle présente le logo Agent Market, le titre de l’application et le sous-titre \textit{Sign in to your account}. L’utilisateur saisit son adresse e-mail et son mot de passe dans un formulaire centré, puis valide via le bouton \textbf{Sign in}. En cas d’échec, un message d’erreur indique que les identifiants sont invalides. Un lien permet de basculer vers la page d’inscription pour les nouveaux utilisateurs.
+
+\begin{figure}[H]
+\centering
+\safeimage{width=0.85\textwidth}{images/login.png}
+\caption{Interface de connexion Agent Market}
+\label{fig:ui_login}
+\end{figure}
+
+\subsection{Page d’inscription}
+
+Cette interface permet de créer un compte sur la plateforme. Elle propose les champs \textbf{Full Name}, \textbf{Email}, \textbf{Password} et \textbf{Confirm Password}, ainsi que le bouton \textbf{Create Account}. Des contrôles côté interface vérifient que tous les champs sont renseignés, que les mots de passe correspondent et que le mot de passe respecte une longueur minimale. Dans le cas d’une invitation à rejoindre un workspace, un message spécifique indique que le compte permettra de rejoindre l’espace de travail invité.
+
+\begin{figure}[H]
+\centering
+\safeimage{width=0.85\textwidth}{images/register.png}
+\caption{Interface d’inscription}
+\label{fig:ui_register}
+\end{figure}
+
+\subsection{Tableau de bord Overview}
+
+Après authentification, l’utilisateur accède au tableau de bord \textbf{Overview}. Cette page offre une vue synthétique de l’activité du workspace : quatre indicateurs (Total Posts, Scheduled, Published, Failed), la liste des publications récentes et les comptes connectés. Un bouton \textbf{+ New Post} permet de démarrer rapidement une nouvelle publication. Lorsque aucune donnée n’est encore disponible, des états vides guident l’utilisateur : création d’un premier post ou connexion d’un compte via \textbf{Connect Account}.
+
+\begin{figure}[H]
+\centering
+\safeimage{width=0.95\textwidth}{images/overview.png}
+\caption{Tableau de bord Overview}
+\label{fig:ui_overview}
+\end{figure}
+
+\section{Interfaces de gestion sociale}
+
+\subsection{Connexion des comptes sociaux et publicitaires}
+
+L’écran \textbf{Accounts} centralise la connexion des pages et profils sociaux destinés à la publication, ainsi que des comptes publicitaires Google Ads et Meta Ads. Deux sections distinctes sont proposées : \textbf{Social Accounts} (bouton \textbf{Add Account}) et \textbf{Ads Accounts} (bouton \textbf{Connect Ads Account}). Chaque compte affiche son statut (Active / Unauthorized) et des actions de synchronisation ou de rafraîchissement. Des fenêtres modales permettent de choisir la plateforme (Facebook, Instagram, TikTok, LinkedIn, X, Google Ads, Meta Ads) avant de lancer le flux OAuth. Après authentification externe, une page de sélection d’entités permet de choisir la page ou le compte client à rattacher au workspace.
+
+\begin{figure}[H]
+\centering
+\safeimage{width=0.95\textwidth}{images/accounts.png}
+\caption{Interface de gestion des comptes connectés}
+\label{fig:ui_accounts}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\safeimage{width=0.75\textwidth}{images/accounts_modal.png}
+\caption{Modal d’ajout d’un compte social ou publicitaire}
+\label{fig:ui_accounts_modal}
+\end{figure}
+
+\subsection{Liste des publications}
+
+L’interface \textbf{Posts} permet de gérer l’ensemble des publications du workspace. Elle propose un bouton \textbf{New Post}, des onglets de filtre (All, Draft, Scheduled, Published, Failed) et un tableau présentant le contenu, le statut, la date planifiée et les comptes associés. Des actions d’édition, de duplication et de consultation des résultats de publication sont disponibles. Lorsque aucune publication n’existe, un état vide invite l’utilisateur à créer son premier post.
+
+\begin{figure}[H]
+\centering
+\safeimage{width=0.95\textwidth}{images/posts.png}
+\caption{Interface de liste des publications}
+\label{fig:ui_posts}
+\end{figure}
+
+\subsection{Création et édition d’une publication}
+
+La création d’une publication s’effectue via un assistant multi-étapes (\textbf{Type}, \textbf{Content}, \textbf{Media}, \textbf{Preview}). L’utilisateur choisit un type (Image post / Video post), rédige ou génère le contenu à l’aide de l’IA (objectif, ton, hashtags), joint ou génère des médias, puis prévisualise le rendu par plateforme. L’écran d’édition complète ce parcours en permettant de sélectionner les comptes destinataires, de planifier une date et une heure, d’ajouter un premier commentaire (Facebook / Instagram) et de définir un ciblage géographique. Les actions finales proposées sont \textbf{Save Draft}, \textbf{Schedule} et \textbf{Publish}.
+
+\begin{figure}[H]
+\centering
+\safeimage{width=0.95\textwidth}{images/post_wizard.png}
+\caption{Assistant de création de publication}
+\label{fig:ui_post_wizard}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\safeimage{width=0.95\textwidth}{images/post_editor.png}
+\caption{Éditeur de publication avec prévisualisation}
+\label{fig:ui_post_editor}
+\end{figure}
+
+\subsection{Calendrier éditorial}
+
+L’interface \textbf{Calendar} affiche une grille mensuelle des publications. L’utilisateur peut naviguer entre les mois, cliquer sur un jour pour créer un post à cette date, et déplacer par glisser-déposer les publications planifiées afin de les reprogrammer. Une légende visuelle distingue les statuts Draft, Scheduled, Published et Failed, facilitant ainsi la lecture de la planification éditoriale.
+
+\begin{figure}[H]
+\centering
+\safeimage{width=0.95\textwidth}{images/calendar.png}
+\caption{Calendrier éditorial}
+\label{fig:ui_calendar}
+\end{figure}
+
+\subsection{Médiathèque}
+
+La page \textbf{Media Library} permet de gérer les images et vidéos du workspace. L’utilisateur peut importer des fichiers via \textbf{Upload}, sélectionner plusieurs éléments pour une suppression groupée, et parcourir la grille média paginée. Un état vide invite à téléverser les premiers fichiers lorsque la bibliothèque est encore vide.
+
+\begin{figure}[H]
+\centering
+\safeimage{width=0.95\textwidth}{images/media.png}
+\caption{Interface de la médiathèque}
+\label{fig:ui_media}
+\end{figure}
+
+\subsection{Rapports de performance sociale}
+
+L’écran \textbf{Reports} consolide les analytics par plateforme sociale. L’utilisateur sélectionne un compte, définit une période, synchronise les métriques, puis consulte des cartes de statistiques et des graphiques d’évolution (engagement, followers). Des messages d’état vides indiquent clairement lorsqu’aucun compte n’est connecté ou lorsqu’aucune métrique n’a encore été importée.
+
+\begin{figure}[H]
+\centering
+\safeimage{width=0.95\textwidth}{images/reports.png}
+\caption{Interface des rapports sociaux}
+\label{fig:ui_reports}
+\end{figure}
+
+\section{Interfaces marketing et publicitaires}
+
+\subsection{Hub des campagnes Ads}
+
+La page \textbf{Ads} constitue le point d’entrée de la gestion publicitaire Google Ads et Meta Ads. Elle affiche des indicateurs globaux (budget, dépenses, CTR, campagnes actives), des panneaux par plateforme avec synchronisation, ainsi qu’un tableau \textbf{All Campaigns}. Des raccourcis permettent d’accéder à la performance, aux comptes et à la création d’une nouvelle campagne (\textbf{New Campaign}).
+
+\begin{figure}[H]
+\centering
+\safeimage{width=0.95\textwidth}{images/ads.png}
+\caption{Hub de gestion des campagnes publicitaires}
+\label{fig:ui_ads}
+\end{figure}
+
+\subsection{Création et gestion des campagnes}
+
+L’interface \textbf{Campaigns} liste les campagnes avec leurs attributs principaux (plateforme, type, budget, dépenses, CTR, statut, dates). L’utilisateur peut synchroniser Google Ads, filtrer par statut, éditer, publier ou supprimer une campagne. La création s’effectue via une fenêtre modale permettant de choisir la plateforme puis de renseigner le formulaire de configuration. Cette interface assure une vision cohérente entre les campagnes locales et celles synchronisées depuis les plateformes externes.
+
+\begin{figure}[H]
+\centering
+\safeimage{width=0.95\textwidth}{images/ads_campaigns.png}
+\caption{Liste et gestion des campagnes}
+\label{fig:ui_ads_campaigns}
+\end{figure}
+
+\subsection{Performance publicitaire}
+
+L’écran \textbf{Ads Performance} permet d’analyser les insights d’un compte Google Ads ou Meta Ads. Après sélection du compte, l’utilisateur charge les rapports (\textbf{Run report} / \textbf{Load insights}) afin de consulter les indicateurs de performance. Lorsque aucun compte publicitaire n’est connecté, un message guide l’utilisateur vers la page Accounts.
+
+\begin{figure}[H]
+\centering
+\safeimage{width=0.95\textwidth}{images/ads_performance.png}
+\caption{Interface de performance publicitaire}
+\label{fig:ui_ads_performance}
+\end{figure}
+
+\subsection{Landing pages}
+
+L’interface \textbf{Landing Pages} permet de créer et publier des pages de conversion. Chaque carte affiche le titre, le slug public (\texttt{/lp/...}), le statut, les visites et les leads collectés. Les actions proposées incluent \textbf{Copy Link}, \textbf{Publish} / \textbf{Unpublish}, \textbf{Edit} et la suppression. Un assistant de création guide l’utilisateur de la description du besoin jusqu’à la génération assistée par IA, l’édition du contenu (titre, accroche, corps, CTA, champs du formulaire) et la publication.
+
+\begin{figure}[H]
+\centering
+\safeimage{width=0.95\textwidth}{images/landing_pages.png}
+\caption{Interface de gestion des landing pages}
+\label{fig:ui_landing_pages}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\safeimage{width=0.85\textwidth}{images/landing_page_editor.png}
+\caption{Éditeur de landing page}
+\label{fig:ui_landing_page_editor}
+\end{figure}
+
+\subsection{Collecte des leads}
+
+La page \textbf{Leads} centralise les prospects capturés via les formulaires des landing pages. Elle affiche un compteur de leads, un bouton \textbf{Export CSV}, et un tableau regroupant la date, les champs dynamiques, la page source et les paramètres UTM. Un état vide indique qu’aucune conversion n’a encore été enregistrée et invite à publier une landing page pour démarrer la collecte.
+
+\begin{figure}[H]
+\centering
+\safeimage{width=0.95\textwidth}{images/leads.png}
+\caption{Interface de gestion des leads}
+\label{fig:ui_leads}
+\end{figure}
+
+\section{Interfaces de l’Assistant IA}
+
+\subsection{Panneau conversationnel AI Agent}
+
+L’assistant IA n’est pas une page isolée : il est accessible depuis toutes les écrans authentifiés via un bouton flottant. Le panneau latéral affiche l’en-tête \textbf{AI Agent}, un historique des conversations, un bouton de nouvelle session et une zone de chat. L’utilisateur formule sa demande en langage naturel (\textit{Describe what you want to accomplish…}) et peut joindre des pièces. Lorsque le chat est vide, des suggestions concrètes sont proposées (création de post Facebook, campagne Google Search, brouillon Meta Ads).
+
+\begin{figure}[H]
+\centering
+\safeimage{width=0.75\textwidth}{images/agent_panel.png}
+\caption{Panneau de l’Assistant IA}
+\label{fig:ui_agent_panel}
+\end{figure}
+
+\subsection{Planification, validation et exécution d’un workflow}
+
+Après analyse de la demande, l’assistant génère un workflow structuré présenté sous forme de carte. L’utilisateur peut \textbf{Approve \& run}, rejeter le plan, ou arrêter une exécution en cours. Une bannière \textit{Working…} indique le traitement en cours, tandis que le suivi des étapes est restitué dans le fil de conversation. Ce mécanisme garantit que les actions marketing automatisées (publication, création de campagne, génération de contenu) ne sont lancées qu’après validation explicite de l’utilisateur.
+
+\begin{figure}[H]
+\centering
+\safeimage{width=0.75\textwidth}{images/agent_workflow.png}
+\caption{Carte de workflow IA à valider}
+\label{fig:ui_agent_workflow}
+\end{figure}
+
+\subsection{Configuration des intégrations IA}
+
+Réservée aux administrateurs du workspace, la page \textbf{AI Integrations} permet de configurer les fournisseurs (Gemini, OpenAI, Anthropic), de tester la connexion, d’activer les fonctionnalités IA et de paramétrer l’assistant marketing. Un historique des exécutions IA complète cette interface, offrant une traçabilité des appels effectués depuis le workspace.
+
+\begin{figure}[H]
+\centering
+\safeimage{width=0.95\textwidth}{images/ai_integrations.png}
+\caption{Interface de configuration des intégrations IA}
+\label{fig:ui_ai_integrations}
+\end{figure}
+
+\section{Interfaces d’administration du workspace}
+
+\subsection{Gestion d’équipe}
+
+La page \textbf{Team} permet aux administrateurs de renommer le workspace, d’inviter des membres (e-mail, rôle Member / Admin) et de gérer les invitations en attente. La liste des membres affiche le rôle de chacun et propose, pour les administrateurs, une action de retrait. Les membres non administrateurs consultent uniquement la composition de l’équipe et leurs badges de rôle.
+
+\begin{figure}[H]
+\centering
+\safeimage{width=0.95\textwidth}{images/team.png}
+\caption{Interface de gestion d’équipe}
+\label{fig:ui_team}
+\end{figure}
+
+\subsection{Profil et préférences}
+
+L’écran \textbf{Profile} permet de modifier les informations personnelles (nom, e-mail) et le mot de passe. La page \textbf{Preferences}, réservée aux administrateurs, centralise les réglages régionaux (fuseau horaire, format de date/heure), le comportement de l’agent IA (auto-approbation des workflows), les defaults de publication et les options liées à l’analyse des commentaires. Une prévisualisation en direct accompagne la sauvegarde des préférences.
+
+\begin{figure}[H]
+\centering
+\safeimage{width=0.95\textwidth}{images/preferences.png}
+\caption{Interface des préférences du workspace}
+\label{fig:ui_preferences}
+\end{figure}
+
+\section{Conclusion}
+
+Dans cette phase de réalisation, nous avons concrétisé la plateforme Agent Market en mettant en œuvre les interfaces conçues lors de l’analyse et de la conception. Les modules d’authentification, de gestion sociale multi-canaux, de campagnes publicitaires, de landing pages, de leads et d’assistant IA sont désormais opérationnels au sein d’une interface unifiée. Cette étape a été le fruit d’un travail méthodique visant à offrir une expérience utilisateur cohérente, guidée et adaptée aux besoins marketing multi-plateformes de Tripass.
+
+\newpage
+
+% ===============================================================
+% CONCLUSION GÉNÉRALE
+% ===============================================================
+\centeredgreentitle{Conclusion générale}
+\addfrontmattertotoc{Conclusion générale}
+
+En conclusion de ce stage chez \textbf{Tripass}, l’expérience acquise a été enrichissante et formatrice, offrant bien plus qu’une simple immersion dans le développement web full-stack. J’ai eu l’opportunité de concevoir et de développer la plateforme \textbf{Agent Market}, une solution intelligente de gestion marketing multi-plateformes visant à centraliser les publications sociales, les campagnes publicitaires, la génération de leads et l’automatisation assistée par IA.
+
+La réalisation d’Agent Market a permis de mettre en place une architecture distribuée composée d’une interface Next.js/React, d’une API Fastify, d’un worker Python/Celery, d’un moteur temps réel SocketCluster, ainsi que de MongoDB et Redis pour la persistance et la messagerie. Ce projet m’a permis de renforcer mes compétences en développement frontend et backend, en intégration d’APIs RESTful, en authentification JWT/OAuth, et en orchestration de tâches asynchrones. La connexion aux réseaux sociaux (LinkedIn, Meta, TikTok, X) et aux plateformes publicitaires (Google Ads, Meta Ads) a illustré l’importance de la synchronisation des données et de l’automatisation des processus dans un environnement marketing multi-canal.
+
+Par ailleurs, le développement de l’assistant IA a introduit une dimension conversationnelle au cœur de la plateforme : l’utilisateur exprime un besoin en langage naturel, le système planifie un workflow, le valide auprès de l’utilisateur, puis l’exécute via le worker. L’intégration de fournisseurs LLM (Gemini, OpenAI, Anthropic), la génération de contenu, la création assistée de campagnes et de landing pages m’ont permis d’approfondir mes compétences en intelligence artificielle appliquée et de comprendre les défis de l’intégration d’agents intelligents dans une application métier réelle.
+
+Au-delà des aspects techniques, ce stage m’a permis de saisir les complexités de la gestion de projet Agile (Scrum), de comprendre les dynamiques d’une équipe pluridisciplinaire et d’apprécier l’importance de l’innovation continue. Les interactions quotidiennes avec des professionnels expérimentés — notamment mon encadrant pédagogique Mme. Mariem Malaine, Mr. Abid Khirani et Mr. Amine Ahbouch — m’ont permis de développer des compétences transversales, allant de la résolution de problèmes techniques à la communication efficace.
+
+Les défis rencontrés — intégrations OAuth multi-plateformes, fiabilité des tâches asynchrones, cohérence des données entre systèmes externes et base locale, expérience utilisateur unifiée — ont été autant de sources d’apprentissage, renforçant ma capacité à m’adapter rapidement et à trouver des solutions pragmatiques. Cette expérience m’a également confronté à l’importance cruciale de la collaboration et du partage de connaissances au sein d’un environnement de travail dynamique.
+
+En somme, ce stage chez Tripass a été une étape décisive dans mon parcours professionnel. Il a consolidé mes compétences techniques, élargi ma vision du développement d’applications distribuées et de l’IA appliquée au marketing digital, et m’a offert des perspectives enrichissantes quant aux opportunités et aux défis du monde professionnel.
+
+\newpage
+
+% ===============================================================
+% BIBLIOGRAPHIE
+% ===============================================================
+\centeredgreentitle{Bibliographie}
+\addfrontmattertotoc{Bibliographie}
+
+\begin{enumerate}[leftmargin=2em,itemsep=6pt]
+\item Next.js : \url{https://nextjs.org/docs}
+\item React : \url{https://react.dev/learn}
+\item Fastify : \url{https://fastify.dev/docs/latest/}
+\item Node.js : \url{https://nodejs.org/docs/latest/}
+\item MongoDB : \url{https://www.mongodb.com/docs/}
+\item Redis : \url{https://redis.io/docs/}
+\item Celery : \url{https://docs.celeryq.dev/}
+\item Python : \url{https://docs.python.org/3/}
+\item SocketCluster : \url{https://socketcluster.io/}
+\item Docker Compose : \url{https://docs.docker.com/compose/}
+\item Google Ads API : \url{https://developers.google.com/google-ads/api/docs/start}
+\item Meta Marketing API : \url{https://developers.facebook.com/docs/marketing-apis/}
+\item OpenAI API : \url{https://platform.openai.com/docs}
+\item Google Gemini API : \url{https://ai.google.dev/gemini-api/docs}
+\item Anthropic Claude API : \url{https://docs.anthropic.com/}
+\item UML — Object Management Group : \url{https://www.omg.org/spec/UML/}
+\item PlantUML : \url{https://plantuml.com/}
+\item Draw.io : \url{https://www.drawio.com/doc/}
+\item Postman : \url{https://learning.postman.com/docs/}
+\item Scrum Guide : \url{https://scrumguides.org/}
+\end{enumerate}
 
 \end{document}
 

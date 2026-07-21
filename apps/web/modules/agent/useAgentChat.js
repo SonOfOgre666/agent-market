@@ -28,6 +28,14 @@ function summarizeExecution(workflow) {
   return parts.join(', ')
 }
 
+function resultAssistantMessage(workflow, jobResult) {
+  return (
+    workflow?.graph?.result_assistant_message ||
+    jobResult?.data?.assistant_message ||
+    ''
+  ).trim()
+}
+
 function isStopError(msg) {
   return /stopped by user/i.test(String(msg || ''))
 }
@@ -126,9 +134,33 @@ export function useAgentChat({ onToast } = {}) {
     return workflow
   }, [])
 
-  const reportExecutionOutcome = useCallback((workflow, jobResult) => {
+  const reportExecutionOutcome = useCallback(async (workflow, jobResult) => {
     const summary = summarizeExecution(workflow)
     const errs = workflow?.execution_errors || []
+    const narrated = resultAssistantMessage(workflow, jobResult)
+
+    if (narrated && conversationId && workflow?.id) {
+      setMessages(prev => {
+        const already = prev.some(
+          m => m.role === 'assistant' && m.workflow_id === workflow.id && m.content === narrated,
+        )
+        if (already) return prev
+        return [...prev, {
+          role: 'assistant',
+          content: narrated,
+          workflow_id: workflow.id,
+        }]
+      })
+      try {
+        await api.agentChatExecutionResult({
+          conversation_id: conversationId,
+          workflow_id: workflow.id,
+          assistant_message: narrated,
+        })
+      } catch {
+        /* local message still shown */
+      }
+    }
 
     if (workflow?.status === 'completed') {
       onToast?.success?.(summary ? `Workflow finished: ${summary}` : 'Workflow completed')
@@ -147,7 +179,7 @@ export function useAgentChat({ onToast } = {}) {
     } else {
       onToast?.info?.(`Workflow status: ${workflow?.status || 'updated'}`)
     }
-  }, [onToast])
+  }, [conversationId, onToast])
 
   const pollExecutionJob = useCallback(async (wfId, jobId, runId, { depth = 0 } = {}) => {
     const stepCount = workflowsRef.current[wfId]?.graph?.steps?.length || 0
@@ -180,13 +212,13 @@ export function useAgentChat({ onToast } = {}) {
       setExecutionNote('Auto-approved — executing…')
       const start = await api.agentApproveWorkflow(wfId)
       if (wasStopped({ runId }) || !start?.job_id) {
-        reportExecutionOutcome(workflow, jobResult)
+        await reportExecutionOutcome(workflow, jobResult)
         return workflow
       }
       return pollExecutionJob(wfId, start.job_id, runId, { depth: depth + 1 })
     }
 
-    reportExecutionOutcome(workflow, jobResult)
+    await reportExecutionOutcome(workflow, jobResult)
     return workflow
   }, [onToast, refreshWorkflow, reportExecutionOutcome, shouldAbortPoll, wasStopped])
 

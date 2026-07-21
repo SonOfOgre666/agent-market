@@ -10,14 +10,14 @@ from __future__ import annotations
 import re
 from typing import Any, Literal
 
-from lib.planner.ads_fallback import (
+from lib.planner.ads_helpers import (
     detect_ads_mode,
     detect_ads_platform,
     is_actionable_ads_request,
 )
-from lib.planner.social_fallback import is_actionable_social_request
-from lib.planner.landing_page_fallback import is_actionable_landing_page_request
-from lib.planner.seo_fallback import is_actionable_seo_request
+from lib.planner.social_helpers import is_actionable_social_request
+from lib.planner.landing_page_helpers import is_actionable_landing_page_request
+from lib.planner.seo_helpers import is_actionable_seo_request
 
 PlannerRoute = Literal[
     'social_content',
@@ -111,61 +111,8 @@ def message_mentions_ads(message: str) -> bool:
     return False
 
 
-def _is_informational_only(message: str) -> bool:
-    m = (message or '').lower().strip()
-    if not m:
-        return False
-    if message_mentions_ads(m) or is_actionable_social_request(m):
-        return False
-    question = m.endswith('?') or m.split()[0] in (
-        'what', 'why', 'how', 'when', 'where', 'which', 'who', 'explain', 'describe',
-    )
-    no_action = not any(
-        k in m
-        for k in ('create', 'launch', 'publish', 'post', 'schedule', 'build', 'set up', 'setup', 'run')
-    )
-    return question and no_action
-
-
-_CONVERSATIONAL_EXACT = frozenset({
-    'hello', 'hi', 'hey', 'hiya', 'yo', 'sup',
-    'thanks', 'thank you', 'thx', 'ty',
-    'bye', 'goodbye', 'good night', 'good morning',
-})
-
-_CONVERSATIONAL_CONTAINS = (
-    'what can you do',
-    'what you can do',
-    'what do you do',
-    'how can you help',
-    'how do you help',
-    'what are you',
-    'who are you',
-    'your capabilities',
-    'help me understand',
-)
-
-
-def is_conversational_chat(message: str) -> bool:
-    """Greetings and capability questions — plain chat, not a workflow."""
-    m = (message or '').lower().strip()
-    if not m or len(m) > 200:
-        return False
-    if message_mentions_ads(m) or is_actionable_social_request(m):
-        return False
-    normalized = re.sub(r'[!?.]+$', '', m).strip()
-    if normalized in _CONVERSATIONAL_EXACT:
-        return True
-    if any(phrase in normalized for phrase in _CONVERSATIONAL_CONTAINS):
-        return True
-    return _is_informational_only(message)
-
-
 def route_planner_intent(message: str, ctx: dict[str, Any]) -> PlannerRoute:
     """Pick which tool families the planner should see."""
-    if _is_informational_only(message):
-        return 'informational'
-
     social = is_actionable_social_request(message)
     seo = is_actionable_seo_request(message)
     landing = is_actionable_landing_page_request(message)

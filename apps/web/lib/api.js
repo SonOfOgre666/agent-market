@@ -439,6 +439,7 @@ export const api = {
   // Marketing assistant (planner agent — enqueue + poll; no execution in API)
   agentChat: (data) => request('POST', '/agent/chat', data),
   agentChatComplete: (data) => request('POST', '/agent/chat/complete', data),
+  agentChatExecutionResult: (data) => request('POST', '/agent/chat/execution-result', data),
   agentConversations: () => request('GET', '/agent/conversations'),
   agentConversation: (id) => request('GET', `/agent/conversations/${id}`),
   agentDeleteConversation: (id) => request('DELETE', `/agent/conversations/${id}`),

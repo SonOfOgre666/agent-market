@@ -10,7 +10,7 @@ from lib.planner.ads_session import (
     merge_ads_conversation_user_messages,
     resolve_ads_session,
 )
-from lib.planner.ads_fallback import is_ads_clarification_followup, resolve_ads_planning_message
+from lib.planner.ads_helpers import is_ads_clarification_followup, resolve_ads_planning_message
 
 
 def _model_written_page_prompt() -> str:

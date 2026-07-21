@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 from lib.planner.meta_campaign_llm import extract_with_planner_llm
 from lib.planner.meta_campaign_spec import extract_end_time_iso, plan_meta_create_workflow
-from lib.planner.ads_fallback import resolve_ads_planning_message
+from lib.planner.ads_helpers import resolve_ads_planning_message
 
 
 def test_tomorrow_parsed_as_end_date():

@@ -13,28 +13,21 @@ from lib.ai_workspace_config import get_planner_config
 from lib.llm.json_utils import parse_json_text
 from lib.llm import text as text_llm
 from lib.memory.context import build_planner_context, format_context_block
-from lib.planner.ads_fallback import (
-    is_ads_clarification_followup,
+from lib.planner.ads_helpers import (
     merge_conversation_attachments,
     resolve_ads_planning_message,
-    route_ads_workflow,
 )
-from lib.planner.ads_session import is_ads_collection_active, resolve_ads_session
 from lib.planner.attached_media import (
     format_attached_media_block,
     reconcile_attached_media_steps,
 )
-from lib.planner.orchestrator import (
-    classify_workflow_intent_with_planner,
-    pin_ads_workflow_intent_for_message,
-    should_route_ads_spec,
-)
+from lib.planner.orchestrator import classify_workflow_intent_with_planner
 from lib.planner.intent_router import (
     format_route_hint,
     route_planner_intent,
     route_workflow_intent,
 )
-from lib.planner.social_fallback import (
+from lib.planner.social_helpers import (
     normalize_planner_payload,
 )
 from lib.validation.workflow_graph import validate_workflow_graph
@@ -56,38 +49,11 @@ def _finalize_graph(
     raw_fallback: str = '',
     conversation_history: list[dict[str, Any]] | None = None,
 ) -> dict:
-    """Validate/reconcile the planner LLM graph — do not replace it with heuristic workflows."""
+    """Validate/reconcile the planner LLM graph — never replace it with heuristic workflows."""
+    _ = (user_message, conversation_history)
     parsed = normalize_planner_payload(parsed)
     if media:
         parsed = reconcile_attached_media_steps(parsed, media)
-
-    # Ads campaign collection remains a guided multi-turn spec (clarification → compile),
-    # not a silent replacement of a social/LLM plan.
-    workflow_intent_id = (ctx.get('workflow_intent') or '') if ctx else ''
-    if workflow_intent_id.startswith(('google_', 'meta_')) and not parsed.get('steps'):
-        logger.warning('Planner returned no steps for ads workflow — routing to ads spec')
-        parsed = route_ads_workflow(
-            resolve_ads_planning_message(user_message, conversation_history),
-            ctx,
-        )
-
-    if not parsed.get('steps'):
-        try:
-            from lib.planner.ads_fallback import is_actionable_ads_request
-
-            if is_actionable_ads_request(user_message):
-                logger.warning('Actionable ads request with no steps — routing to ads spec')
-                parsed = route_ads_workflow(
-                    resolve_ads_planning_message(user_message, conversation_history),
-                    ctx,
-                )
-        except Exception:
-            pass
-
-    if not parsed.get('steps') and is_ads_clarification_followup(user_message, conversation_history):
-        planning_message = resolve_ads_planning_message(user_message, conversation_history)
-        logger.info('Ads clarification follow-up — merged planning message (%s chars)', len(planning_message))
-        parsed = route_ads_workflow(planning_message, ctx)
 
     if parsed.get('intent') == 'informational' and not parsed.get('steps'):
         summary = (parsed.get('assistant_message') or parsed.get('summary') or raw_fallback[:500]).strip()
@@ -105,6 +71,16 @@ def _finalize_graph(
         }
         if is_chat_only_graph(graph):
             graph['chat_only'] = True
+        for key in (
+            'collection_phase',
+            'meta_setup_phase',
+            'google_setup_phase',
+            'meta_compiled',
+            'google_compiled',
+            'execute_plan',
+        ):
+            if parsed.get(key) is not None:
+                graph[key] = parsed[key]
         return graph
 
     if not parsed.get('steps'):
@@ -130,10 +106,17 @@ def _finalize_graph(
 
     if media:
         parsed = reconcile_attached_media_steps(parsed, media)
-    phase = parsed.get('meta_setup_phase')
     result = validate_workflow_graph(parsed, max_steps=max_steps)
-    if phase:
-        result['meta_setup_phase'] = phase
+    for key in (
+        'meta_setup_phase',
+        'google_setup_phase',
+        'meta_compiled',
+        'google_compiled',
+        'collection_phase',
+        'execute_plan',
+    ):
+        if parsed.get(key) is not None:
+            result[key] = parsed[key]
     return result
 
 
@@ -147,6 +130,9 @@ def plan_workflow(
     """
     Run planner LLM and return validated workflow graph + metadata.
     Raises ValueError on validation failure; RuntimeError on LLM failure.
+
+    Social and ads both use prompt + tool catalog guidance — no structured
+    fallback templates or keyword-built step chains.
     """
     planner_cfg = get_planner_config(workspace_id)
     planner_provider = planner_cfg['provider']
@@ -154,60 +140,17 @@ def plan_workflow(
     max_steps = int(planner_cfg.get('max_workflow_steps') or 10)
 
     media = merge_conversation_attachments(attached_media, conversation_history)
+    # Merge short ads follow-ups into one planning prompt (context for the LLM only).
     planning_message = resolve_ads_planning_message(user_message, conversation_history)
     ctx = build_planner_context(workspace_id, planning_message, attached_media=media)
     ctx['max_workflow_steps'] = max_steps
     ctx['conversation_history'] = list(conversation_history or [])
 
-    from lib.planner.intent_router import is_conversational_chat
-
-    if (
-        is_conversational_chat(planning_message)
-        and not media
-        and not is_ads_collection_active(conversation_history)
-    ):
-        from lib.planner.agent_dialogue import render_agent_message
-
-        assistant = render_agent_message(
-            workspace_id=workspace_id,
-            phase='acknowledge',
-            workflow_label='Marketing Assistant',
-            facts={'user_message': planning_message},
-            extra_instructions=(
-                'This is casual chat, not a workflow request. Greet the user briefly and explain you can help '
-                'with social posts, Meta and Google Ads campaigns, landing pages, SEO tooling, and ad analytics. '
-                'Do not mention workflows, approval, or planning steps.'
-            ),
-        )
-        return {
-            'intent': 'informational',
-            'chat_only': True,
-            'summary': assistant,
-            'assistant_message': assistant,
-            'steps': [],
-            'dependencies': [],
-            'parallel_groups': [],
-            'approval_gates': [],
-            'requires_approval': False,
-        }
-
-    ads_collecting = is_ads_collection_active(conversation_history)
-
-    workflow_intent = None
-    if ads_collecting:
-        session = resolve_ads_session(conversation_history)
-        workflow_intent = session.pinned_intent
-    if not ads_collecting:
-        workflow_intent = pin_ads_workflow_intent_for_message(planning_message, ctx)
-    if not workflow_intent:
-        workflow_intent = classify_workflow_intent_with_planner(
-            workspace_id=workspace_id,
-            message=planning_message,
-            conversation_history=conversation_history,
-        )
-    if not workflow_intent:
-        workflow_intent = pin_ads_workflow_intent_for_message(planning_message, ctx)
-
+    workflow_intent = classify_workflow_intent_with_planner(
+        workspace_id=workspace_id,
+        message=planning_message,
+        conversation_history=conversation_history,
+    )
     if workflow_intent:
         ctx['workflow_intent'] = workflow_intent.workflow_id
         ctx['workflow_intent_summary'] = workflow_intent.understood_summary
@@ -220,37 +163,6 @@ def plan_workflow(
         workflow_intent.workflow_id if workflow_intent else None,
         len(user_message or ''),
     )
-
-    ads_followup = is_ads_clarification_followup(user_message, conversation_history)
-
-    # Social / landing / SEO: always use the planner LLM.
-    # Do not short-circuit with deterministic fallback graphs — prompts + tool catalog guide the model.
-
-    if should_route_ads_spec(
-        message=planning_message,
-        ctx=ctx,
-        workflow_intent=workflow_intent,
-        conversation_history=conversation_history,
-        ads_followup=ads_followup,
-        ads_collecting=ads_collecting,
-    ):
-        ads_graph = route_ads_workflow(planning_message, ctx)
-        if ads_graph.get('steps'):
-            logger.info('Ads workflow spec — execute graph (%s steps)', len(ads_graph['steps']))
-            return _finalize_graph(
-                ads_graph,
-                user_message=user_message,
-                ctx=ctx,
-                max_steps=max_steps,
-                media=media,
-                conversation_history=conversation_history,
-            )
-        if not ads_graph.get('steps'):
-            from lib.planner.chat_only import is_chat_only_graph
-
-            if is_chat_only_graph(ads_graph):
-                ads_graph = {**ads_graph, 'chat_only': True}
-            return ads_graph
 
     catalog = tool_catalog_for_planner(route)
     system = _load_system_prompt()
@@ -281,17 +193,18 @@ def plan_workflow(
         f'WORKSPACE CONTEXT:\n{format_context_block(ctx)}\n\n'
         f'{attached_block}'
         f'{history_block}\n\n'
-        f'USER REQUEST:\n{user_message.strip()}\n\n'
+        f'USER REQUEST:\n{planning_message.strip()}\n\n'
         'Respond with the workflow JSON object only.'
     )
 
+    max_tokens = 3072 if str(route).endswith(('_campaign', '_analytics')) else 2048
     raw = text_llm.complete(
         planner_provider,
         planner_model,
         user_block,
         workspace_id=workspace_id,
         temperature=0.35,
-        max_tokens=2048,
+        max_tokens=max_tokens,
         api_model_id=planner_cfg.get('api_model_id'),
         feature_id='planner',
         opcode='planner',

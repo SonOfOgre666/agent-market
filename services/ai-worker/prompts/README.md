@@ -7,6 +7,7 @@ ONBOARDING §3 and §9.5: **prompt text lives here**, not in Python string liter
 | Path | Used by | Opcode / task |
 |------|---------|----------------|
 | `planner/system.md` | Agent planner | workflow planning |
+| `agent/result_summary.md` | `lib/planner/result_narrator.py` | post-execution user reply |
 | `social/generate_post.md` | `lib/llm/prompts.py` | `generate_post` |
 | `social/image_script.md` | `lib/llm/prompts.py` | image script step |
 | `social/video_script.md` | `lib/llm/prompts.py` | `generate_video_script` |

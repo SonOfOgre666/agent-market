@@ -22,7 +22,7 @@ if (isNextDev) {
 const nextConfig = {
   output: 'standalone',
   // Dev: allow Try Cloudflare quick tunnels to load /_next/* from the browser (cross-origin).
-  allowedDevOrigins: ['*.trycloudflare.com'],
+  allowedDevOrigins: ['*.trycloudflare.com', '*.ngrok-free.dev', '*.ngrok.app'],
   images: {
     remotePatterns: [
       { protocol: 'https', hostname: '**.twimg.com' },
