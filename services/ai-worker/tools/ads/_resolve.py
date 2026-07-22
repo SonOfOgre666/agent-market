@@ -12,6 +12,41 @@ from lib import worker_api
 logger = logging.getLogger(__name__)
 
 
+def inherit_ads_account_context(
+    payload: Dict[str, Any] | None,
+    *,
+    workflow: Dict[str, Any] | None = None,
+    steps: list[Dict[str, Any]] | None = None,
+) -> Dict[str, Any]:
+    """
+    Copy ``account_id`` onto a step payload when the planner only set it on step_1.
+
+    LLM-planned Google/Meta graphs often omit account_id on later steps; credential
+    enrichment requires it on every ads tool call.
+    """
+    body = dict(payload or {})
+    if str(body.get('account_id') or '').strip():
+        return body
+
+    wf = workflow if isinstance(workflow, dict) else {}
+    for key in ('google_account_id', 'meta_account_id', 'account_id'):
+        aid = str(wf.get(key) or '').strip()
+        if aid:
+            body['account_id'] = aid
+            return body
+
+    for step in steps or []:
+        if not isinstance(step, dict):
+            continue
+        sp = step.get('payload')
+        if isinstance(sp, dict):
+            aid = str(sp.get('account_id') or '').strip()
+            if aid:
+                body['account_id'] = aid
+                return body
+    return body
+
+
 def enrich_ads_tool_payload(tool_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     """
     Fill access tokens / Google client config when ``account_id`` is provided.

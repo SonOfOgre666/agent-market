@@ -93,11 +93,13 @@ export function useAgentChat({ onToast } = {}) {
   const [actionBusy, setActionBusy] = useState(null)
   const [executionNote, setExecutionNote] = useState(null)
   const workflowsRef = useRef(workflows)
+  const conversationIdRef = useRef(null)
   const actionBusyRef = useRef(null)
   const activeWorkflowRef = useRef(null)
   const abortRunRef = useRef(false)
   const activeRunRef = useRef(0)
   workflowsRef.current = workflows
+  conversationIdRef.current = conversationId
   actionBusyRef.current = actionBusy
 
   const clearRunState = useCallback(() => {
@@ -134,26 +136,30 @@ export function useAgentChat({ onToast } = {}) {
     return workflow
   }, [])
 
-  const reportExecutionOutcome = useCallback(async (workflow, jobResult) => {
+  const reportExecutionOutcome = useCallback(async (workflow, jobResult, convId) => {
     const summary = summarizeExecution(workflow)
     const errs = workflow?.execution_errors || []
     const narrated = resultAssistantMessage(workflow, jobResult)
+    // Prefer explicit id from the in-flight send (new chats set state async;
+    // closing over stale null conversationId used to drop the narrator reply).
+    const activeConversationId = convId || conversationIdRef.current || conversationId
 
-    if (narrated && conversationId && workflow?.id) {
+    if (narrated && activeConversationId && workflow?.id) {
       setMessages(prev => {
         const already = prev.some(
-          m => m.role === 'assistant' && m.workflow_id === workflow.id && m.content === narrated,
+          m => m.role === 'assistant' && m.content === narrated && !m.workflow_id,
         )
         if (already) return prev
+        // No workflow_id — keeps WorkflowCard attached only to the plan bubble
         return [...prev, {
           role: 'assistant',
           content: narrated,
-          workflow_id: workflow.id,
+          animate: true,
         }]
       })
       try {
         await api.agentChatExecutionResult({
-          conversation_id: conversationId,
+          conversation_id: activeConversationId,
           workflow_id: workflow.id,
           assistant_message: narrated,
         })
@@ -163,12 +169,18 @@ export function useAgentChat({ onToast } = {}) {
     }
 
     if (workflow?.status === 'completed') {
-      onToast?.success?.(summary ? `Workflow finished: ${summary}` : 'Workflow completed')
+      const partial = workflow?.graph?.steps?.length &&
+        Object.values(workflow?.step_results || {}).some(r => r.status === 'failed')
+      if (partial) {
+        onToast?.info?.(errs[0] || 'Finished with some account errors — see the reply for details')
+      } else {
+        onToast?.success?.(summary ? `Workflow finished: ${summary}` : 'Workflow completed')
+      }
     } else if (workflow?.status === 'failed') {
       const partial = workflow?.graph?.steps?.length &&
         Object.values(workflow?.step_results || {}).some(r => r.status === 'completed')
       if (partial) {
-        onToast?.info?.(errs[0] || 'Some steps failed — your post may still have been saved or scheduled')
+        onToast?.info?.(errs[0] || 'Some steps failed — useful results may still be available')
       } else {
         onToast?.error?.(errs[0] || summary || 'Workflow failed')
       }
@@ -181,7 +193,7 @@ export function useAgentChat({ onToast } = {}) {
     }
   }, [conversationId, onToast])
 
-  const pollExecutionJob = useCallback(async (wfId, jobId, runId, { depth = 0 } = {}) => {
+  const pollExecutionJob = useCallback(async (wfId, jobId, runId, { depth = 0, conversationId: convId } = {}) => {
     const stepCount = workflowsRef.current[wfId]?.graph?.steps?.length || 0
     setExecutionNote(
       stepCount > 6
@@ -212,13 +224,13 @@ export function useAgentChat({ onToast } = {}) {
       setExecutionNote('Auto-approved — executing…')
       const start = await api.agentApproveWorkflow(wfId)
       if (wasStopped({ runId }) || !start?.job_id) {
-        await reportExecutionOutcome(workflow, jobResult)
+        await reportExecutionOutcome(workflow, jobResult, convId)
         return workflow
       }
-      return pollExecutionJob(wfId, start.job_id, runId, { depth: depth + 1 })
+      return pollExecutionJob(wfId, start.job_id, runId, { depth: depth + 1, conversationId: convId })
     }
 
-    await reportExecutionOutcome(workflow, jobResult)
+    await reportExecutionOutcome(workflow, jobResult, convId)
     return workflow
   }, [onToast, refreshWorkflow, reportExecutionOutcome, shouldAbortPoll, wasStopped])
 
@@ -341,7 +353,10 @@ export function useAgentChat({ onToast } = {}) {
         return
       }
 
-      if (start.conversation_id) setConversationId(start.conversation_id)
+      if (start.conversation_id) {
+        conversationIdRef.current = start.conversation_id
+        setConversationId(start.conversation_id)
+      }
 
       if (start.status === 'planning' && start.job_id) {
         const planJob = await pollAgentJob(start.job_id, {
@@ -386,6 +401,7 @@ export function useAgentChat({ onToast } = {}) {
             role: 'assistant',
             content: completed.assistant_message,
             workflow_id: completed.chat_only ? undefined : completed.workflow?.id,
+            animate: true,
           }])
         }
         if (completed.workflow && !completed.chat_only) {
@@ -411,7 +427,9 @@ export function useAgentChat({ onToast } = {}) {
           }
 
           if (jobId && !wasStopped({ runId })) {
-            await pollExecutionJob(wfId, jobId, runId)
+            await pollExecutionJob(wfId, jobId, runId, {
+              conversationId: start.conversation_id || conversationIdRef.current,
+            })
           }
         }
       }
@@ -478,13 +496,15 @@ export function useAgentChat({ onToast } = {}) {
 
   const loadConversation = useCallback(async (id) => {
     const { conversation } = await api.agentConversation(id)
+    conversationIdRef.current = conversation.id
     setConversationId(conversation.id)
-    setMessages((conversation.messages || []).map(m => ({
+    const baseMessages = (conversation.messages || []).map(m => ({
       role: m.role,
       content: m.content,
       workflow_id: m.workflow_id,
       attachments: m.attachments,
-    })))
+      animate: false,
+    }))
     const wfIds = [...new Set((conversation.messages || []).map(m => m.workflow_id).filter(Boolean))]
     const loaded = {}
     await Promise.all(wfIds.map(async (wid) => {
@@ -494,13 +514,61 @@ export function useAgentChat({ onToast } = {}) {
       } catch { /* ignore */ }
     }))
     setWorkflows(loaded)
+
+    // Older runs could finish with a narrator reply on the workflow graph that
+    // never got appended to the conversation (stale null conversationId).
+    const hydrated = [...baseMessages]
+    const toPersist = []
+    for (const wid of wfIds) {
+      const result = String(loaded[wid]?.graph?.result_assistant_message || '').trim()
+      if (!result) continue
+      const already = hydrated.some(
+        m => m.role === 'assistant' && m.content === result && !m.workflow_id,
+      )
+      if (already) continue
+      const planIdx = hydrated.findIndex(m => m.workflow_id === wid)
+      const insertAt = planIdx >= 0 ? planIdx + 1 : hydrated.length
+      hydrated.splice(insertAt, 0, {
+        role: 'assistant',
+        content: result,
+        animate: false,
+      })
+      toPersist.push({ workflow_id: wid, assistant_message: result })
+    }
+    setMessages(hydrated)
+    for (const row of toPersist) {
+      api.agentChatExecutionResult({
+        conversation_id: conversation.id,
+        workflow_id: row.workflow_id,
+        assistant_message: row.assistant_message,
+      }).catch(() => {})
+    }
   }, [])
 
   const resetConversation = useCallback(() => {
+    conversationIdRef.current = null
     setConversationId(null)
     setMessages([])
     setWorkflows({})
     setExecutionNote(null)
+  }, [])
+
+  /** Stop typewriter replay after close/remount — keep full text visible. */
+  const settleMessageAnimations = useCallback(() => {
+    setMessages(prev => {
+      if (!prev.some(m => m.animate)) return prev
+      return prev.map(m => (m.animate ? { ...m, animate: false } : m))
+    })
+  }, [])
+
+  const clearMessageAnimate = useCallback((index) => {
+    setMessages(prev => {
+      const m = prev[index]
+      if (!m?.animate) return prev
+      const next = prev.slice()
+      next[index] = { ...m, animate: false }
+      return next
+    })
   }, [])
 
   const isProcessing = sending || Boolean(actionBusy) || hasWorkerActiveWorkflow(workflows)
@@ -518,6 +586,8 @@ export function useAgentChat({ onToast } = {}) {
     runWorkflowAction,
     loadConversation,
     resetConversation,
+    settleMessageAnimations,
+    clearMessageAnimate,
     refreshWorkflow,
   }
 }

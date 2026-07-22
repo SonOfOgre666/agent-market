@@ -81,6 +81,10 @@ def build_planner_context(
                 'username': a.get('username'),
                 'authorized': a.get('authorized'),
                 'ad_account_id': a.get('ad_account_id'),
+                'customer_id': a.get('customer_id'),
+                'login_customer_id': a.get('login_customer_id'),
+                'currency': a.get('currency'),
+                'needs_reconnect': bool(a.get('needs_reconnect')),
             }
             for a in ads_accounts[:20]
         ],

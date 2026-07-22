@@ -10,28 +10,33 @@ from tools.ads.google._config import require_google_config
 
 
 def run(payload: Dict[str, Any]) -> Dict[str, Any]:
-    gcfg, customer_id = require_google_config(payload)
-    name = (payload.get('name') or '').strip()
+    from tools.ads._budget_currency import convert_payload_budget
+
+    body, conversion = convert_payload_budget(payload, platform='google')
+    gcfg, customer_id = require_google_config(body)
+    name = (body.get('name') or '').strip()
     if not name:
         raise ToolValidationError('name is required')
-    amount = payload.get('budget_amount') or payload.get('daily_budget')
+    amount = body.get('budget_amount') or body.get('daily_budget')
     if amount is None:
-        budget = payload.get('budget') or {}
+        budget = body.get('budget') or {}
         amount = budget.get('amount')
     if amount is None:
         raise ToolValidationError('budget_amount is required')
 
-    ctype = payload.get('campaign_type') or payload.get('type') or payload.get('channel') or 'SEARCH'
+    ctype = body.get('campaign_type') or body.get('type') or body.get('channel') or 'SEARCH'
     out = connector_create(
         gcfg,
         customer_id=customer_id,
         name=name,
         budget_amount=float(amount),
         campaign_type=str(ctype),
-        status=str(payload.get('status') or 'PAUSED'),
-        start_date=payload.get('start_date'),
-        end_date=payload.get('end_date'),
+        status=str(body.get('status') or 'PAUSED'),
+        start_date=body.get('start_date'),
+        end_date=body.get('end_date'),
     )
     if not out.get('ok'):
         raise ToolValidationError(out.get('error') or 'create campaign failed')
+    if conversion:
+        out['budget_conversion'] = body.get('budget_conversion')
     return out

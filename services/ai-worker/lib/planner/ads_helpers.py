@@ -12,7 +12,6 @@ from typing import Any, Literal
 from lib.planner.ads_session import (
     is_ads_collection_active,
     is_assistant_collecting_ads_fields,
-    is_short_ads_followup_reply,
     merge_ads_conversation_user_messages,
 )
 AdsPlatform = Literal['meta_ads', 'google_ads', 'unknown']
@@ -515,7 +514,7 @@ def is_ads_clarification_followup(
     user_message: str,
     conversation_history: list[dict[str, Any]] | None,
 ) -> bool:
-    """User is replying during Meta/Google ads setup collection."""
+    """User is replying while an ads collection workflow is active (graph metadata)."""
     current = (user_message or '').strip()
     if not current:
         return False
@@ -525,62 +524,29 @@ def is_ads_clarification_followup(
 
     from lib.planner.meta_campaign_spec import is_meta_campaign_approval
     from lib.planner.google_campaign_spec import is_google_campaign_approval
-    from lib.planner.social_helpers import is_actionable_social_request
 
     if is_meta_campaign_approval(current, history):
         return True
-
     if is_google_campaign_approval(current, history):
         return True
-
-    if not is_ads_collection_active(history):
-        return False
-
-    if is_actionable_social_request(current) and not is_short_ads_followup_reply(current):
-        return False
-
-    return is_short_ads_followup_reply(current)
+    return is_ads_collection_active(history)
 
 
 def resolve_ads_planning_message(
     user_message: str,
     conversation_history: list[dict[str, Any]] | None,
 ) -> str:
-    """Merge short follow-ups (page, objective, budget, URL, APPROVE) with earlier ads context."""
+    """
+    Merge user turns during active ads collection / approval.
+
+    Detection is graph/session metadata first (collection_phase, setup phases).
+    Conversation history is also passed separately to the planner LLM.
+    """
     current = (user_message or '').strip()
     history = list(conversation_history or [])
 
     if is_ads_clarification_followup(current, history):
         return merge_ads_conversation_user_messages(current, history)
-
-    if _mentions_ads(current):
-        return current
-
-    from lib.planner.meta_campaign_spec import is_meta_campaign_approval
-    from lib.planner.google_campaign_spec import is_google_campaign_approval
-
-    history = list(conversation_history or [])
-    if is_meta_campaign_approval(current, history):
-        chunks: list[str] = []
-        for msg in history:
-            if msg.get('role') != 'user':
-                continue
-            text = str(msg.get('content') or '').strip()
-            if text and not re.search(r'\b(APPROVE|yes, create it|create campaign)\b', text, re.I):
-                chunks.append(text)
-        if chunks:
-            return f'{"\n\n".join(chunks)}\n\n{current}'.strip()
-
-    if is_google_campaign_approval(current, history):
-        chunks = []
-        for msg in history:
-            if msg.get('role') != 'user':
-                continue
-            text = str(msg.get('content') or '').strip()
-            if text and not re.search(r'\b(APPROVE|yes, create it|create campaign)\b', text, re.I):
-                chunks.append(text)
-        if chunks:
-            return f'{"\n\n".join(chunks)}\n\n{current}'.strip()
 
     return current
 

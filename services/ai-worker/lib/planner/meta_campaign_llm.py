@@ -32,6 +32,7 @@ class PlannerCampaignExtraction:
     objective: str | None = None
     page_ids: list[str] = field(default_factory=list)
     daily_budget: float | None = None
+    budget_currency: str | None = None
     end_time: str | None = None
     geo_countries: list[str] | None = None
     link_url: str | None = None
@@ -134,6 +135,9 @@ def _sanitize_extraction(
         except (TypeError, ValueError):
             pass
 
+    from lib.ads_currency import normalize_currency_code
+    budget_currency = normalize_currency_code(fields.get('budget_currency') or fields.get('currency'))
+
     geo: list[str] | None = None
     raw_geo = fields.get('geo_countries')
     if isinstance(raw_geo, list):
@@ -166,6 +170,7 @@ def _sanitize_extraction(
         objective=objective,
         page_ids=page_ids,
         daily_budget=daily_budget,
+        budget_currency=budget_currency,
         end_time=_normalize_end_time(fields.get('end_date') or fields.get('end_time')),
         geo_countries=geo,
         link_url=link,
@@ -210,7 +215,9 @@ Conversation:
 
 Your job: read ALL user messages and map informal phrasing to structured fields.
 Examples:
-- "8$", "$9/day" → daily_budget
+- "8$", "$9/day" → daily_budget + budget_currency "USD"
+- "3 MAD/day", "10 EUR" → daily_budget + budget_currency ISO code
+- "3/day" with no currency → daily_budget only, budget_currency null (ad account currency)
 - "end after 2 days", "until Friday", "tomorrow" → end_date as YYYY-MM-DD
 - "Traffic", "leads", "awareness" → objective (OUTCOME_* enum)
 - Page names, "first page", ordinals → page_ids
@@ -227,6 +234,7 @@ Return JSON only:
     "objective": "OUTCOME_..." | null,
     "page_ids": ["..."],
     "daily_budget": number | null,
+    "budget_currency": "USD" | "EUR" | "MAD" | "GBP" | null,
     "start_date": "YYYY-MM-DD" | null,
     "end_date": "YYYY-MM-DD" | null,
     "geo_countries": ["MA"],

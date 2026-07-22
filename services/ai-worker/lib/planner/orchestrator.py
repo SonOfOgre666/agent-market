@@ -1,8 +1,9 @@
 """
-Orchestrating LLM — intent → workflow specification.
+Orchestrating LLM — legacy soft workflow_id classifier.
 
-Keyword rules are fallback only when the model is unavailable or low confidence.
-Specs + compile layers remain the source of truth for execution.
+Not used on the live planner path (``agents.planner.plan_workflow``). Kept for
+tests / reference only. Do not re-wire into the planner without an explicit
+product decision.
 """
 
 from __future__ import annotations

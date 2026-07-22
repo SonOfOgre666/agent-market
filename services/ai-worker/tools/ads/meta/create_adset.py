@@ -17,6 +17,9 @@ from tools.ads.meta.pixel_resolve import pick_pixel_id
 
 
 def run(payload: Dict[str, Any]) -> Dict[str, Any]:
+    from tools.ads._budget_currency import convert_payload_budget
+
+    payload, _conversion = convert_payload_budget(dict(payload or {}), platform='meta')
     token = (payload.get('access_token') or '').strip()
     if not token:
         raise ToolValidationError('access_token is required')

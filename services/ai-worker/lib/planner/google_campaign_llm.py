@@ -334,6 +334,7 @@ def infer_business_context_from_prompt(prompt: str) -> str | None:
 @dataclass
 class GoogleCampaignFieldExtraction:
     daily_budget: float | None = None
+    budget_currency: str | None = None
     end_time: str | None = None
     start_time: str | None = None
     final_url: str | None = None
@@ -388,6 +389,9 @@ def _sanitize_google_field_extraction(parsed: dict[str, Any]) -> GoogleCampaignF
         except (TypeError, ValueError):
             pass
 
+    from lib.ads_currency import normalize_currency_code
+    budget_currency = normalize_currency_code(fields.get('budget_currency') or fields.get('currency'))
+
     link = str(fields.get('final_url') or fields.get('link_url') or '').strip() or None
     if link and not link.startswith('http'):
         link = None
@@ -419,6 +423,7 @@ def _sanitize_google_field_extraction(parsed: dict[str, Any]) -> GoogleCampaignF
 
     return GoogleCampaignFieldExtraction(
         daily_budget=daily_budget,
+        budget_currency=budget_currency,
         end_time=_normalize_end_time(fields.get('end_date') or fields.get('end_time')),
         start_time=_normalize_start_time(fields.get('start_date') or fields.get('start_time')),
         final_url=link,
@@ -543,7 +548,9 @@ Conversation:
 Your job: read ALL user messages together and infer intent — including typos, shorthand, and informal phrasing.
 Examples:
 - "Searh campaign", "serach", "Search" → campaign_type: "search"
-- "8$", "$8/day", "93$", "8 dollars" → daily_budget as number
+- "8$", "$8/day", "93$", "8 dollars" → daily_budget as number, budget_currency "USD"
+- "3 MAD/day", "10 EUR/day" → daily_budget + budget_currency ISO code
+- "3/day" with no currency word/symbol → daily_budget only, budget_currency null (account currency)
 - "end after 2 days", "end until tomorrow", "run for a week", "until August 1" → end_date as YYYY-MM-DD
 - "target Morocco", "in Casablanca", "Morocco except Casablanca" → geo_targeting with include/exclude locations
 - "fitness supplements", "advertising setup for protein powder" → business_context
@@ -556,6 +563,7 @@ Return JSON only:
   "fields": {{
     "campaign_type": "search" | "display" | "video" | "shopping" | "performance_max" | "app" | "local" | null,
     "daily_budget": number | null,
+    "budget_currency": "USD" | "EUR" | "MAD" | "GBP" | null,
     "start_date": "YYYY-MM-DD" | null,
     "end_date": "YYYY-MM-DD" | null,
     "final_url": "https://..." | null,

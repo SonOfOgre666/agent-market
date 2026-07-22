@@ -56,6 +56,7 @@ def run(payload: Dict[str, Any]) -> Dict[str, Any]:
         ),
         ad_id=str(payload.get('ad_id') or payload.get('platform_ad_id') or ''),
         api_version=str(payload.get('api_version') or 'v22.0'),
+        time_increment=payload.get('time_increment'),
     )
     if not out.get('ok'):
         raise ToolValidationError(out.get('error') or 'Meta insights failed')

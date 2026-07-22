@@ -461,14 +461,26 @@ export default async function workerInternalRoutes(fastify) {
     }
     if (provider) filter.provider = String(provider)
     const rows = await getDb().collection('accounts').find(filter).sort({ created_at: 1 }).limit(50).toArray()
-    let items = rows.map((r) => ({
-      id: r._id.toString(),
-      provider: r.provider || '',
-      name: r.name || '',
-      username: r.username || '',
-      authorized: r.authorized !== false,
-      ad_account_id: r.data?.ad_account_id || null,
-    }))
+    let items = rows.map((r) => {
+      const customerId = r.data?.customer_id
+        ? String(r.data.customer_id).replace(/\D/g, '') || null
+        : null
+      const isGoogleAds = r.provider === 'google_ads'
+      return {
+        id: r._id.toString(),
+        provider: r.provider || '',
+        name: r.name || '',
+        username: r.username || '',
+        authorized: r.authorized !== false,
+        ad_account_id: r.data?.ad_account_id || null,
+        customer_id: customerId,
+        login_customer_id: r.data?.login_customer_id
+          ? String(r.data.login_customer_id).replace(/\D/g, '') || null
+          : null,
+        currency: r.data?.currency || null,
+        needs_reconnect: isGoogleAds ? !customerId : false,
+      }
+    })
     if (kind === 'social' || kind === 'ads') {
       items = Account.filterAccountsByKind(
         items.map((i) => ({ provider: i.provider, ...i })),

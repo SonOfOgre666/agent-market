@@ -1,8 +1,9 @@
 """
-Planner routing — keyword heuristics used only when orchestrator LLM is unavailable.
+Legacy keyword route helpers — NOT used by the live planner path.
 
-Primary ads/social routing: orchestrator LLM (orchestrator.py) + workflow specs.
-This module filters the tool catalog for the JSON planner (social analytics, general).
+The planner uses the full tool catalog + prompts (agents/planner.py).
+These helpers remain for older unit tests and any non-planner callers.
+Do not reintroduce route_planner_intent into agents/planner.py.
 """
 
 from __future__ import annotations

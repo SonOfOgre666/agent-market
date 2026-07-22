@@ -245,8 +245,10 @@ def execute_workflow_task(
                     errors=outcome.get('errors') or [],
                 )
                 patched_graph = apply_result_message(live_graph, result_message)
+                # Keep plan-time summary — putting the full narrator text in
+                # ``summary`` caused the same answer to appear under the plan card
+                # and again as a chat bubble.
                 worker_api.patch_agent_workflow(workflow_id, {
-                    'summary': result_message,
                     'graph': patched_graph,
                 })
             except Exception:

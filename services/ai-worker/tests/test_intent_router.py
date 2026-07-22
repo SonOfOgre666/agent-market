@@ -1,41 +1,29 @@
-"""Tests for planner intent routing and catalog filtering."""
+"""Planner uses full tool catalog — keyword route filters are not on the live path."""
 
 from __future__ import annotations
 
+import inspect
 import unittest
 
 from lib.dispatch.registry import tool_catalog_for_planner
-from lib.planner.intent_router import message_mentions_ads, route_planner_intent
 
 
-class IntentRouterTest(unittest.TestCase):
-    def test_meta_advertising_setup_detected(self):
-        msg = (
-            'Create a Meta advertising setup for a business selling fitness supplements '
-            'online targeting Morocco.'
-        )
-        self.assertTrue(message_mentions_ads(msg))
-        route = route_planner_intent(msg, {'ads_accounts': [{'provider': 'meta_ads', 'id': 'a1'}]})
-        self.assertEqual(route, 'meta_ads_campaign')
+class PlannerCatalogTest(unittest.TestCase):
+    def test_general_catalog_includes_ads_report_and_social_tools(self):
+        catalog = tool_catalog_for_planner('general')
+        ids = {t['tool_id'] for t in catalog}
+        self.assertIn('meta_report_insights', ids)
+        self.assertIn('google_report_performance', ids)
+        self.assertIn('google_report_account_summary', ids)
+        self.assertIn('generate_social_post', ids)
+        self.assertIn('run_budget_pacing', ids)
 
-    def test_marrakech_meta_ad_detected(self):
-        msg = 'I want to create an ad about traveling to Marrakech on meta ads'
-        self.assertTrue(message_mentions_ads(msg))
-        route = route_planner_intent(msg, {'ads_accounts': [{'provider': 'meta_ads', 'id': 'a1'}]})
-        self.assertEqual(route, 'meta_ads_campaign')
+    def test_planner_module_does_not_call_route_planner_intent(self):
+        import agents.planner as planner_mod
 
-    def test_meta_campaign_catalog_smaller_than_full(self):
-        full = tool_catalog_for_planner('general')
-        meta = tool_catalog_for_planner('meta_ads_campaign')
-        social = tool_catalog_for_planner('social_content')
-        self.assertLess(len(meta), len(full))
-        self.assertLess(len(social), len(full))
-        self.assertTrue(all(t['tool_id'].startswith('meta_') for t in meta))
-        self.assertTrue(all(t['tool_id'] in {
-            'generate_social_post', 'analyze_social_comment', 'generate_video_script',
-            'generate_image_script', 'generate_image', 'generate_video', 'create_draft_post',
-            'schedule_post', 'publish_post',
-        } for t in social))
+        source = inspect.getsource(planner_mod)
+        self.assertNotIn('route_planner_intent', source)
+        self.assertIn("tool_catalog_for_planner('general')", source)
 
 
 class AdsAccountPickTest(unittest.TestCase):

@@ -4,7 +4,12 @@ import { CheckCircle2, XCircle, Play, ShieldAlert, Loader2, AlertTriangle, Squar
 import WorkflowTimeline from './WorkflowTimeline.js'
 import StepResultViewer from './StepResultViewer.js'
 import PlannerActivity from './PlannerActivity.js'
-import { workflowShowsRunning, getPartialSuccessMessage, getActiveStep } from './workflowUi.js'
+import {
+  workflowShowsRunning,
+  getPartialSuccessMessage,
+  getActiveStep,
+  workflowPlanSummary,
+} from './workflowUi.js'
 
 export default function WorkflowCard({ workflow, busy, onApprove, onExecute, onReject, onStop }) {
   const graph = workflow?.graph || {}
@@ -16,6 +21,7 @@ export default function WorkflowCard({ workflow, busy, onApprove, onExecute, onR
     .filter(([, r]) => r.status === 'failed')
   const partialMsg = getPartialSuccessMessage(workflow)
   const activeStep = getActiveStep(workflow)
+  const planSummary = workflowPlanSummary(workflow)
 
   return (
     <div className="agent-wf-card">
@@ -23,7 +29,7 @@ export default function WorkflowCard({ workflow, busy, onApprove, onExecute, onR
         <span className="agent-wf-intent">{graph.intent || workflow?.intent || 'plan'}</span>
         <span className={`badge badge-sm agent-wf-status agent-wf-status--${status}`}>{status}</span>
       </div>
-      {workflow?.summary && <p className="agent-wf-summary">{workflow.summary}</p>}
+      {planSummary && <p className="agent-wf-summary">{planSummary}</p>}
 
       <PlannerActivity graph={graph} workflow={workflow} busy={busy && isRunning} />
 
@@ -40,7 +46,7 @@ export default function WorkflowCard({ workflow, busy, onApprove, onExecute, onR
 
       {status === 'completed' && !partialMsg && (
         <div className="agent-wf-banner agent-wf-banner--success">
-          <CheckCircle2 size={14} /> Workflow completed. Expand step outputs below for generated content.
+          <CheckCircle2 size={14} /> Done — expand step outputs if you need details.
         </div>
       )}
 

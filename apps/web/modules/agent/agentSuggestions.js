@@ -18,4 +18,16 @@ export const AGENT_SUGGESTIONS = [
     prompt: 'Draft a Meta ads campaign for a SaaS launch. Collect any missing details before creating anything.',
     needs: 'Meta Ads',
   },
+  {
+    id: 'ads-spend-summary',
+    label: 'Summarize ads spend (7 days)',
+    prompt: 'How much did I spend on ads in the last 7 days? Give a short summary by account if I have more than one.',
+    needs: null,
+  },
+  {
+    id: 'ads-campaign-waste',
+    label: 'Find weak Google campaigns',
+    prompt: 'Which of my Google Ads campaigns look weak on spend vs results for the last 30 days? Keep it to a short list.',
+    needs: 'Google Ads',
+  },
 ]

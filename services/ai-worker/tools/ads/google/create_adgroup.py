@@ -55,6 +55,7 @@ def run(payload: Dict[str, Any]) -> Dict[str, Any]:
     return {
         'ok': True,
         'platform_ad_set_id': out.get('platform_ad_set_id'),
+        'platform_ad_group_id': out.get('platform_ad_set_id'),
         'ad_group_resource_name': out.get('ad_group_resource_name'),
         'status': out.get('status'),
         'cpc_bid_micros': out.get('cpc_bid_micros'),

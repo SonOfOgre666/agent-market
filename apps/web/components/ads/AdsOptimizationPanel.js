@@ -287,9 +287,7 @@ export default function AdsOptimizationPanel() {
           Auto bid optimization (CPA / ROAS)
         </div>
         <p className="text-muted text-sm" style={{ marginTop: 0 }}>
-          Closed loop: analyze campaign + keyword bids against targets, then apply via{' '}
-          <code>google_update_keyword_bid</code>. Hourly Beat at :45 UTC (
-          <code>ADS_BID_AUTO_APPLY=1</code> for safe auto-decreases only).
+          Analyze campaign and keyword bids against your CPA or ROAS targets. Review recommendations, then apply only when you are ready.
         </p>
         <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
           <button type="button" className="btn btn-primary" onClick={runBidOptimization} disabled={bidLoading}>
@@ -392,8 +390,7 @@ export default function AdsOptimizationPanel() {
           A/B testing — ad assets
         </div>
         <p className="text-muted text-sm" style={{ marginTop: 0 }}>
-          Compares ads within each ad group (min 200 impressions). Recommends pausing losers via{' '}
-          <code>google_pause_ad</code>.
+          Compares ads within each ad group (min 200 impressions). Review winners, then pause losers only when you confirm.
         </p>
         <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
           <button type="button" className="btn btn-primary" onClick={runAbTest} disabled={abLoading}>
@@ -426,7 +423,7 @@ export default function AdsOptimizationPanel() {
           Budget pacing
         </div>
         <p className="text-muted text-sm" style={{ marginTop: 0 }}>
-          Month-to-date spend vs budget. Hourly snapshots via <code>hourly_budget_pacing</code>.
+          Month-to-date spend vs your campaign budgets — spot overspend and underspend early.
         </p>
         <button type="button" className="btn btn-primary" onClick={runPacing} disabled={pacingLoading}>
           <RefreshCw size={14} className={pacingLoading ? 'spin' : undefined} />
@@ -570,8 +567,7 @@ export default function AdsOptimizationPanel() {
           Negative keywords (search query report)
         </div>
         <p className="text-muted text-sm" style={{ marginTop: 0 }}>
-          Uses <code>google_suggest_negative_keywords</code>. Daily review via{' '}
-          <code>daily_negative_keyword_review</code>.
+          Suggest negative keywords from search terms. Review before adding them to a campaign.
         </p>
         <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'flex-end' }}>
           <div style={{ flex: 1, minWidth: 200 }}>

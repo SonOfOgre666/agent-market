@@ -149,6 +149,7 @@ class GoogleCampaignCompiled:
     day_count: int = 0
     status: str = 'PAUSED'
     currency: str = 'USD'
+    budget_currency: str | None = None  # user-stated ISO (e.g. USD from $3); None = account currency
     type_inferred: bool = False
     keywords_generated: bool = False
     copy_generated: bool = False
@@ -582,12 +583,21 @@ def build_publish_payload(
         schedule_tz = f'${account_step}.output.timezone'
         publish_customer_ref = f'${account_step}.output.publish_customer_id'
 
+    budget_obj: dict[str, Any] = {
+        'amount': compiled.budget_amount,
+        'currency': currency,
+        'account_currency': currency,
+    }
+    if compiled.budget_currency:
+        budget_obj['source_currency'] = compiled.budget_currency
+        budget_obj['budget_currency'] = compiled.budget_currency
+
     payload: dict[str, Any] = {
         **base,
         'name': compiled.name,
         'type': compiled.campaign_type,
         'campaign_type': compiled.campaign_type,
-        'budget': {'amount': compiled.budget_amount, 'currency': currency},
+        'budget': budget_obj,
         'status': compiled.status,
         'adgroup_status': 'PAUSED',
     }
@@ -811,6 +821,15 @@ def compile_google_campaign(
         if llm_fields and llm_fields.daily_budget is not None
         else extract_daily_budget(full_text)
     )
+    budget_currency = None
+    if llm_fields and getattr(llm_fields, 'budget_currency', None):
+        from lib.ads_currency import normalize_currency_code
+        budget_currency = normalize_currency_code(llm_fields.budget_currency)
+    if budget_currency is None:
+        from lib.ads_currency import extract_budget_mention
+        mention = extract_budget_mention(full_text)
+        if mention and mention.currency:
+            budget_currency = mention.currency
     llm_geo_fields: dict[str, Any] | None = None
     if llm_fields:
         if llm_fields.geo_targeting:
@@ -1071,6 +1090,7 @@ def compile_google_campaign(
         estimated_max_spend=max_spend,
         day_count=day_count,
         status=status,
+        budget_currency=budget_currency,
         type_inferred=type_inferred,
         keywords_generated=keywords_generated,
         copy_generated=copy_generated,

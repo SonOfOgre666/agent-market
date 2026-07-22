@@ -136,7 +136,7 @@ export function workflowShowsRunning({ busy, status }) {
   return Boolean(busy) || status === 'running' || status === 'queued'
 }
 
-/** e.g. image/video skipped (quota) but draft_post still saved */
+/** e.g. image/video skipped (quota) but draft_post still saved; or multi-account analytics */
 export function getPartialSuccessMessage(workflow) {
   const graph = workflow?.graph || {}
   const steps = graph.steps || []
@@ -151,6 +151,12 @@ export function getPartialSuccessMessage(workflow) {
     ([, r]) => r.status === 'failed' || (r.status === 'skipped' && r.reason === 'optional_step_failed'),
   )
   if (!failed.length && !optionalSkipped.length) return null
+
+  const anyCompleted = Object.values(results).some(r => r.status === 'completed')
+  const intent = graph.intent || workflow?.intent
+  if (anyCompleted && failed.length && (intent === 'analytics' || wfStatus === 'completed')) {
+    return 'Some steps failed (often a disconnected ads account), but other results came back successfully.'
+  }
 
   const tailTools = ['schedule_post', 'publish_post', 'create_draft_post']
   const lastStep = steps[steps.length - 1]
@@ -172,6 +178,26 @@ export function getPartialSuccessMessage(workflow) {
     return 'Some steps failed, but your draft post was saved successfully.'
   }
   return null
+}
+
+/** Only the first chat message that references a workflow should mount its card. */
+export function isPrimaryWorkflowMessage(messages, index) {
+  const wid = messages?.[index]?.workflow_id
+  if (!wid) return false
+  return messages.findIndex((m) => m?.workflow_id === wid) === index
+}
+
+/** Prefer short plan summary; hide when it was polluted with the narrator reply. */
+export function workflowPlanSummary(workflow) {
+  const graph = workflow?.graph || {}
+  const summary = String(workflow?.summary || graph.summary || '').trim()
+  if (!summary) return null
+  const result = String(graph.result_assistant_message || '').trim()
+  if (result && summary === result) return null
+  if (result && summary.length > 180 && result.length > 40 && summary.includes(result.slice(0, 48))) {
+    return null
+  }
+  return summary
 }
 
 /** Collecting missing fields — no workflow card, just the assistant question. */

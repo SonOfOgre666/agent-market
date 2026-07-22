@@ -290,7 +290,7 @@ export default function GoogleInsightsPanel({ connection, onToast }) {
             }}
           >
             <Lightbulb size={16} color="#f59e0b" strokeWidth={2} />
-            Optimization suggestions (read-only — google_report_optimization_hints)
+            Optimization suggestions (read-only)
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
             {hints.map((h, i) => (

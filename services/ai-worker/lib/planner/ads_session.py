@@ -119,7 +119,12 @@ def _pinned_intent_from_graph(graph: dict[str, Any]) -> WorkflowIntent | None:
 
 
 def is_assistant_collecting_ads_fields(content: str) -> bool:
-    """Structural check — model-written or legacy collection prompts."""
+    """
+    Thin structural fallback when workflow graph metadata is missing.
+
+    Prefer ``is_ads_collection_graph`` / ``collection_phase`` on the stored graph.
+    This only checks: asks a question + looks like an ads setup turn (not phrase lists of fields).
+    """
     c = (content or '').strip()
     if not c:
         return False
@@ -134,6 +139,16 @@ def is_assistant_collecting_ads_fields(content: str) -> bool:
     if 'type approve to continue' in lower and ('review' in lower or 'estimated max' in lower):
         return False
 
+    asks_question = (
+        '?' in c
+        or 'still need' in lower
+        or 'need ' in lower
+        or 'which ' in lower
+        or 'provide' in lower
+    )
+    if not asks_question:
+        return False
+
     ads_context = any(
         token in lower
         for token in (
@@ -141,60 +156,18 @@ def is_assistant_collecting_ads_fields(content: str) -> bool:
             'meta campaign',
             'facebook page',
             'google ads',
-            'google search',
-            'cbo campaign',
-            'paused cbo',
-            'collect campaign details',
-        )
-    )
-    asks_question = '?' in c or 'still need' in lower or 'to continue with' in lower
-    field_prompt = any(
-        token in lower
-        for token in (
-            'facebook page',
-            'which page',
+            'google campaign',
+            'ad account',
             'campaign objective',
             'daily budget',
-            'end date',
-            'landing page',
-            'website url',
-            'lead destination',
-            'instant form',
-            'creative format',
-            'image or video',
-            'campaign type',
-            'target location',
-            'merchant center',
-            'objective and budget',
-            'need objective',
-            'reply "first page"',
-            'reply “first page"',
-            'reply "page 1"',
-            'page 1',
-            'page 2',
-            'one ad per page',
+            'collect campaign',
         )
     )
-    if (ads_context and asks_question) or (asks_question and field_prompt):
-        return True
-    if 'need ' in lower and field_prompt:
-        return True
-
-    legacy_markers = (
-        'Before I create the paused CBO campaign on Meta',
-        'Got it — Page',
-        'Please provide the missing',
-        'Traffic, Awareness, Engagement, Leads, Sales, or App Promotion',
-        'You can reply in one message with:',
-        '**Facebook Page**',
-        'Still need:',
-        'Google Campaign Setup',
-        'Collect Google campaign details',
-    )
-    return any(marker in c for marker in legacy_markers)
+    return ads_context
 
 
 def is_ads_collection_active(conversation_history: list[dict[str, Any]] | None) -> bool:
+    """True when the last ads workflow is still collecting fields (graph metadata first)."""
     history = list(conversation_history or [])
     if not history:
         return False
@@ -212,13 +185,22 @@ def is_ads_collection_active(conversation_history: list[dict[str, Any]] | None) 
 
         if is_meta_review_message(content) or is_google_review_message(content):
             return False
-        if is_assistant_collecting_ads_fields(content):
-            return True
+
         wf_id = str(msg.get('workflow_id') or '').strip()
         if wf_id:
             g = load_workflow_graph(wf_id)
             if is_ads_collection_graph(g):
                 return True
+            # Graph present but not collecting — stop scanning older turns
+            if g:
+                return False
+
+        # Fallback only when no workflow graph is attached to this assistant turn
+        if not wf_id and is_assistant_collecting_ads_fields(content):
+            return True
+        # First assistant with content ends the scan for fallback
+        if content:
+            return False
     return False
 
 

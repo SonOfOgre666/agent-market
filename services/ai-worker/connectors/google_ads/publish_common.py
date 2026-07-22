@@ -8,9 +8,29 @@ from .criteria import create_geo_targeting
 from .utils import enum_value
 
 
-def budget_amount_micros(budget: Optional[dict]) -> int:
-    amount = float((budget or {}).get('amount') or 10)
-    return int(round(amount * 1_000_000))
+def budget_amount_micros(budget: Optional[dict], *, account_currency: str | None = None) -> int:
+    from lib.ads_currency import resolve_budget_for_account
+
+    budget = budget or {}
+    amount = budget.get('amount')
+    if amount is None:
+        amount = 10
+    source = budget.get('source_currency') or budget.get('budget_currency')
+    account = account_currency or budget.get('account_currency')
+    # If budget.currency differs from account currency, treat as user source.
+    if not source and budget.get('currency') and account:
+        from lib.ads_currency import normalize_currency_code
+        cur = normalize_currency_code(str(budget.get('currency')))
+        acc = normalize_currency_code(str(account))
+        if cur and acc and cur != acc:
+            source = cur
+    resolved = resolve_budget_for_account(
+        amount,
+        source_currency=source,
+        account_currency=account,
+    )
+    value = resolved.amount if resolved else float(amount)
+    return int(round(float(value) * 1_000_000))
 
 
 def create_dedicated_budget(
@@ -19,13 +39,14 @@ def create_dedicated_budget(
     *,
     name: str,
     budget: Optional[dict],
+    account_currency: str | None = None,
 ) -> str:
     """CampaignBudgetService.mutateCampaignBudgets — returns budget resource name."""
     budget_svc = client.get_service('CampaignBudgetService')
     budget_op = client.get_type('CampaignBudgetOperation')
     b = budget_op.create
     b.name = f'{name} Budget'
-    b.amount_micros = budget_amount_micros(budget)
+    b.amount_micros = budget_amount_micros(budget, account_currency=account_currency)
     b.delivery_method = enum_value(client, 'BudgetDeliveryMethodEnum', 'STANDARD')
     b.explicitly_shared = False
     br = budget_svc.mutate_campaign_budgets(customer_id=customer_id, operations=[budget_op])

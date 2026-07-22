@@ -1,4 +1,4 @@
-"""Ads planning is LLM-only — no structured router or fallback builders."""
+"""Ads helper detectors still exist for follow-up merge / legacy tests — not used for planner catalog routing."""
 
 from __future__ import annotations
 

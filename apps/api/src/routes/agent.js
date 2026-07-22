@@ -263,13 +263,14 @@ export default async function agentRoutes(fastify) {
     const msg = assistantMessage.trim()
     const existing = Array.isArray(conversation.messages) ? conversation.messages : []
     const alreadyStored = existing.some(
-      (m) => m?.role === 'assistant' && m?.workflow_id === workflowId && m?.content === msg,
+      (m) => m?.role === 'assistant' && m?.content === msg && !m?.workflow_id,
     )
     if (!alreadyStored) {
+      // Result replies intentionally omit workflow_id so the plan bubble keeps
+      // the only WorkflowCard (avoids duplicate answer + tools in the thread).
       await AgentConversation.appendMessage(conversationId, wid, {
         role: 'assistant',
         content: msg,
-        workflow_id: workflowId,
       })
     }
 

@@ -84,6 +84,40 @@ def test_resolve_session_pins_meta_platform():
     assert session.pinned_intent.workflow_id.startswith('meta_')
 
 
+def test_collection_active_from_graph_metadata():
+    """Graph collection_phase wins without scanning assistant phrase lists."""
+    history = [
+        {'role': 'user', 'content': 'Create Meta ads'},
+        {
+            'role': 'assistant',
+            'content': 'What is your daily budget?',
+            'workflow_id': 'wf_graph_1',
+        },
+    ]
+    with patch('lib.planner.ads_session.load_workflow_graph', return_value={'collection_phase': True, 'intent': 'informational'}):
+        assert is_ads_collection_active(history) is True
+        assert is_ads_clarification_followup('$25/day', history) is True
+        merged = resolve_ads_planning_message('$25/day', history)
+        assert 'Create Meta ads' in merged
+        assert '$25/day' in merged
+
+
+def test_graph_ready_for_review_stops_collection():
+    history = [
+        {'role': 'user', 'content': 'Create Meta ads'},
+        {
+            'role': 'assistant',
+            'content': 'Review and type APPROVE',
+            'workflow_id': 'wf_review',
+        },
+    ]
+    with patch(
+        'lib.planner.ads_session.load_workflow_graph',
+        return_value={'meta_setup_phase': 'ready_for_review', 'steps': []},
+    ):
+        assert is_ads_collection_active(history) is False
+
+
 def test_merge_dedupes_user_turns():
     anchor = 'Create Meta ads Morocco'
     history = [

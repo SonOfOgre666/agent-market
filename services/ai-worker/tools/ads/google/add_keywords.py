@@ -17,7 +17,11 @@ def run(payload: Dict[str, Any]) -> Dict[str, Any]:
 
     ag_rn = payload.get('ad_group_resource_name')
     if not ag_rn:
-        ag_id = payload.get('platform_ad_set_id') or payload.get('ad_group_id')
+        ag_id = (
+            payload.get('platform_ad_set_id')
+            or payload.get('platform_ad_group_id')
+            or payload.get('ad_group_id')
+        )
         if not ag_id:
             raise ToolValidationError('ad_group_resource_name or platform_ad_set_id is required')
         ag_rn = ad_group_resource_name(customer_id, str(ag_id))

@@ -115,11 +115,13 @@ def get_insights(
     adset_id: str = '',
     ad_id: str = '',
     api_version: str = 'v22.0',
+    time_increment: Optional[Union[int, str]] = None,
 ) -> Dict[str, Any]:
     """
     GET ``/{object_id}/insights`` — reference ``get_insights``.
 
     Returns ``{ok, data, paging}`` (Graph-shaped rows). Use ``compact=True`` to strip redundant action types.
+    Pass ``time_increment=1`` for daily rows.
     """
     oid_raw = _resolve_object_id(
         object_id,
@@ -158,6 +160,9 @@ def get_insights(
             }
     else:
         params['date_preset'] = str(time_range or 'maximum')
+
+    if time_increment is not None and str(time_increment).strip() != '':
+        params['time_increment'] = str(time_increment)
 
     if breakdown_values:
         params['breakdowns'] = ','.join(breakdown_values)

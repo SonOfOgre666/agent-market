@@ -100,25 +100,38 @@ def _fallback_message(
     """Last-resort factual message when the narrator LLM is unavailable."""
     errs = [str(e).strip() for e in (errors or []) if str(e).strip()]
     failed = [s for s in compact_steps if s.get('status') == 'failed']
+    succeeded = [
+        s for s in compact_steps
+        if s.get('status') == 'completed' and s.get('output') not in ([], {}, None)
+    ]
     empty_reads = []
     for s in compact_steps:
         out = s.get('output')
         if s.get('status') == 'completed' and out in ([], {}, None):
             empty_reads.append(s.get('tool_id') or s.get('step_id'))
 
+    # Prefer successful sibling data over a flaky twin failure (e.g. two Meta accounts).
+    if succeeded:
+        tool = succeeded[0].get('tool_id') or 'lookup'
+        note = ''
+        if failed:
+            note = ' One connected account could not be reached — reconnect it under Accounts if needed.'
+        return (
+            f'I finished the {tool.replace("_", " ")} request and found usable results.{note}'
+        ).strip()
+
     if status == 'failed' or failed:
         detail = errs[0] if errs else (failed[0].get('error') if failed else None)
         if detail:
             return f'There was a problem completing your request: {detail}'
         return 'There was a problem completing your request. Please try again or check the failed step details.'
-    if empty_reads and not any(
-        s.get('status') == 'completed' and s.get('output') not in ([], {}, None)
-        for s in compact_steps
-    ):
+    if empty_reads:
         return 'I looked this up and found nothing matching your request.'
     if status == 'completed':
         return 'Your request finished successfully. Open the workflow steps for full details.'
     return f'Workflow status: {status}.'
+
+
 
 
 def should_narrate_result(
@@ -198,9 +211,12 @@ def narrate_workflow_result(
 
 
 def apply_result_message(graph: dict[str, Any] | None, message: str) -> dict[str, Any]:
-    """Attach the narrated reply onto the workflow graph for UI + persistence."""
+    """Attach the narrated reply onto the workflow graph for UI + persistence.
+
+    Keeps the plan-time ``assistant_message`` / ``summary`` intact so the chat
+    does not show the same final answer twice (plan card + result bubble).
+    """
     g = dict(graph) if isinstance(graph, dict) else {}
     msg = (message or '').strip()
     g['result_assistant_message'] = msg
-    g['assistant_message'] = msg
     return g

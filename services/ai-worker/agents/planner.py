@@ -21,12 +21,6 @@ from lib.planner.attached_media import (
     format_attached_media_block,
     reconcile_attached_media_steps,
 )
-from lib.planner.orchestrator import classify_workflow_intent_with_planner
-from lib.planner.intent_router import (
-    format_route_hint,
-    route_planner_intent,
-    route_workflow_intent,
-)
 from lib.planner.social_helpers import (
     normalize_planner_payload,
 )
@@ -131,8 +125,8 @@ def plan_workflow(
     Run planner LLM and return validated workflow graph + metadata.
     Raises ValueError on validation failure; RuntimeError on LLM failure.
 
-    Social and ads both use prompt + tool catalog guidance — no structured
-    fallback templates or keyword-built step chains.
+    Tool choice is guided by prompts + full catalog + workspace context only.
+    No keyword routes and no soft workflow_intent classifier.
     """
     planner_cfg = get_planner_config(workspace_id)
     planner_provider = planner_cfg['provider']
@@ -146,28 +140,10 @@ def plan_workflow(
     ctx['max_workflow_steps'] = max_steps
     ctx['conversation_history'] = list(conversation_history or [])
 
-    workflow_intent = classify_workflow_intent_with_planner(
-        workspace_id=workspace_id,
-        message=planning_message,
-        conversation_history=conversation_history,
-    )
-    if workflow_intent:
-        ctx['workflow_intent'] = workflow_intent.workflow_id
-        ctx['workflow_intent_summary'] = workflow_intent.understood_summary
-        ctx['workflow_intent_confidence'] = workflow_intent.confidence
+    logger.info('Planner start message_len=%s', len(user_message or ''))
 
-    route = route_planner_intent(planning_message, ctx)
-    logger.info(
-        'Planner route=%s workflow_intent=%s for message_len=%s',
-        route,
-        workflow_intent.workflow_id if workflow_intent else None,
-        len(user_message or ''),
-    )
-
-    catalog = tool_catalog_for_planner(route)
+    catalog = tool_catalog_for_planner('general')
     system = _load_system_prompt()
-    route_hint = format_route_hint(route)
-    suggested_intent = route_workflow_intent(route)
 
     history_block = ''
     if conversation_history:
@@ -185,11 +161,10 @@ def plan_workflow(
     catalog_block = json.dumps(catalog, indent=2) if catalog else '[]'
     user_block = (
         f'{system}\n\n'
-        f'ROUTING (pre-classified): route={route}; preferred intent={suggested_intent}.\n'
-        f'{route_hint}\n\n'
         f'WORKSPACE LIMIT: Maximum workflow steps = {max_steps}. '
         f'Never plan more than {max_steps} steps.\n\n'
-        f'TOOL CATALOG ({len(catalog)} tools for this route):\n{catalog_block}\n\n'
+        f'TOOL CATALOG ({len(catalog)} tools — pick the smallest set that answers the user):\n'
+        f'{catalog_block}\n\n'
         f'WORKSPACE CONTEXT:\n{format_context_block(ctx)}\n\n'
         f'{attached_block}'
         f'{history_block}\n\n'
@@ -197,14 +172,13 @@ def plan_workflow(
         'Respond with the workflow JSON object only.'
     )
 
-    max_tokens = 3072 if str(route).endswith(('_campaign', '_analytics')) else 2048
     raw = text_llm.complete(
         planner_provider,
         planner_model,
         user_block,
         workspace_id=workspace_id,
         temperature=0.35,
-        max_tokens=max_tokens,
+        max_tokens=3072,
         api_model_id=planner_cfg.get('api_model_id'),
         feature_id='planner',
         opcode='planner',

@@ -112,8 +112,8 @@ ADS PLANNING (prompt-guided — same philosophy as social):
 - Think through a reasonable Meta-only or Google-only tool chain from the USER REQUEST + WORKSPACE CONTEXT `ads_accounts`.
 - Never mix Meta (`meta_*`) and Google (`google_*`) tools in one workflow.
 - Prefer the smallest safe workflow that satisfies the ask. Set requires_approval true on mutating publish/create tools.
-- If budget, geo, objective, page, or final URL is missing for create: return informational intent with zero steps and ask clearly. Do not invent budgets, pixels, or account ids.
-- Pick `account_id` from `ads_accounts` (provider meta_ads or google_ads). If none connected, tell the user to connect an ads account.
+- If budget, geo, objective, page, or final URL is missing for create: return informational intent with zero steps, set `"collection_phase": true`, and ask clearly. Do not invent budgets, pixels, or account ids.
+- Pick `account_id` from `ads_accounts` (provider meta_ads or google_ads). If none connected, tell the user to connect an ads account. If Google `needs_reconnect` is true, tell them to select a customer under Accounts.
 - When enough fields are present, plan executable steps using TOOL CATALOG only (e.g. Meta: campaign → ad set → upload → creative → ad; Google Search: get_account → publish_search / granular budget→campaign→adgroup→keywords→ad).
 - On follow-up replies (budget, page, objective, URL) or when the user says APPROVE: use CONVERSATION HISTORY + merged USER REQUEST to plan/finalize executable steps (with requires_approval on mutating tools). Do not emit empty compile blobs expecting a hidden template.
 - Analytics/reporting: one or few read-only report tools; no approval on reads.
@@ -164,6 +164,10 @@ Google Ads (`intent`: ads_campaign) — Channel types: SEARCH, DISPLAY, VIDEO, S
   B) **One-shot Search RSA** (legacy): google_get_account → google_publish_campaign with type search
   C) **Granular** (user asks step-by-step): google_create_budget → google_create_search_campaign → google_create_geo_targeting → google_create_adgroup → google_add_keywords → google_create_ad — each step uses platform_* ids from the prior step output
   D) **Mongo draft publish**: publish_campaign with campaign_id only (worker calls google_create_campaign)
+- **Every Google/Meta step payload must include `account_id`** from WORKSPACE CONTEXT ads_accounts (same id on all steps — do not omit on step_2+).
+- Google ad group id in step references: use **`platform_ad_set_id`** from google_create_adgroup output.
+- Country geo ids: Morocco=2504, US=2840, CA=2124, FR=2250 — use `geo_target_constant_ids` in google_create_geo_targeting; use google_search_geo_locations only for cities/regions.
+- **Budget currency:** If the user says `$3`, `3 USD`, `3 EUR`, set `budget_currency` / `budget.source_currency` on the budget payload. If they say only `3/day` with no currency, omit source currency (amount is in the ad account currency). Do not invent FX yourself — the runtime converts when source ≠ account currency.
 - Geo (after campaign exists): google_create_geo_targeting (2840=US, 2124=Canada), google_exclude_geo_targets, google_update_campaign_geo_target (PRESENCE vs PRESENCE_OR_INTEREST)
 - google_add_keywords: prefer keyword_entries [{text, match_type}] for mixed match types; else keywords + match_type
 - google_create_ad: creatives.path1, path2 (max 15 chars), final_url, headlines[], descriptions[]
@@ -173,12 +177,27 @@ ADS REPORTING & ANALYTICS (`intent`: analytics):
 - Pick platform from user message or ads_accounts provider (google_ads vs meta_ads); never mix platforms in one workflow
 - Meta: meta_report_insights (account/campaign/adset/ad + date_preset), meta_list_campaigns, meta_list_adsets, meta_list_ads, meta_get_campaign, meta_get_adset
 - Google: google_report_performance (campaign table), google_report_account_summary (totals), google_report_ad_groups, google_report_keywords, google_report_ads, google_report_search_terms, google_report_gaql (custom query), google_report_optimization_hints (read-only suggestions), google_docs_gaql, google_docs_reporting_views, google_docs_reporting_fields
+- Workspace money/pacing (recommend only unless user confirmed apply): run_budget_pacing, run_budget_reallocation, run_bid_optimization, run_quality_score_monitor, run_asset_ab_analysis, optimize_campaign
 - Drill-down reads (no metrics): google_list_campaigns, google_get_campaign, google_list_ad_groups — use when user asks "show campaigns" or "list ad groups for campaign X"
-- All tools require account_id from ads_accounts in WORKSPACE CONTEXT
-- Typical analytics: ONE reporting step with account_id + date_range LAST_7_DAYS|LAST_30_DAYS|LAST_90_DAYS (Google) or date_preset last_30d (Meta)
+- All ads report tools require account_id from ads_accounts in WORKSPACE CONTEXT
+- Google: if ads_accounts entry has needs_reconnect true or missing customer_id, reply informational telling the user to select a Google Ads customer under Accounts — do not invent customer_id or fake metrics
+- Typical analytics: ONE reporting step with account_id + date_range LAST_7_DAYS|LAST_30_DAYS|LAST_90_DAYS (Google) or date_preset last_7d|last_30d (Meta)
 - intent: analytics — no approval on read-only steps; never chain mutating tools after reporting unless user explicitly asked to create/publish
-- google_report_optimization_hints: suggestions only — do not auto-pause or change budgets
+- google_report_optimization_hints and run_* recommend tools: suggestions only — do not auto-pause or change budgets/bids unless the user clearly confirmed that specific change in CONVERSATION HISTORY
 - INFO LOOKUPS (campaigns, ads accounts, posts, performance): prefer executable read tools with intent analytics (or social read tools when asking about posts). Do NOT answer with chat_only guesses when live data is needed — plan the read steps; a post-run narrator will explain results or "nothing found" to the user.
+
+SCOPED ANSWERS (match domain + scope + depth — do not dump everything):
+- Prefer the **smallest** tool set that answers the question. One fact → one tool when possible.
+- Connected accounts / "is Google linked?": use WORKSPACE CONTEXT social_accounts / ads_accounts when enough; otherwise a light list/get — not a performance report.
+- List campaigns / one campaign status: list/get tools only — no insights unless they asked for performance.
+- "How much did I spend?" / account summary: ONE summary tool (google_report_account_summary or meta_report_insights at account level) with a date range.
+- "How is campaign X doing?": report tools scoped to that campaign_id only.
+- Keywords / search terms / ad groups: only when the user asked for that slice.
+- Posts / social page performance: social tools only — never Google/Meta Ads report tools.
+- Budget left / on pace / reallocate: run_budget_pacing or run_budget_reallocation (recommend); ask before apply.
+- Ambiguous which account when several exist: informational clarification, zero steps.
+- Never invent metrics, campaigns, posts, or account ids. Empty tool results → say nothing was found.
+- Casual "what can you do?": informational / chat_only — no tools.
 
 NEVER put Meta Graph API fields or Google SDK fields in planner payloads.
 

@@ -21,6 +21,10 @@ def run(payload: Dict[str, Any]) -> Dict[str, Any]:
     ad_group_rn = payload.get('ad_group_resource_name')
     if not ad_group_rn and payload.get('platform_ad_set_id') and customer_id:
         ad_group_rn = f'customers/{customer_id}/adGroups/{payload["platform_ad_set_id"]}'
+    if not ad_group_rn:
+        ag_id = payload.get('platform_ad_group_id')
+        if ag_id and customer_id:
+            ad_group_rn = f'customers/{customer_id}/adGroups/{ag_id}'
     if not customer_id or not ad_group_rn:
         raise ToolValidationError('customer_id and ad_group_resource_name (or platform_ad_set_id) are required')
 

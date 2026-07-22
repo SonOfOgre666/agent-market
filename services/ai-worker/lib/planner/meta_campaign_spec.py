@@ -133,6 +133,7 @@ class MetaCampaignCompiled:
     dsa_beneficiary: str | None = None
     dsa_payor: str | None = None
     currency: str = 'USD'
+    budget_currency: str | None = None
     status: str = 'PAUSED'
     estimated_max_spend: float = 0.0
     day_count: int = 0
@@ -424,13 +425,18 @@ def resolve_meta_objective(
 
 
 def extract_daily_budget(prompt: str) -> float | None:
-    for pat in _BUDGET_RES:
-        hit = pat.search(prompt or '')
-        if hit:
-            amount = float(hit.group(1))
-            if amount >= 1:
-                return amount
-    return None
+    from lib.ads_currency import extract_daily_budget_amount
+
+    return extract_daily_budget_amount(prompt)
+
+
+def extract_budget_with_currency(prompt: str) -> tuple[float | None, str | None]:
+    from lib.ads_currency import extract_budget_mention
+
+    mention = extract_budget_mention(prompt)
+    if not mention:
+        return None, None
+    return mention.amount, mention.currency
 
 
 def _normalize_date_typos(text: str) -> str:
@@ -1085,6 +1091,15 @@ def compile_meta_campaign(
         if llm_fields and llm_fields.daily_budget is not None
         else extract_daily_budget(full_text)
     )
+    budget_currency = None
+    if llm_fields and getattr(llm_fields, 'budget_currency', None):
+        from lib.ads_currency import normalize_currency_code
+        budget_currency = normalize_currency_code(llm_fields.budget_currency)
+    if budget_currency is None:
+        from lib.ads_currency import extract_budget_mention
+        mention = extract_budget_mention(full_text)
+        if mention and mention.currency:
+            budget_currency = mention.currency
     regex_start, regex_end = extract_schedule_times(full_text)
     start_time = llm_fields.start_time if llm_fields and llm_fields.start_time else regex_start
     end_time = llm_fields.end_time if llm_fields and llm_fields.end_time else regex_end
@@ -1247,6 +1262,7 @@ def compile_meta_campaign(
         objective=objective,
         branch=branch,
         budget_amount=budget,
+        budget_currency=budget_currency,
         end_time=end_time,
         start_time=start_time,
         geo_countries=geo or [],
@@ -1322,7 +1338,18 @@ def build_cbo_execute_steps(base: dict[str, Any], compiled: MetaCampaignCompiled
             'use_adset_level_budgets': False,
             'campaign_budget_optimization': True,
             'bid_strategy': 'LOWEST_COST_WITHOUT_CAP',
-            'budget': {'amount': compiled.budget_amount, 'type': 'daily'},
+            'budget': {
+                'amount': compiled.budget_amount,
+                'type': 'daily',
+                **(
+                    {
+                        'source_currency': compiled.budget_currency,
+                        'budget_currency': compiled.budget_currency,
+                    }
+                    if compiled.budget_currency
+                    else {}
+                ),
+            },
             'api_version': 'v22.0',
         },
         'depends_on': ['step_1'],

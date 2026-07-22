@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useRef, useEffect } from 'react'
-import { Plus, Send, Loader2, X, Image as ImageIcon, Upload } from 'lucide-react'
+import { Plus, Send, Square, X, Image as ImageIcon, Upload } from 'lucide-react'
 import MediaPicker from '../../components/MediaPicker.js'
 import { api } from '../../lib/api.js'
 import { getMediaPreviewUrl, getMediaSourceUrl, getMediaThumbnailUrl } from '../../lib/mediaPreview.js'
@@ -42,8 +42,10 @@ export default function AgentChatInput({
   value,
   onChange,
   onSend,
+  onStop,
   disabled = false,
   sending = false,
+  isProcessing = false,
   placeholder = 'Describe what you want to accomplish…',
   rows = 2,
   className = '',
@@ -56,6 +58,8 @@ export default function AgentChatInput({
   const menuRef = useRef(null)
   const uploadRef = useRef(null)
   const textareaRef = useRef(null)
+
+  const busy = Boolean(sending || isProcessing)
 
   useEffect(() => {
     if (!menuOpen) return
@@ -99,6 +103,7 @@ export default function AgentChatInput({
   }
 
   const handleSend = () => {
+    if (busy) return
     const text = value.trim()
     if (!text && !attachments.length) return
     onSend(text, attachments)
@@ -127,7 +132,7 @@ export default function AgentChatInput({
               type="button"
               className="btn btn-ghost agent-attach-btn"
               onClick={() => setMenuOpen(o => !o)}
-              disabled={disabled || sending}
+              disabled={disabled || busy}
               aria-label="Attach media"
               aria-expanded={menuOpen}
             >
@@ -168,26 +173,31 @@ export default function AgentChatInput({
             ref={textareaRef}
             className="form-input agent-input"
             rows={rows}
-            placeholder={placeholder}
+            placeholder={busy ? 'Working…' : placeholder}
             value={value}
             onChange={e => onChange(e.target.value)}
             onKeyDown={e => {
               if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault()
-                if (canSend && !disabled && !sending) handleSend()
+                if (busy) {
+                  onStop?.()
+                  return
+                }
+                if (canSend && !disabled) handleSend()
               }
             }}
-            disabled={disabled || sending}
+            disabled={disabled || busy}
           />
 
           <button
             type="button"
             className="btn btn-primary agent-send"
-            disabled={disabled || sending || !canSend}
-            onClick={handleSend}
-            aria-label="Send message"
+            disabled={busy ? false : (disabled || !canSend)}
+            onClick={busy ? () => onStop?.() : handleSend}
+            aria-label={busy ? 'Stop' : 'Send message'}
+            title={busy ? 'Stop' : 'Send'}
           >
-            {sending ? <Loader2 size={18} className="spin" aria-hidden /> : <Send size={18} />}
+            {busy ? <Square size={16} fill="currentColor" aria-hidden /> : <Send size={18} />}
           </button>
         </div>
       </footer>

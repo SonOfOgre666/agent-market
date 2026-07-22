@@ -119,6 +119,7 @@ def run_google_ads_reporting(
         q = f"""
       SELECT
         campaign.id, campaign.name, campaign.status, campaign.advertising_channel_type,
+        campaign_budget.amount_micros,
         metrics.impressions, metrics.clicks, metrics.cost_micros,
         metrics.conversions, metrics.conversions_value, metrics.ctr,
         metrics.average_cpc, metrics.cost_per_conversion
@@ -135,12 +136,16 @@ def run_google_ads_reporting(
         for row in rows:
             c = row.campaign
             met = row.metrics
+            cb = getattr(row, 'campaign_budget', None)
+            amount_micros = int(getattr(cb, 'amount_micros', None) or 0) if cb else 0
             items.append(
                 {
                     'campaign_id': str(c.id),
                     'campaign_name': c.name,
                     'status': _map_status(c.status),
                     'channel_type': _map_channel_type(c.advertising_channel_type),
+                    'budget': float(f'{(amount_micros / 1_000_000):.2f}') if amount_micros else None,
+                    'budget_type': 'daily',
                     'impressions': int(met.impressions or 0),
                     'clicks': int(met.clicks or 0),
                     'cost': float(f'{((met.cost_micros or 0) / 1_000_000):.2f}'),
@@ -342,6 +347,47 @@ def run_google_ads_reporting(
             )
         return {'response_type': 'items', 'payload': items}
 
+    if op == 'daily':
+        date_range = _safe_date_range(pl.get('date_range'))
+        camp = _safe_digits_id(pl.get('campaign_id'))
+        q = f"""
+      SELECT
+        segments.date,
+        metrics.impressions, metrics.clicks, metrics.cost_micros, metrics.conversions
+      FROM customer
+      WHERE segments.date DURING {date_range}
+    """
+        if camp:
+            q = f"""
+      SELECT
+        segments.date,
+        metrics.impressions, metrics.clicks, metrics.cost_micros, metrics.conversions
+      FROM campaign
+      WHERE segments.date DURING {date_range}
+        AND campaign.id = {camp}
+    """
+        q += ' ORDER BY segments.date'
+        rows = _iter_search(client, cid, q)
+        by_date: Dict[str, Dict[str, float]] = {}
+        for row in rows:
+            seg = getattr(row, 'segments', None)
+            date_str = str(getattr(seg, 'date', None) or '') if seg else ''
+            if not date_str:
+                continue
+            met = row.metrics
+            bucket = by_date.setdefault(
+                date_str,
+                {'date': date_str, 'spend': 0.0, 'clicks': 0.0, 'impressions': 0.0, 'conversions': 0.0},
+            )
+            bucket['impressions'] += int(met.impressions or 0)
+            bucket['clicks'] += int(met.clicks or 0)
+            bucket['spend'] += float((met.cost_micros or 0) / 1_000_000)
+            bucket['conversions'] += float(met.conversions or 0)
+        items = [by_date[k] for k in sorted(by_date.keys())]
+        for row in items:
+            row['spend'] = float(f'{row["spend"]:.2f}')
+        return {'response_type': 'items', 'payload': items}
+
     if op == 'account_summary':
         date_range = _safe_date_range(pl.get('date_range'))
         q = f"""
@@ -356,25 +402,33 @@ def run_google_ads_reporting(
         total_clicks = 0
         total_cost_micros = 0
         total_conversions = 0.0
+        total_conversion_value = 0.0
         for row in rows:
             met = row.metrics
             total_impressions += int(met.impressions or 0)
             total_clicks += int(met.clicks or 0)
             total_cost_micros += int(met.cost_micros or 0)
             total_conversions += float(met.conversions or 0)
+            total_conversion_value += float(met.conversions_value or 0)
         avg_ctr = (total_clicks / total_impressions * 100) if total_impressions > 0 else 0
         avg_cpc = (total_cost_micros / total_clicks) if total_clicks > 0 else 0
         cost_per_conv = (total_cost_micros / total_conversions) if total_conversions > 0 else 0
+        total_cost = total_cost_micros / 1_000_000
+        avg_cpm = ((total_cost_micros / total_impressions) * 1000 / 1_000_000) if total_impressions > 0 else 0
+        roas = (total_conversion_value / total_cost) if total_cost > 0 else 0
         body = {
             'customer_id': cid,
             'date_range': date_range,
             'total_impressions': total_impressions,
             'total_clicks': total_clicks,
-            'total_cost': float(f'{(total_cost_micros / 1_000_000):.2f}'),
+            'total_cost': float(f'{total_cost:.2f}'),
             'total_conversions': total_conversions,
+            'total_conversion_value': float(f'{total_conversion_value:.2f}'),
             'average_ctr': float(f'{avg_ctr:.2f}'),
             'average_cpc': float(f'{(avg_cpc / 1_000_000):.4f}'),
+            'average_cpm': float(f'{avg_cpm:.4f}'),
             'cost_per_conversion': float(f'{(cost_per_conv / 1_000_000):.2f}'),
+            'roas': float(f'{roas:.2f}') if roas else 0,
         }
         return {'response_type': 'object', 'payload': body}
 

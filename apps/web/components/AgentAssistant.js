@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { Bot, X, Loader2, Square, History, MessageSquare, Trash2, Plus, Sparkles } from 'lucide-react'
+import { Bot, X, History, MessageSquare, Trash2, Plus, Sparkles } from 'lucide-react'
 import { useToast } from './Toast.js'
 import { useConfirmDialog } from '../lib/useConfirmDialog.js'
 import { useAgentChat } from '../modules/agent/useAgentChat.js'
@@ -9,7 +9,7 @@ import { useAgentAutoScroll } from '../modules/agent/useAgentAutoScroll.js'
 import AgentChatInput from '../modules/agent/AgentChatInput.js'
 import AgentMessageContent from '../modules/agent/AgentMessageContent.js'
 import WorkflowCard from '../modules/agent/WorkflowCard.js'
-import { shouldShowWorkflowCard } from '../modules/agent/workflowUi.js'
+import { shouldShowWorkflowCard, isPrimaryWorkflowMessage } from '../modules/agent/workflowUi.js'
 import { getMediaPreviewUrl, getMediaSourceUrl, getMediaThumbnailUrl } from '../lib/mediaPreview.js'
 import { api } from '../lib/api.js'
 import { AGENT_SUGGESTIONS } from '../modules/agent/agentSuggestions.js'
@@ -43,6 +43,8 @@ export default function AgentAssistant() {
     runWorkflowAction,
     loadConversation,
     resetConversation,
+    settleMessageAnimations,
+    clearMessageAnimate,
   } = useAgentChat({ onToast: toast })
 
   const { containerRef, bottomRef } = useAgentAutoScroll(
@@ -82,6 +84,7 @@ export default function AgentAssistant() {
     clearTimeout(panelTimerRef.current)
     setPanelOpen(false)
     closeHistory({ immediate: true })
+    settleMessageAnimations()
     panelTimerRef.current = setTimeout(() => setPanelMounted(false), PANEL_ANIM_MS)
   }
 
@@ -157,7 +160,7 @@ export default function AgentAssistant() {
               <span>AI Agent</span>
             </div>
             <p className="agent-panel-sub">
-              Natural language → validated workflow → you approve → runtime executes.
+              Ask anything — I’ll plan, run tools, and reply as I go.
             </p>
             <div className="agent-panel-toolbar">
               <button
@@ -242,26 +245,11 @@ export default function AgentAssistant() {
             </aside>
           )}
 
-          {(executionNote || isProcessing) && (
-            <div className="agent-exec-banner" role="status" aria-live="polite">
-              <Loader2 size={14} className="spin" aria-hidden />
-              <span className="agent-exec-banner-text">{executionNote || 'Working…'}</span>
-              <button
-                type="button"
-                className="btn btn-ghost btn-sm agent-stop-btn"
-                onClick={stopProcessing}
-                aria-label="Stop workflow"
-              >
-                <Square size={12} fill="currentColor" aria-hidden />
-                Stop
-              </button>
-            </div>
-          )}
-
           <div ref={containerRef} className="agent-messages">
             {messages.length === 0 && (
               <div className="agent-empty">
-                <p>Real workflows — needs a connected ads account. Try one:</p>
+                <p className="agent-empty-lead">Your marketing co-pilot for ads, posts, and SEO.</p>
+                <p className="agent-empty-hint">Try a prompt (needs a connected ads account for ads asks):</p>
                 <div className="agent-suggestions" role="list">
                   {AGENT_SUGGESTIONS.map((item, i) => (
                     <button
@@ -304,9 +292,22 @@ export default function AgentAssistant() {
                       ))}
                     </div>
                   )}
-                  {m.content && <AgentMessageContent content={m.content} />}
+                  {m.content && (
+                    <AgentMessageContent
+                      content={m.content}
+                      animate={m.role === 'assistant' && m.animate === true}
+                      onAnimateComplete={
+                        m.role === 'assistant' && m.animate === true
+                          ? () => clearMessageAnimate(i)
+                          : undefined
+                      }
+                    />
+                  )}
                 </div>
-                {m.workflow_id && workflows[m.workflow_id] && shouldShowWorkflowCard(workflows[m.workflow_id]) && (
+                {m.workflow_id
+                  && isPrimaryWorkflowMessage(messages, i)
+                  && workflows[m.workflow_id]
+                  && shouldShowWorkflowCard(workflows[m.workflow_id]) && (
                   <WorkflowCard
                     workflow={workflows[m.workflow_id]}
                     busy={actionBusy === m.workflow_id}
@@ -321,7 +322,10 @@ export default function AgentAssistant() {
             {sending && (
               <div className="agent-msg agent-msg--assistant">
                 <div className="agent-msg-bubble agent-msg-bubble--typing">
-                  <Loader2 size={16} className="spin" aria-hidden /> Planning workflow…
+                  <span className="agent-typing-dots" aria-hidden>
+                    <i /><i /><i />
+                  </span>
+                  Planning…
                 </div>
               </div>
             )}
@@ -334,7 +338,8 @@ export default function AgentAssistant() {
             attachments={attachments}
             onAttachmentsChange={setAttachments}
             onSend={handleSend}
-            disabled={Boolean(actionBusy)}
+            onStop={stopProcessing}
+            isProcessing={isProcessing}
             sending={sending}
             placeholder="Describe what you want to accomplish…"
             rows={2}

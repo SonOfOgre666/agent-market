@@ -157,6 +157,9 @@ def _maybe_create_creative_and_ad(
 
 
 def run(payload: Dict[str, Any]) -> Dict[str, Any]:
+    from tools.ads._budget_currency import convert_payload_budget
+
+    payload, _conversion = convert_payload_budget(dict(payload or {}), platform='meta')
     token = (payload.get('access_token') or '').strip()
     if not token:
         raise ToolValidationError('access_token is required')
@@ -186,6 +189,7 @@ def run(payload: Dict[str, Any]) -> Dict[str, Any]:
             'objective': objective,
             'status': str(payload.get('status') or 'PAUSED'),
             'budget': budget,
+            'account_currency': payload.get('account_currency'),
             'use_adset_level_budgets': True,
         }
     )

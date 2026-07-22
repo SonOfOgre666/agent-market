@@ -166,6 +166,26 @@ def _dispatch_with_retry(tool_id: str, payload: dict[str, Any]) -> Any:
         raise
 
 
+def _is_read_only_graph(workflow: dict[str, Any]) -> bool:
+    """True when every step is a non-mutating read (analytics / list / get)."""
+    steps = workflow.get('steps') if isinstance(workflow, dict) else None
+    if not isinstance(steps, list) or not steps:
+        return False
+    for step in steps:
+        if not isinstance(step, dict):
+            return False
+        tool_id = str(step.get('tool_id') or '').strip()
+        if not tool_id:
+            return False
+        tool = get_tool(tool_id) or {}
+        sec = str(tool.get('side_effect_class') or '')
+        if 'mutating' in sec:
+            return False
+        if sec in ('internal_ai',):
+            return False
+    return True
+
+
 def execute_workflow_steps(
     workflow: dict[str, Any],
     *,
@@ -274,6 +294,14 @@ def execute_workflow_steps(
                     raise ve
                 if workspace_id and not payload.get('workspace_id'):
                     payload['workspace_id'] = workspace_id
+                if tool_id.startswith(('google_', 'meta_')):
+                    from tools.ads._resolve import inherit_ads_account_context
+
+                    payload = inherit_ads_account_context(
+                        payload,
+                        workflow=workflow,
+                        steps=steps,
+                    )
                 if workspace_id and tool_id == 'create_draft_post':
                     payload = enrich_create_draft_payload(payload, workspace_id)
                 if workspace_id and tool_id in ('schedule_post', 'publish_post'):
@@ -346,6 +374,15 @@ def execute_workflow_steps(
             break
 
     status = 'failed' if errors else 'completed'
+    # Multi-account analytics: one Meta account may OAuth-fail while another
+    # returns data — treat as completed so the UI does not look fully broken.
+    if errors and _is_read_only_graph(workflow):
+        any_ok = any(
+            isinstance(r, dict) and r.get('status') == 'completed'
+            for r in results.values()
+        )
+        if any_ok:
+            status = 'completed'
     if not errors and any(
         isinstance(r, dict)
         and r.get('status') == 'skipped'

@@ -50,20 +50,25 @@ function MetricCard({ label, value, icon: Icon, color }) {
 
 export default function AdsPage() {
   const [summary, setSummary] = useState(null)
+  const [adAccounts, setAdAccounts] = useState([])
   const [googleCampaigns, setGoogleCampaigns] = useState([])
   const [metaCampaigns, setMetaCampaigns] = useState([])
   const [loading, setLoading] = useState(true)
-  const [syncing, setSyncing] = useState(false)
+  const [syncingGoogle, setSyncingGoogle] = useState(false)
+  const [syncingMeta, setSyncingMeta] = useState(false)
+  const [campaignSearch, setCampaignSearch] = useState('')
   const toast = useToast()
 
   const load = async () => {
     setLoading(true)
     try {
-      const [s, all] = await Promise.all([
+      const [s, all, accounts] = await Promise.all([
         api.budgetSummary().catch(() => null),
-        api.campaigns({ per_page: 20 }).catch(() => ({ items: [] })),
+        api.campaigns({ per_page: 50 }).catch(() => ({ items: [] })),
+        api.adAccounts().catch(() => []),
       ])
       setSummary(s)
+      setAdAccounts(Array.isArray(accounts) ? accounts : accounts?.items || [])
       const items = all.items || []
       setGoogleCampaigns(items.filter(c => c.platform === 'google_ads'))
       setMetaCampaigns(items.filter(c => ['meta', 'facebook', 'meta_ads'].includes(c.platform)))
@@ -74,7 +79,7 @@ export default function AdsPage() {
   useEffect(() => { load() }, [])
 
   const syncGoogle = async () => {
-    setSyncing(true)
+    setSyncingGoogle(true)
     try {
       const res = await api.syncGoogleAdsCampaigns()
       if (res?.queued) {
@@ -85,11 +90,11 @@ export default function AdsPage() {
         load()
       }
     } catch (e) { toast.error(e.message) }
-    finally { setSyncing(false) }
+    finally { setSyncingGoogle(false) }
   }
 
   const syncMeta = async () => {
-    setSyncing(true)
+    setSyncingMeta(true)
     try {
       const res = await api.syncMetaCampaigns()
       if (res?.queued) {
@@ -100,12 +105,19 @@ export default function AdsPage() {
         load()
       }
     } catch (e) { toast.error(e.message) }
-    finally { setSyncing(false) }
+    finally { setSyncingMeta(false) }
   }
 
   const bp = summary?.by_platform || {}
   const googleSummary = bp['google_ads']
   const metaSummary = bp['meta'] || bp['facebook'] || bp['meta_ads']
+  const allCampaigns = [...googleCampaigns, ...metaCampaigns]
+  const filteredCampaigns = campaignSearch.trim()
+    ? allCampaigns.filter((c) => (c.name || '').toLowerCase().includes(campaignSearch.trim().toLowerCase()))
+    : allCampaigns
+  const googleAccounts = adAccounts.filter((a) => a.provider === 'google_ads')
+  const metaAccounts = adAccounts.filter((a) => a.provider === 'meta_ads')
+  const googleNeedsCustomer = googleAccounts.some((a) => a.needs_reconnect)
 
   return (
     <AppLayout>
@@ -130,6 +142,24 @@ export default function AdsPage() {
         </div>
       </div>
 
+      <div className="card" style={{ marginBottom: '1.25rem', padding: '0.85rem 1.1rem' }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1rem', alignItems: 'center', fontSize: '0.8rem' }}>
+          <span style={{ fontWeight: 600 }}>Accounts</span>
+          <span style={{ color: googleAccounts.length ? '#10b981' : 'var(--fg-muted)' }}>
+            Google Ads: {googleAccounts.length ? `${googleAccounts.length} connected` : 'not connected'}
+            {googleNeedsCustomer ? ' · select customer' : ''}
+          </span>
+          <span style={{ color: metaAccounts.length ? '#10b981' : 'var(--fg-muted)' }}>
+            Meta Ads: {metaAccounts.length ? `${metaAccounts.length} connected` : 'not connected'}
+          </span>
+          {(adAccounts.length === 0 || googleNeedsCustomer) && (
+            <Link href="/accounts" style={{ color: 'var(--primary)', marginLeft: 'auto' }}>
+              {googleNeedsCustomer ? 'Select Google customer' : 'Connect ads account'}
+            </Link>
+          )}
+        </div>
+      </div>
+
       {/* Account-level KPIs */}
       {summary && (
         <div className="grid-4" style={{ marginBottom: '1.5rem' }}>
@@ -150,7 +180,7 @@ export default function AdsPage() {
               <span style={{ fontWeight: 600, fontSize: '0.9rem' }}>Google Ads</span>
             </div>
             <div style={{ display: 'flex', gap: '0.5rem' }}>
-              <button className="btn btn-ghost btn-sm" onClick={syncGoogle} disabled={syncing}>
+              <button className="btn btn-ghost btn-sm" onClick={syncGoogle} disabled={syncingGoogle}>
                 <RefreshCw size={12} strokeWidth={2} /> Sync
               </button>
               <Link href="/ads/campaigns?platform=google_ads" style={{ fontSize: '0.75rem', color: 'var(--primary)' }}>View all</Link>
@@ -201,7 +231,7 @@ export default function AdsPage() {
               <span style={{ fontWeight: 600, fontSize: '0.9rem' }}>Meta Ads</span>
             </div>
             <div style={{ display: 'flex', gap: '0.5rem' }}>
-              <button className="btn btn-ghost btn-sm" onClick={syncMeta} disabled={syncing}>
+              <button className="btn btn-ghost btn-sm" onClick={syncMeta} disabled={syncingMeta}>
                 <RefreshCw size={12} strokeWidth={2} /> Sync
               </button>
               <Link href="/ads/campaigns?platform=meta_ads" style={{ fontSize: '0.75rem', color: 'var(--primary)' }}>View all</Link>
@@ -247,17 +277,35 @@ export default function AdsPage() {
 
       {/* All campaigns table */}
       <div className="card" style={{ marginTop: '1.5rem' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', gap: '0.75rem', flexWrap: 'wrap' }}>
           <div style={{ fontWeight: 600, fontSize: '0.875rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
             <Layers size={14} strokeWidth={2} /> All Campaigns
           </div>
-          <Link href="/ads/campaigns" className="btn btn-secondary btn-sm">
-            <BarChart3 size={12} strokeWidth={2} /> Manage
-          </Link>
+          <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+            <input
+              className="form-input"
+              style={{ width: 200 }}
+              placeholder="Search campaigns…"
+              value={campaignSearch}
+              onChange={(e) => setCampaignSearch(e.target.value)}
+            />
+            <Link href="/ads/campaigns" className="btn btn-secondary btn-sm">
+              <BarChart3 size={12} strokeWidth={2} /> Manage
+            </Link>
+          </div>
         </div>
-        {loading ? <div className="skeleton" style={{ height: 200 }} /> : (
+        {loading ? <div className="skeleton" style={{ height: 200 }} /> : filteredCampaigns.length === 0 && allCampaigns.length === 0 ? (
+          <div className="empty-state-enhanced" style={{ padding: '2rem' }}>
+            <h2 className="empty-state-title">No campaigns yet</h2>
+            <p className="empty-state-desc">Create a campaign or connect an ads account to get started.</p>
+            <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'center' }}>
+              <Link href="/ads/campaigns" className="btn btn-primary">Create campaign</Link>
+              <Link href="/accounts" className="btn btn-secondary">Connect account</Link>
+            </div>
+          </div>
+        ) : (
           <div style={{ overflowX: 'auto' }}>
-            <table className="table" style={{ margin: 0 }}>
+            <table className="table table-hover-lift" style={{ margin: 0 }}>
               <thead>
                 <tr>
                   <th>Campaign</th>
@@ -271,11 +319,18 @@ export default function AdsPage() {
                 </tr>
               </thead>
               <tbody>
-                {[...googleCampaigns, ...metaCampaigns].length === 0 ? (
-                  <tr><td colSpan={8} style={{ textAlign: 'center', color: 'var(--fg-muted)', padding: '2rem' }}>No campaigns yet</td></tr>
-                ) : [...googleCampaigns, ...metaCampaigns].map(c => (
+                {filteredCampaigns.length === 0 ? (
+                  <tr><td colSpan={8} style={{ textAlign: 'center', color: 'var(--fg-muted)', padding: '2rem' }}>No matching campaigns</td></tr>
+                ) : filteredCampaigns.map(c => (
                   <tr key={c.id}>
-                    <td style={{ fontWeight: 500 }}>{c.name}</td>
+                    <td style={{ fontWeight: 500 }}>
+                      <Link
+                        href={`/ads/performance?account=${encodeURIComponent(c.account_id || '')}&campaign=${encodeURIComponent(c.platform_campaign_id || c.google_campaign_id || '')}`}
+                        style={{ color: 'inherit', textDecoration: 'none' }}
+                      >
+                        {c.name}
+                      </Link>
+                    </td>
                     <td><PlatformBadge platform={c.platform} /></td>
                     <td><span style={{ fontSize: '0.75rem', color: STATUS_COLOR[c.status] || '#64748b', fontWeight: 500 }}>{c.status}</span></td>
                     <td>${(c.budget?.amount || 0).toLocaleString()}</td>

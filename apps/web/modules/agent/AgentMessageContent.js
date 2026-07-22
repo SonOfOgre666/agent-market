@@ -1,6 +1,7 @@
 'use client'
 
-import { Fragment } from 'react'
+import { Fragment, useEffect } from 'react'
+import { useTypewriter } from './useTypewriter.js'
 
 function renderInline(text) {
   if (!text) return null
@@ -54,14 +55,22 @@ function renderLine(line, index) {
 }
 
 /** Renders assistant/user chat text with **bold**, bullets, and line breaks. */
-export default function AgentMessageContent({ content }) {
+export default function AgentMessageContent({ content, animate = false, onAnimateComplete }) {
+  const { text, done } = useTypewriter(content ?? '', { animate: Boolean(content) && animate })
+
+  useEffect(() => {
+    if (animate && done && content) onAnimateComplete?.()
+  }, [animate, done, content, onAnimateComplete])
+
   if (content == null || content === '') return null
-  const lines = String(content).split('\n')
+
+  const lines = String(text).split('\n')
   return (
-    <div className="agent-msg-content">
+    <div className={`agent-msg-content${animate && !done ? ' is-typing' : ''}`}>
       {lines.map((line, i) => (
         <Fragment key={i}>{renderLine(line, i)}</Fragment>
       ))}
+      {animate && !done && <span className="agent-msg-caret" aria-hidden />}
     </div>
   )
 }

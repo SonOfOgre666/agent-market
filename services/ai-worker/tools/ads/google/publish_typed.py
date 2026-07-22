@@ -30,10 +30,12 @@ def run_typed_publish(
         raise ToolValidationError('name is required')
 
     from tools.ads.google._media_file import resolve_creative_media
+    from tools.ads._budget_currency import convert_payload_budget
 
     body = dict(payload)
     if default_type and not body.get('type') and not body.get('campaign_type'):
         body['type'] = default_type
+    body, _conversion = convert_payload_budget(body, platform='google')
     body = resolve_creative_media(body)
 
     try:

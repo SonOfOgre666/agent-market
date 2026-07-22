@@ -39,6 +39,12 @@ def _upstream_failure_message(step: dict[str, Any], sid: str, value: str) -> str
     return f'{sid} is not completed — cannot resolve {value}'
 
 
+# Planner LLM sometimes uses platform_ad_group_id; Google tools emit platform_ad_set_id.
+_OUTPUT_FIELD_ALIASES: dict[str, str] = {
+    'platform_ad_group_id': 'platform_ad_set_id',
+}
+
+
 def _get_path(obj: Any, path: str) -> Any:
     if not path:
         return obj
@@ -53,6 +59,23 @@ def _get_path(obj: Any, path: str) -> Any:
         else:
             return None
     return cur
+
+
+def _get_path_with_aliases(obj: Any, path: str) -> Any:
+    resolved = _get_path(obj, path)
+    if resolved is not None:
+        return resolved
+    if not path or not isinstance(obj, dict):
+        return None
+    parts = path.replace('[', '.').replace(']', '').split('.')
+    if not parts:
+        return None
+    leaf = parts[-1]
+    alias = _OUTPUT_FIELD_ALIASES.get(leaf)
+    if not alias:
+        return None
+    alt_path = '.'.join([*parts[:-1], alias]) if len(parts) > 1 else alias
+    return _get_path(obj, alt_path)
 
 
 def resolve_payload_value(value: Any, step_results: dict[str, Any], context: dict[str, Any]) -> Any:
@@ -70,7 +93,7 @@ def resolve_payload_value(value: Any, step_results: dict[str, Any], context: dic
                 if _optional_upstream(step_results, sid):
                     return None
                 raise ValueError(_upstream_failure_message(step, sid, value))
-            resolved = _get_path(out, path) if path else out
+            resolved = _get_path_with_aliases(out, path) if path else out
             if resolved is None and path:
                 if _optional_upstream(step_results, sid):
                     return None

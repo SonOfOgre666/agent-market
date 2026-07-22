@@ -398,6 +398,7 @@ export const api = {
   googleAds: (params = {}) => request('GET', `/ads/google/ads?${new URLSearchParams(params)}`),
   googleSearchTerms: (params = {}) => request('GET', `/ads/google/search-terms?${new URLSearchParams(params)}`),
   googleAccountSummary: (params = {}) => request('GET', `/ads/google/account-summary?${new URLSearchParams(params)}`),
+  googleDaily: (params = {}) => request('GET', `/ads/google/daily?${new URLSearchParams(params)}`),
   googleRunQuery: (query) => request('POST', '/ads/google/query', { query }),
 
   // Ads — Meta Ads reporting (GET routes → worker registry: meta_list_*, meta_report_insights)

@@ -199,7 +199,7 @@ export default function MetaInsightsPanel({ connection, onToast }) {
           <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#1877f2' }} />
           Meta Ads insights
           <span style={{ fontWeight: 400, color: 'var(--fg-muted)', fontSize: '0.75rem' }}>
-            (meta_report_insights · {actId})
+            {connection?.ad_account_name || connection?.account_name || actId}
           </span>
         </div>
 
@@ -420,7 +420,7 @@ export default function MetaInsightsPanel({ connection, onToast }) {
                   checked={query.compact}
                   onChange={(e) => setQ({ compact: e.target.checked })}
                 />
-                compact=true
+                compact results
               </label>
             </Field>
             <Field label="Action attribution windows">

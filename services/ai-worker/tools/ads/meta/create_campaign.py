@@ -28,17 +28,20 @@ def _resolve_objective(raw: Any) -> str:
 
 
 def run(payload: Dict[str, Any]) -> Dict[str, Any]:
-    token = (payload.get('access_token') or '').strip()
+    from tools.ads._budget_currency import convert_payload_budget
+
+    body, conversion = convert_payload_budget(payload, platform='meta')
+    token = (body.get('access_token') or '').strip()
     if not token:
         raise ToolValidationError('access_token is required')
 
-    account_id = payload.get('ad_account_id') or payload.get('account_id')
-    name = (payload.get('name') or '').strip()
-    objective = _resolve_objective(payload.get('objective'))
+    account_id = body.get('ad_account_id') or body.get('account_id')
+    name = (body.get('name') or '').strip()
+    objective = _resolve_objective(body.get('objective'))
 
     daily_budget: Optional[int] = None
     lifetime_budget: Optional[int] = None
-    budget = payload.get('budget') or {}
+    budget = body.get('budget') or {}
     if isinstance(budget, dict):
         amount = budget.get('amount')
         if amount is not None:
@@ -47,31 +50,33 @@ def run(payload: Dict[str, Any]) -> Dict[str, Any]:
                 lifetime_budget = cents
             else:
                 daily_budget = cents
-    if payload.get('daily_budget_cents') is not None:
-        daily_budget = int(payload['daily_budget_cents'])
-    if payload.get('lifetime_budget_cents') is not None:
-        lifetime_budget = int(payload['lifetime_budget_cents'])
+    if body.get('daily_budget_cents') is not None:
+        daily_budget = int(body['daily_budget_cents'])
+    if body.get('lifetime_budget_cents') is not None:
+        lifetime_budget = int(body['lifetime_budget_cents'])
 
-    use_abo = bool(payload.get('use_adset_level_budgets'))
+    use_abo = bool(body.get('use_adset_level_budgets'))
 
     out = connector_create_campaign(
         token,
         account_id=str(account_id or ''),
         name=name,
         objective=objective,
-        status=str(payload.get('status') or 'PAUSED'),
-        special_ad_categories=payload.get('special_ad_categories'),
+        status=str(body.get('status') or 'PAUSED'),
+        special_ad_categories=body.get('special_ad_categories'),
         daily_budget=daily_budget,
         lifetime_budget=lifetime_budget,
-        buying_type=payload.get('buying_type'),
-        bid_strategy=str(payload.get('bid_strategy') or 'LOWEST_COST_WITHOUT_CAP'),
-        bid_cap=payload.get('bid_cap'),
-        spend_cap=payload.get('spend_cap'),
-        campaign_budget_optimization=payload.get('campaign_budget_optimization'),
-        ab_test_control_setups=payload.get('ab_test_control_setups'),
+        buying_type=body.get('buying_type'),
+        bid_strategy=str(body.get('bid_strategy') or 'LOWEST_COST_WITHOUT_CAP'),
+        bid_cap=body.get('bid_cap'),
+        spend_cap=body.get('spend_cap'),
+        campaign_budget_optimization=body.get('campaign_budget_optimization'),
+        ab_test_control_setups=body.get('ab_test_control_setups'),
         use_adset_level_budgets=use_abo,
-        api_version=str(payload.get('api_version') or 'v22.0'),
+        api_version=str(body.get('api_version') or 'v22.0'),
     )
     if not out.get('ok'):
         raise ToolValidationError(out.get('error') or 'Meta create campaign failed')
+    if conversion:
+        out['budget_conversion'] = body.get('budget_conversion')
     return out

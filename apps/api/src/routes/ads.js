@@ -1359,6 +1359,20 @@ export default async function adsRoutes(app) {
     )
   })
 
+  // GET /api/ads/google/daily?date_range=X&campaign_id=X — daily spend/clicks series
+  app.get('/ads/google/daily', { preHandler: [authenticate] }, async (request, reply) => {
+    const { date_range = 'LAST_30_DAYS', campaign_id } = request.query
+    return runGoogleAdsReporting(
+      request,
+      reply,
+      'daily',
+      {
+        date_range,
+        campaign_id: campaign_id || null,
+      },
+    )
+  })
+
   // POST /api/ads/google/query — run arbitrary GAQL
   app.post('/ads/google/query', { preHandler: [authenticate] }, async (request, reply) => {
     const { query } = request.body || {}
@@ -1474,6 +1488,7 @@ export default async function adsRoutes(app) {
       api_version,
       action_attribution_windows: attrWindows,
       action_breakdowns: actionBreakdowns,
+      time_increment,
     } = request.query
     if (!object_id) return reply.code(422).send({ error: 'object_id is required' })
     const resolvedTimeRange = since && until ? { since, until } : time_range
@@ -1484,6 +1499,7 @@ export default async function adsRoutes(app) {
       level: level || null,
       limit: parseInt(limit, 10) || 100,
       after: after || null,
+      time_increment: time_increment || null,
     }
     const parsedAttr = parseCsvQueryArray(attrWindows)
     if (parsedAttr !== undefined) payload.action_attribution_windows = parsedAttr
