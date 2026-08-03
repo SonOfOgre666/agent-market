@@ -562,6 +562,62 @@ export default async function workerInternalRoutes(fastify) {
   // Legacy alias (ai-worker versions before rename)
   fastify.get('/internal/worker/service-decrypted/:name', integrationConfigDecrypted)
 
+  // GET /internal/worker/accounts/:accountId/metrics-snapshot — agent Q&A (followers + recent totals)
+  fastify.get('/internal/worker/accounts/:accountId/metrics-snapshot', async (request, reply) => {
+    let oid
+    try {
+      oid = new ObjectId(request.params.accountId)
+    } catch {
+      return reply.code(400).send({ error: 'Invalid account id' })
+    }
+    const acc = await getDb().collection('accounts').findOne({ _id: oid })
+    if (!acc) return reply.code(404).send({ error: 'Account not found' })
+
+    const days = Math.min(90, Math.max(1, parseInt(String(request.query.days || '30'), 10) || 30))
+    const aid = oid.toString()
+    const until = new Date()
+    const since = new Date(until.getTime() - days * 24 * 60 * 60 * 1000)
+    const sinceStr = since.toISOString().slice(0, 10)
+    const untilStr = until.toISOString().slice(0, 10)
+    const dateMatch = { account_id: aid, date: { $gte: sinceStr, $lte: untilStr } }
+
+    const [latestAudience, metricsRows, fbInsightRows] = await Promise.all([
+      getDb().collection('audience').find({ account_id: aid }).sort({ date: -1 }).limit(1).toArray(),
+      getDb().collection('metrics').find(dateMatch).sort({ date: 1 }).toArray(),
+      getDb().collection('facebook_insights').find(dateMatch).sort({ date: 1 }).toArray(),
+    ])
+
+    const metricsTotals = {}
+    for (const row of metricsRows) {
+      for (const [k, v] of Object.entries(row.data || {})) {
+        metricsTotals[k] = (metricsTotals[k] || 0) + (Number(v) || 0)
+      }
+    }
+
+    const FB_KEYS = { 1: 'page_post_engagements', 2: 'page_posts_impressions' }
+    const facebookInsightTotals = {}
+    for (const row of fbInsightRows) {
+      const key = FB_KEYS[row.type] || `metric_${row.type}`
+      facebookInsightTotals[key] = (facebookInsightTotals[key] || 0) + (Number(row.value) || 0)
+    }
+
+    const latest = latestAudience[0] || null
+    return reply.send({
+      ok: true,
+      account_id: aid,
+      provider: acc.provider || '',
+      name: acc.name || '',
+      username: acc.username || '',
+      followers_count: latest != null ? Number(latest.total) || 0 : null,
+      followers_as_of: latest?.date || null,
+      metrics_totals: metricsTotals,
+      facebook_insight_totals: facebookInsightTotals,
+      period_days: days,
+      period_from: sinceStr,
+      period_to: untilStr,
+    })
+  })
+
   // PUT /internal/worker/audience — upsert one audience row (follower counts)
   fastify.put('/internal/worker/audience', async (request, reply) => {
     const { account_id, date, total } = request.body || {}

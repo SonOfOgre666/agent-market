@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 /**
  * Local reverse proxy: one public origin (ngrok) → web / API / realtime.
- *   /api, /callback, Meta policy routes  → :4010
+ *   /api/media-proxy                     → :3000 (Next.js route)
+ *   /api, /uploads, /callback, Meta…     → :4010
  *   /socketcluster/* (+ WS)              → :8000
  *   everything else (+ Next HMR WS)      → :3000
  */
@@ -26,9 +27,15 @@ const TARGETS = {
 }
 
 function pickTarget(pathname) {
+  // Next.js App Router — must not be forwarded to the Fastify API
+  if (pathname === '/api/media-proxy' || pathname.startsWith('/api/media-proxy/')) {
+    return { name: 'web', ...TARGETS.web }
+  }
   if (
     pathname === '/api' ||
     pathname.startsWith('/api/') ||
+    pathname === '/uploads' ||
+    pathname.startsWith('/uploads/') ||
     pathname === '/callback' ||
     pathname.startsWith('/callback/') ||
     pathname === '/data-deletion' ||

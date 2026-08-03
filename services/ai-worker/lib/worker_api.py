@@ -181,6 +181,20 @@ def upsert_audience(account_id: str, date: str, total: int) -> None:
     r.raise_for_status()
 
 
+def get_account_metrics_snapshot(account_id: str, *, days: int = 30) -> Dict[str, Any]:
+    """Compact social metrics for agent Q&A (followers + recent totals)."""
+    url = f'{_base()}/api/internal/worker/accounts/{account_id}/metrics-snapshot'
+    r = httpx.get(
+        url,
+        headers=_headers(),
+        params={'days': str(int(days))},
+        timeout=60.0,
+    )
+    r.raise_for_status()
+    data = r.json()
+    return data if isinstance(data, dict) else {}
+
+
 def bulk_upsert_metrics(items: List[Dict[str, Any]]) -> None:
     url = f'{_base()}/api/internal/worker/metrics/bulk-upsert'
     r = httpx.put(url, headers=_headers(), json={'items': items}, timeout=120.0)

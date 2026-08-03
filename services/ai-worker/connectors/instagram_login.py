@@ -7,7 +7,12 @@ from typing import Any, Dict, List
 
 import httpx
 
-from connectors._ig_publish_common import normalize_ig_media_for_publish, validate_ig_media, wait_media_container
+from connectors._ig_publish_common import (
+    create_ig_video_container,
+    normalize_ig_media_for_publish,
+    validate_ig_media,
+    wait_media_container,
+)
 from connectors._meta_graph import graph_error_meta, is_graph_oauth_invalid, is_graph_rate_limited
 from connectors._social_content import extract_text_link_media
 from connectors._social_media import partition_post_media, primary_thumbnail, primary_video
@@ -62,21 +67,33 @@ def publish_post(*, account: dict, version: dict, _fb_cfg: Dict[str, Any]) -> So
             item = video or (images[0] if images else None)
             if not item:
                 return SocialPublishOutcome(ok=False, error='Instagram story requires media')
-            is_video = _is_video_item(item)
-            field = 'video_url' if is_video else 'image_url'
-            cid = post_media({field: item.get('url') or '', 'media_type': 'STORIES', 'access_token': token})
+            if _is_video_item(item):
+                cid = create_ig_video_container(
+                    root=root,
+                    ig_id=ig_id,
+                    token=token,
+                    video_item=item,
+                    media_type='STORIES',
+                )
+            else:
+                cid = post_media(
+                    {
+                        'image_url': item.get('url') or '',
+                        'media_type': 'STORIES',
+                        'access_token': token,
+                    }
+                )
         elif video:
-            payload: Dict[str, Any] = {
-                'video_url': video.get('url') or '',
-                'caption': text or '',
-                'media_type': 'REELS',
-                'access_token': token,
-            }
-            if thumb and thumb.get('url'):
-                cover = instagram_cover_url(thumb)
-                if cover:
-                    payload['cover_url'] = cover
-            cid = post_media(payload)
+            cover = instagram_cover_url(thumb) if thumb and thumb.get('url') else None
+            cid = create_ig_video_container(
+                root=root,
+                ig_id=ig_id,
+                token=token,
+                video_item=video,
+                media_type='REELS',
+                caption=text or '',
+                cover_url=cover,
+            )
         elif len(images) == 1:
             m0 = images[0]
             cid = post_media(

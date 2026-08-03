@@ -93,10 +93,10 @@
     },
     {
       "tool_id": "import_account_metrics",
-      "description": "Import followers and insights for a connected account.",
+      "description": "Refresh and return social account metrics for one connected account (Facebook, Instagram, or Twitter). Syncs followers/insights into the DB when possible and returns followers_count, recent metrics/insights totals, name, and username for answering Q&A (how many followers, what data do we have, engagement). Requires account_id from social_accounts. Prefer this over ads report tools for organic social page/account questions.",
       "task": "tasks.imports.import_account",
       "risk_tier": "low",
-      "side_effect_class": "internal_read",
+      "side_effect_class": "external_read",
       "requires_approval_default": false
     },
     {

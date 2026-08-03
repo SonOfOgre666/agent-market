@@ -4,36 +4,49 @@ title Assistant IA — Diagramme de cas d'utilisation
 
 left to right direction
 skinparam packageStyle rectangle
-skinparam actorStyle awesome
 
 actor "Utilisateur" as User
-actor "Fournisseur IA\n(Gemini…)" as LLM
+actor "Fournisseur IA" as LLM
 
+rectangle "Assistant marketing IA" {
+  usecase "Discuter avec\nl'assistant" as UC_Chat
+  usecase "Comprendre la demande\n(toute langue)" as UC_Understand
+  usecase "Répondre en\nconversation" as UC_ChatOnly
+  usecase "Planifier des\nactions" as UC_Plan
+  usecase "Approuver le plan" as UC_Approve
+  usecase "Exécuter le plan" as UC_Exec
+}
 
-  package "Assistant IA" {
-
-    usecase "Discuter avec\nl'assistant" as UC_Chat
-    usecase "Planifier workflow\nmulti-étapes" as UC_Plan
-    usecase "Approuver workflow" as UC_Approve
-    usecase "Exécuter workflow" as UC_Exec
-    usecase "Suivre l'état\nd'un job" as UC_Poll
-  }
-
-
-' ─── Acteur principal ───────────────────────────────────────
 User -- UC_Chat
 User -- UC_Approve
-User -- UC_Poll
 
-' ─── Acteur secondaire ────────────────────────────────────────
+LLM -- UC_Understand
 LLM -- UC_Plan
+LLM -- UC_ChatOnly
 LLM -- UC_Exec
 
-' ─── Relations entre cas d'utilisation ──────────────────────
-UC_Plan    ..> UC_Chat : <<include>>
-UC_Approve ..> UC_Plan : <<include>>
-UC_Exec    ..> UC_Approve : <<include>>
-UC_Poll    ..> UC_Chat : <<include>>
+' Toute discussion passe d'abord par la compréhension
+UC_Chat ..> UC_Understand : <<include>>
 
+' Selon l'intention : simple réponse OU plan d'actions
+UC_ChatOnly ..> UC_Chat : <<extend>>
+UC_Plan ..> UC_Chat : <<extend>>
+
+' Approbation et exécution portent sur un plan
+UC_Approve --> UC_Plan : valide
+UC_Exec --> UC_Plan : réalise
+
+note right of UC_Understand
+  L'assistant comprend l'intention
+  et répond dans la langue
+  de l'utilisateur.
+end note
+
+note bottom of UC_Exec
+  Après validation manuelle,
+  ou automatiquement si
+  l'auto-approbation
+  est activée.
+end note
 
 @enduml

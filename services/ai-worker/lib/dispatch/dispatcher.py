@@ -96,11 +96,10 @@ def dispatch_tool(tool_id: str, payload: dict[str, Any] | None = None) -> Any:
         return {'dispatched': True, 'task': task_name, 'campaign_id': str(campaign_id)}
 
     if tool_id == 'import_account_metrics':
-        account_id = body.get('account_id')
-        if not account_id:
-            raise ValueError('import_account_metrics requires account_id')
-        celery_app.send_task(task_name, args=[str(account_id)])
-        return {'dispatched': True, 'task': task_name, 'account_id': str(account_id)}
+        # Agent path: sync + return snapshot (scheduler still uses Celery import_account).
+        from tasks.imports.account_metrics_sync import run_import_account_metrics
+
+        return run_import_account_metrics(body)
 
     if task_name == ADS_EXECUTE_TASK:
         from tasks.ads.execute_ads_tool import run_execute_ads_tool

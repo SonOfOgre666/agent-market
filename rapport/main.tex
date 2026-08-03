@@ -1,7 +1,7 @@
 \documentclass[12pt,a4paper]{report}
 
 % ===== Packages =====
-\usepackage[top=2.5cm, bottom=2.5cm, left=2.5cm, right=2.5cm,headheight=1.6cm,headsep=0.5cm,footskip=1.2cm]{geometry}
+\usepackage[top=2.5cm, bottom=2.5cm, left=2.5cm, right=2.5cm,headheight=2.0cm,headsep=0.5cm,footskip=1.2cm]{geometry}
 \usepackage[table,dvipsnames,svgnames,x11names]{xcolor}
 \usepackage{graphicx}
 \usepackage{amsmath,amssymb}
@@ -9,6 +9,8 @@
 \usepackage{titlesec}
 \usepackage{enumitem}
 \usepackage{float}
+\usepackage{placeins}
+\usepackage{needspace}
 \usepackage[T1]{fontenc}
 \usepackage[utf8]{inputenc}
 \usepackage[french]{babel}
@@ -82,8 +84,11 @@
 \setlength{\parskip}{0.5em}     % space between paragraphs
 
 % Caption setup (EMSI: gras, centré)
-\captionsetup{font=bf,justification=centering,labelsep=period,labelfont=bf,name=Figure}
-\addto\captionsfrench{\renewcommand{\figurename}{Figure}\renewcommand{\tablename}{Tableau}}
+\captionsetup{font=bf,labelfont=bf,justification=centering,labelsep=period}
+\captionsetup[figure]{name=Figure}
+\captionsetup[table]{name=Tableau,position=top}
+\renewcommand{\figurename}{Figure}
+\renewcommand{\tablename}{Tableau}
 
 % ===== Header / Footer =====
 \pagestyle{fancy}
@@ -94,7 +99,7 @@
 % Safe image command (falls back to a styled label if image missing)
 \newcommand{\safeimage}[2]{%
   \IfFileExists{#2}{\includegraphics[#1]{#2}}{%
-    \fbox{\scriptsize Missing: #2}%
+    \fbox{\scriptsize Missing: \detokenize{#2}}%
   }%
 }
 
@@ -131,9 +136,20 @@
   \vspace{0.5cm}
 }
 
-% Chapter title page (EMSI: 18pt bold)
+% Chapter title page: "Chapitre X :" top-left, title centered between rules
 \newcommand{\chapterpagetitle}[1]{%
-  {\fontsize{18}{22}\selectfont\bfseries\color{titlegreen} #1}%
+  \vspace*{1.2cm}%
+  {\noindent\fontsize{18}{22}\selectfont\bfseries\color{titlegreen} Chapitre \thechapter :}\par
+  \vspace*{6.0cm}%
+  \noindent\textcolor{darkgreen}{\rule{\textwidth}{2pt}}%
+  \vspace{1.5cm}%
+  \begin{center}
+    {\fontsize{24}{28}\selectfont\bfseries\color{titlegreen} #1}%
+  \end{center}
+  \vspace{1.5cm}%
+  \noindent\textcolor{darkgreen}{\rule{\textwidth}{2pt}}%
+  \vfill
+  \newpage
 }
 
 % TOC entry helpers
@@ -144,11 +160,16 @@
 
 
 % spacing between title and entries
+\setlength{\cftbeforetoctitleskip}{0pt}
+\setlength{\cftaftertoctitleskip}{10pt}
 \setlength{\cftbeforeloftitleskip}{0pt}
 \setlength{\cftafterloftitleskip}{10pt}
+\setlength{\cftbeforelottitleskip}{0pt}
+\setlength{\cftafterlottitleskip}{10pt}
 
 % dots style
 \renewcommand{\cftdotsep}{1}
+\renewcommand{\cftchapdotsep}{\cftdotsep}
 
 % figure number style
 \renewcommand{\cftfigpresnum}{Figure~}
@@ -158,7 +179,7 @@
 % table number style
 \renewcommand{\cfttabpresnum}{Tableau~}
 \renewcommand{\cfttabaftersnum}{: }
-\setlength{\cfttabnumwidth}{3.5cm}
+\setlength{\cfttabnumwidth}{2.2cm}
 
 % indentation levels
 
@@ -229,23 +250,20 @@ Enfin, je tiens à remercier les membres du jury pour l’intérêt qu’ils por
 
 \vspace{0.5cm}
 
-\begin{center}
-\fontsize{14}{20}\selectfont
-To complete my computer science education and begin my professional career, I undertook a 4-month internship focused on the development of a web-based platform named \textit{Agent Market}, a solution designed to manage and optimize digital marketing campaigns.
+{\fontsize{14}{20}\selectfont
+To complete my computer science education and begin my professional career, I undertook a 4-month internship dedicated to developing \textit{Agent Market}, a web platform for managing and optimizing digital marketing campaigns.
 
-My main project involved designing and developing a full-stack web application for campaign management and automation. I utilized Next.js and React for the front-end, focusing on creating interactive components, responsive interfaces, and optimized user experiences.
+My work consisted in designing and building a full-stack application for campaign management and automation, using Next.js and React for interactive, responsive interfaces and an optimized user experience.
 
-The development approach followed an agile methodology, particularly Scrum, to ensure effective project management. After thorough needs analysis, I conducted detailed design using UML, integrating technologies such as MongoDB for the database, Python for intelligent processing tasks, Redis and Celery for background task management, and Docker Compose for containerization and deployment.
+Following a Waterfall approach, I carried out a needs analysis and a UML design, then integrated MongoDB, Python for intelligent processing, Redis and Celery for background tasks, and Docker Compose for containerization and deployment. Testing throughout development ensured reliability, performance, and scalability, and I contributed to deploying the application in a production-like environment.
 
-Rigorous testing was performed throughout the development process to ensure application reliability, performance, and scalability. Finally, I contributed to the deployment of the application using Docker, ensuring its availability in a production-like environment.
-
-This experience allowed me to strengthen my skills in full-stack web development, distributed systems, and Agile project management, and prepared me to confidently face future challenges in modern software engineering.
-\end{center}
+This internship strengthened my skills in full-stack development, distributed systems, and project management, preparing me for the challenges of modern software engineering.
+\par}
 
 \vspace{0.5cm}
 
 \begin{center}
-{\sffamily\fontsize{14}{18}\selectfont\itshape Keywords : Web Application, Full Stack Development, Database, UML, Next.js, React, Fastify, MongoDB, Python, Redis, Celery, Docker Compose, Agile, Scrum}
+{\sffamily\fontsize{14}{18}\selectfont\itshape Keywords : Web Application, Full Stack Development, Database, UML, Next.js, React, Fastify, MongoDB, Python, Redis, Celery, Docker Compose, Waterfall}
 \end{center}
 \newpage
 % ===============================================================
@@ -256,23 +274,22 @@ This experience allowed me to strengthen my skills in full-stack web development
 
 \vspace{0.5cm}
 
-\begin{center}
-\fontsize{14}{20}\selectfont
-Afin de compléter ma formation en informatique et de débuter ma carrière professionnelle, j'ai effectué un stage de quatre mois axé sur le développement d'une plateforme web nommée \textit{Agent Market}, une solution conçue pour gérer et optimiser les campagnes de marketing digital. Mon projet principal consistait à concevoir et développer une application web full-stack dédiée à la gestion et à l'automatisation des campagnes. J'ai utilisé Next.js et React pour le développement du front-end, en me concentrant sur la création de composants interactifs, d'interfaces responsives et d'une expérience utilisateur optimisée.
+{\fontsize{14}{20}\selectfont
+Afin de compléter ma formation en informatique et de débuter ma carrière professionnelle, j'ai effectué un stage de quatre mois dédié au développement d'\textit{Agent Market}, une plateforme web de gestion et d'optimisation des campagnes de marketing digital.
 
-Le processus de développement a suivi une méthodologie Agile, notamment Scrum, afin d'assurer une gestion efficace du projet. Après une analyse approfondie des besoins, j'ai réalisé une conception détaillée à l'aide de UML, en intégrant des technologies telles que MongoDB pour la base de données, Python pour les tâches de traitement intelligent, Redis et Celery pour la gestion des tâches en arrière-plan, ainsi que Docker Compose pour la conteneurisation et le déploiement.
+Mon travail a consisté à concevoir et réaliser une application full-stack pour la gestion et l'automatisation des campagnes, en utilisant Next.js et React pour des interfaces interactives, responsives et une expérience utilisateur optimisée.
 
-Des tests rigoureux ont été effectués tout au long du processus de développement afin de garantir la fiabilité, la performance et la scalabilité de l'application. Enfin, j'ai contribué au déploiement de l'application à l'aide de Docker, assurant ainsi son fonctionnement dans un environnement proche de la production.
+Suivant une approche Waterfall, j'ai mené une analyse des besoins et une conception UML, puis intégré MongoDB, Python pour le traitement intelligent, Redis et Celery pour les tâches en arrière-plan, ainsi que Docker Compose pour la conteneurisation et le déploiement. Des tests tout au long du développement ont assuré la fiabilité, la performance et la scalabilité, et j'ai contribué au déploiement de l'application dans un environnement proche de la production.
 
-Cette expérience m'a permis de renforcer mes compétences en développement web full-stack, en systèmes distribués et en gestion de projet Agile, et m'a préparé à relever avec confiance les défis futurs de l'ingénierie logicielle moderne.
-\end{center}
+Ce stage m'a permis de renforcer mes compétences en développement full-stack, en systèmes distribués et en gestion de projet, me préparant aux défis de l'ingénierie logicielle moderne.
+\par}
 
 \vspace{0.8cm}
 
 \begin{center}
 {\sffamily\fontsize{14}{18}\selectfont\itshape Mots clés : Application Web, Développement Full Stack, Base de données,\\
 UML, Next.js, React, Fastify, MongoDB, Python, Redis, Celery, Docker\\
-Compose, Agile, Scrum}
+Compose, Waterfall}
 \end{center}
 
 \newpage
@@ -283,26 +300,19 @@ Compose, Agile, Scrum}
 \centeredgreentitle{Glossaire}
 \addfrontmattertotoc{Glossaire}
 
-\renewcommand{\arraystretch}{2.0}
-\noindent
-\begin{tabular}{|>{\centering\arraybackslash}m{0.42\textwidth}|m{0.45\textwidth}|}
-\hline
-\textbf{Acronyme} & \centering\arraybackslash\textbf{Désignation} \tabularnewline
-\hline
-\cellcolor{tableheadergreen}{\color{white}\textbf{API}} & Application Programming Interface. \\
-\hline
-\textbf{EMSI} & Ecole marocaine des sciences de l'ingénieur. \\
-\hline
-\cellcolor{tableheadergreen}{\color{white}\textbf{GIT}} & Global Information Tracker. \\
-\hline
-\textbf{MIAGE} & Méthodes informatique appliquées à la gestion d'entreprise. \\
-\hline
-\cellcolor{tableheadergreen}{\color{white}\textbf{MVC}} & Model-View-Controller. \\
-\hline
-\textbf{UML} & Unified Modeling Language. \\
-\hline
-\end{tabular}
-\renewcommand{\arraystretch}{1.0}
+\vspace{0.5cm}
+
+\textbf{API} : Application Programming Interface.
+
+\textbf{EMSI} : Ecole Marocaine des Sciences de l'Ingénieur.
+
+\textbf{GIT} : Global Information Tracker.
+
+\textbf{MIAGE} : Méthodes Informatique Appliquées à la Gestion d'Entreprise.
+
+\textbf{MVC} : Model-View-Controller.
+
+\textbf{UML} : Unified Modeling Language.
 
 \newpage
 
@@ -360,7 +370,7 @@ Cependant, malgré ces avancées, certaines limites persistent dans la gestion m
 \vspace{0.3cm}
 
 
-Dans ce contexte, ce rapport est structuré en plusieurs chapitres. Le premier chapitre présente l’organisme d’accueil ainsi que le contexte général du projet. Le deuxième chapitre est consacré à l’étude fonctionnelle, incluant l’analyse des besoins et l’identification des acteurs. Le troisième chapitre aborde l’étude conceptuelle à travers la modélisation UML. Le quatrième chapitre présente les outils et technologies utilisés pour la réalisation du projet. Enfin, le cinquième chapitre est dédié à la réalisation de la solution, en présentant les interfaces de l’application accompagnées de leurs explications.
+Dans ce contexte, ce rapport est structuré en plusieurs chapitres. Le premier chapitre présente l’organisme d’accueil ainsi que le contexte général du projet. Le deuxième chapitre est consacré à l’analyse du projet, incluant l’analyse des besoins et la présentation des fonctionnalités de l’assistant IA. Le troisième chapitre aborde l’étude conceptuelle à travers la modélisation UML. Le quatrième chapitre présente les outils et technologies utilisés pour la réalisation du projet. Enfin, le cinquième chapitre est dédié à la réalisation de la solution, en présentant les interfaces de l’application accompagnées de leurs explications.
 
 \newpage
 
@@ -374,19 +384,7 @@ Dans ce contexte, ce rapport est structuré en plusieurs chapitres. Le premier c
 
 \addcontentsline{toc}{chapter}{Chapitre \thechapter : Organisme d'accueil et Contexte général du Projet}
 
-\vspace*{8cm}
-\noindent\textcolor{darkgreen}{\rule{\textwidth}{4pt}}
-
-\vspace{1.5cm}
-\begin{center}
-{\chapterpagetitle{Chapitre \thechapter : Organisme d'accueil et Contexte général du Projet}}
-\end{center}
-
-\vspace{1.5cm}
-\noindent\textcolor{darkgreen}{\rule{\textwidth}{4pt}}
-
-\vfill
-\newpage
+\chapterpagetitle{Organisme d'accueil et Contexte général du Projet}
 
 
 % ===============================================================
@@ -471,20 +469,24 @@ Email & ak@casky.io \\
 % ===================== NEXT SECTION =====================
 \subsection{Rôles de l'entreprise}
 
-\hspace{1.2em}Tripass joue un rôle important dans la modernisation du transport au Maroc, en particulier à travers sa solution \textbf{WeTaxi}. Développé par cette startup marocaine, WeTaxi digitalise le taxi aéroportuaire en reliant les aéroports du Royaume aux centres-villes. Le service est déployé dans plusieurs villes, notamment \textbf{Casablanca}, \textbf{Marrakech}, \textbf{Rabat}, \textbf{Tanger} et \textbf{Agadir}, avec une présence opérationnelle au niveau des aéroports (parmi lesquels Casablanca Mohammed~V, Marrakech Ménara et Agadir Al Massira).
+\hspace{1.2em}Tripass joue un rôle important dans la modernisation du transport au Maroc, en particulier à travers sa solution \textbf{WeTaxi}. Pour de nombreux voyageurs, le premier contact avec le pays se fait par un trajet en taxi aéroportuaire. Or, ce segment a longtemps été marqué par l’absence de tarification standardisée et des négociations à la descente d’avion. WeTaxi digitalise le taxi aéroportuaire en reliant les aéroports du Royaume aux centres-villes selon un modèle prévisible, transparent et sécurisé. Le service est déployé dans plusieurs villes, notamment \textbf{Casablanca}, \textbf{Marrakech}, \textbf{Rabat}, \textbf{Tanger} et \textbf{Agadir}, avec une présence opérationnelle au niveau des aéroports (parmi lesquels Casablanca Mohammed~V, Marrakech Ménara et Agadir Al Massira).
 
 \vspace{0.3cm}
 
-\hspace{1.2em}Son fonctionnement repose sur un système simple et transparent : grâce à des \textbf{guichets intelligents} et des \textbf{bornes de prépaiement} installés dans les terminaux aéroportuaires, le voyageur règle un \textbf{tarif fixe} affiché à l’avance, avant de monter dans le véhicule. Il reçoit ensuite un ticket (souvent associé à un \textbf{QR code} / reçu de prépaiement), ce qui évite la négociation avec le chauffeur et réduit les litiges tarifaires. Selon les résultats communiqués par Tripass, WeTaxi a déjà transporté plus de \textbf{2,1~millions de passagers}, avec une note moyenne de satisfaction d’environ \textbf{4,3/5}, tout en renforçant la traçabilité des courses (restitution d’objets perdus, suivi des trajets) et l’accompagnement numérique des chauffeurs partenaires.
+\hspace{1.2em}Son fonctionnement repose sur un parcours simple et contrôlé : grâce à des \textbf{guichets intelligents} et des \textbf{bornes de prépaiement} installés dans les terminaux, le passager consulte un \textbf{tarif fixe} affiché à l’avance, règle la course avant de monter dans le véhicule, puis reçoit un ticket / reçu de prépaiement (souvent associé à un \textbf{QR code}). Ce mécanisme évite la négociation avec le chauffeur et réduit les litiges tarifaires. Le voyageur peut également réserver via le site \textbf{wetaxi.ma} ou l’application mobile.
 
 \begin{figure}[H]
 \centering
-\safeimage{width=0.92\textwidth}{images/wetaxi_reception_aeroport.jpg}
+\safeimage{width=0.85\textwidth}{images/wetaxi_reception_aeroport.jpg}
 \caption{Guichet / accueil WeTaxi dans un aéroport marocain}
 \label{fig:wetaxi_reception}
 \end{figure}
 
-Tripass vise principalement une clientèle composée de \textbf{touristes} et de voyageurs ayant besoin d’un transport fiable, rapide et structuré dès leur arrivée. L’entreprise compte environ \textbf{93 salariés}, ce qui témoigne de son développement et de l’importance de son activité opérationnelle sur le terrain.
+\hspace{1.2em}Selon les résultats communiqués par Tripass, WeTaxi a déjà transporté plus de \textbf{2,1~millions de passagers}, avec une note moyenne de satisfaction d’environ \textbf{4,3/5}. La plateforme intègre un système de \textbf{traçabilité numérique} des courses (suivi des trajets, évaluation des prestations) et a permis la restitution de \textbf{2\,341 objets} oubliés. Grâce au prépaiement systématique, \textbf{aucun litige tarifaire} n’aurait été enregistré depuis le lancement du service.
+
+\vspace{0.3cm}
+
+\hspace{1.2em}WeTaxi place également les \textbf{chauffeurs partenaires} au centre du dispositif : portefeuille numérique pour gérer les revenus, application dédiée au suivi des courses, et programme d’accompagnement à l’usage des outils numériques. Tripass vise principalement une clientèle composée de \textbf{touristes} et de voyageurs ayant besoin d’un transport fiable dès leur arrivée. L’entreprise compte environ \textbf{93 salariés}, et positionne WeTaxi comme la première brique d’un écosystème destiné à moderniser la chaîne de transport et d’accueil des voyageurs au Maroc.
 
 \subsection{Organisation de l'entreprise}
 
@@ -513,10 +515,19 @@ L'organisation de Tripass est structurée autour de plusieurs directions complé
 
 Dans le domaine du marketing digital, plusieurs solutions professionnelles permettent de gérer les campagnes, les publications et les performances sur différents canaux numériques. L’étude de ces solutions permet d’identifier les fonctionnalités déjà disponibles sur le marché, mais aussi les limites qui justifient la conception d’une plateforme plus intégrée et intelligente.
 
-\begin{table}[H]
+L’analyse comparative montre que les solutions existantes couvrent efficacement certains besoins du marketing digital, notamment la planification de contenu, la gestion des réseaux sociaux, l’analyse des performances et l’assistance par intelligence artificielle. Toutefois, elles restent souvent spécialisées dans un domaine précis, limitées à certains écosystèmes ou conditionnées par des offres payantes pour les fonctionnalités avancées.
+
+Par ailleurs, l’intégration avec différentes plateformes publicitaires et réseaux sociaux (Google Ads, TikTok Ads, LinkedIn, etc.) n’est pas toujours centralisée dans une seule interface. Les utilisateurs doivent ainsi naviguer entre plusieurs outils, ce qui peut entraîner une complexité accrue, une perte de temps et une difficulté à obtenir une vision globale et cohérente des performances. Ces limites mettent en évidence la nécessité de développer une solution intégrée, capable de centraliser les fonctionnalités, d’exploiter pleinement l’intelligence artificielle sur l’ensemble du processus marketing et d’offrir une expérience utilisateur plus fluide, cohérente et performante.
+
+Le tableau~\ref{tab:solutions_existantes} ci-dessous synthétise cette comparaison des principales solutions du marché.
+
+\begin{table}[hbp]
 \centering
-\renewcommand{\arraystretch}{1.35}
-\begin{tabularx}{\textwidth}{|>{\bfseries\raggedright\arraybackslash}p{3.2cm}|>{\raggedright\arraybackslash}X|>{\raggedright\arraybackslash}X|}
+\caption{Comparaison des solutions existantes de marketing digital}
+\label{tab:solutions_existantes}
+\small
+\renewcommand{\arraystretch}{1.2}
+\begin{tabularx}{\textwidth}{|>{\bfseries\raggedright\arraybackslash}p{2.8cm}|>{\raggedright\arraybackslash}X|>{\raggedright\arraybackslash}X|}
 \hline
 \rowcolor{tableheadergreen}
 \textcolor{white}{Solution} & \textcolor{white}{\textbf{Fonctionnalités principales}} & \textcolor{white}{\textbf{Limites}} \\
@@ -527,18 +538,14 @@ Buffer & Programmation de contenu, suivi de l’engagement, interface simple et 
 \hline
 HubSpot & CRM, marketing automation, email marketing, gestion des campagnes, analyse des performances et outils IA pour le contenu et les données. & Plateforme complète mais complexe ; coût élevé et prise en main plus exigeante pour les petites structures. \\
 \hline
-Meta Business Suite & Gestion des pages Facebook et Instagram, publication de contenu, suivi des statistiques et suggestions intelligentes. & Solution limitée à l’écosystème Meta et peu adaptée à une stratégie multi-plateformes complète. \\
-\hline
 Sprout Social & Planification avancée, analyse approfondie, collaboration en équipe et outils IA pour la création de contenu et l’analyse des interactions. & Outil puissant mais principalement centré sur les réseaux sociaux ; tarification élevée pour les fonctionnalités avancées. \\
 \hline
 \end{tabularx}
-\caption{Comparaison des solutions existantes de marketing digital}
-\label{tab:solutions_existantes}
 \end{table}
 
-L’analyse comparative montre que les solutions existantes couvrent efficacement certains besoins du marketing digital, notamment la planification de contenu, la gestion des réseaux sociaux, l’analyse des performances et l’assistance par intelligence artificielle. Toutefois, elles restent souvent spécialisées dans un domaine précis, limitées à certains écosystèmes ou conditionnées par des offres payantes pour les fonctionnalités avancées.
+\FloatBarrier
 
-Par ailleurs, l’intégration avec différentes plateformes publicitaires et réseaux sociaux (Google Ads, TikTok Ads, LinkedIn, etc.) n’est pas toujours centralisée dans une seule interface. Les utilisateurs doivent ainsi naviguer entre plusieurs outils, ce qui peut entraîner une complexité accrue, une perte de temps et une difficulté à obtenir une vision globale et cohérente des performances. Ces limites mettent en évidence la nécessité de développer une solution intégrée, capable de centraliser les fonctionnalités, d’exploiter pleinement l’intelligence artificielle sur l’ensemble du processus marketing et d’offrir une expérience utilisateur plus fluide, cohérente et performante.
+Cette synthèse confirme l’intérêt de concevoir une plateforme unique, plus intégrée et intelligente, capable de répondre aux limites identifiées ci-dessus.
 
 
 % ===================== 3.2 =====================
@@ -548,346 +555,128 @@ L’essor du marketing digital et la multiplication des plateformes en ligne com
 
 \vspace{0.3cm}
 
-Malgré les avancées technologiques, des défis persistent, notamment la centralisation des données, l’automatisation des processus et l’optimisation des performances, constats que j’ai pu observer durant mon stage, m’amenant à réfléchir à une solution intelligente capable d’améliorer l’efficacité globale des stratégies marketing.
-
-\vspace{0.3cm}
-
-Ainsi, la problématique principale consiste à concevoir une plateforme intelligente de gestion marketing multi-plateformes permettant :
+Malgré les avancées technologiques, des défis persistent, notamment la centralisation des données, l’automatisation des processus et l’optimisation des performances. Ces constats, observés durant mon stage, m’ont amené à formuler la problématique suivante : \textbf{comment concevoir une plateforme de gestion marketing multi-plateformes} permettant de :
 \begin{itemize}[leftmargin=2em,itemsep=4pt]
-\item d’automatiser les campagnes grâce à l’intelligence artificielle,
-\item d’offrir une interface intuitive accessible à tous les niveaux techniques,
-\item d’assurer une intégration fiable avec plusieurs plateformes,
-\item de garantir des performances optimales même avec un grand volume de données,
-\item et de sécuriser efficacement les informations sensibles afin d’améliorer la performance globale des entreprises.
+\item intégrer un assistant conversationnel (agent IA) dédié aux actions marketing,
+\item automatiser la création de contenu, la planification et les campagnes,
+\item offrir une interface intuitive accessible à tous les niveaux techniques,
+\item assurer une intégration fiable avec plusieurs plateformes,
+\item garantir de bonnes performances et sécuriser les informations sensibles des utilisateurs et des campagnes ?
 \end{itemize}
 
 % ===================== 3.3 =====================
 \subsection{Objectifs}
 
-Le principal objectif de ce projet est de développer une plateforme web intelligente de gestion marketing multi-plateformes, nommée Agent-Market, capable de centraliser, automatiser et optimiser les stratégies de marketing digital tout en améliorant l’efficacité opérationnelle des entreprises. Plus précisément, les objectifs sont les suivants :
+Le principal objectif de ce projet est de développer une plateforme web de gestion marketing multi-plateformes, nommée Agent-Market, capable de centraliser, automatiser et optimiser les stratégies de marketing digital tout en améliorant l’efficacité opérationnelle des entreprises. Plus précisément, les objectifs sont les suivants :
 
 \begin{itemize}[leftmargin=2em,itemsep=6pt]
 
-\item Créer une Interface Utilisateur Intuitive et Attrayante : Concevoir une interface ergonomique centralisant la gestion des campagnes, publications et performances marketing pour simplifier l’usage et réduire la complexité multi-plateformes.
+\item Créer une interface utilisateur intuitive : concevoir une interface ergonomique centralisant la gestion des campagnes, publications, performances et de l’assistant IA pour simplifier l’usage multi-plateformes.
 
-\item Automatiser les Processus Marketing par Intelligence Artificielle : Développer des fonctionnalités IA pour automatiser la création de contenu, la planification des publications et l’optimisation des campagnes, afin de réduire les tâches manuelles et accroître l’efficacité marketing.
+\item Intégrer un assistant conversationnel (agent IA) : mettre à disposition un chat agent pour assister l’utilisateur dans ses activités marketing.
 
-\item Optimiser la Gestion des Campagnes et des Données : Mettre en place des mécanismes robustes de gestion en temps réel des campagnes, publications et données associées pour renforcer la précision et la réactivité du système.
+\item Automatiser les processus marketing : s’appuyer sur l’IA pour la génération de contenu, la planification des publications et l’orchestration de campagnes, afin de réduire les tâches manuelles.
 
-\item Améliorer l’Analyse des Performances et des KPIs : Intégrer des outils d’analyse permettant de suivre en temps réel les indicateurs clés de performance (CTR, CPC, ROI, etc.), facilitant ainsi la prise de décision stratégique basée sur des données fiables et actualisées.
+\item Garantir la sécurité des données : protéger les informations utilisateurs, les tokens d’authentification (OAuth) et les données liées aux campagnes marketing.
 
-\item Assurer la Performance et la Scalabilité : Concevoir une architecture performante capable de supporter un grand volume de données et d’utilisateurs simultanés, tout en garantissant des temps de réponse rapides et une expérience utilisateur fluide.
-
-\item Garantir la Sécurité des Données : Mettre en place des mécanismes de sécurité avancés pour protéger les données sensibles telles que les informations utilisateurs, les tokens d’authentification (OAuth) et les données liées aux campagnes marketing.
-
-\item Assurer l’Intégration Multi-Plateformes : Développer des connecteurs fiables permettant l’intégration avec différentes plateformes (réseaux sociaux et outils publicitaires), afin de centraliser toutes les opérations marketing au sein d’un seul système.
-
-\item Faciliter la Maintenance et les Évolutions : Concevoir une architecture modulaire, claire et bien documentée, permettant une maintenance simplifiée et l’ajout de nouvelles fonctionnalités sans impacter le fonctionnement global de la plateforme.
+\item Assurer l’intégration multi-plateformes et la maintenabilité : développer des connecteurs fiables vers les réseaux sociaux et outils publicitaires, au sein d’une architecture modulaire et évolutive.
 
 \end{itemize}
 
 % ===================== 3.4 =====================
 \subsection{Motivations}
 
-En ce qui concerne la motivation derrière le projet de développement de la plateforme web intelligente Agent-Market, plusieurs éléments peuvent être pris en considération, notamment :
+Le choix de ce projet s’explique par plusieurs motivations personnelles, professionnelles et organisationnelles :
 
 \begin{itemize}[leftmargin=2em,itemsep=6pt]
 
-\item Modernisation du Marketing Digital : L’objectif est de moderniser la gestion des campagnes marketing en remplaçant les méthodes traditionnelles par une plateforme centralisée, intelligente et adaptée aux besoins actuels des entreprises.
+\item Contexte du stage chez Tripass : l’entreprise évolue dans un environnement numérique où la communication et l’acquisition passent par les canaux digitaux, ce qui justifie une plateforme marketing centralisée enrichie d’un assistant IA.
 
-\item Analyse et Prise de Décision : Fournir des analyses précises et des recommandations basées sur l’intelligence artificielle pour faciliter la prise de décision et optimiser la performance globale des stratégies marketing.
+\item Montée en compétences techniques : ce projet m’a permis d’approfondir le full-stack, l’intégration d’APIs, le traitement asynchrone et la mise en place d’un agent conversationnel.
 
-\item Flexibilité et Réactivité : Permettre aux entreprises de piloter leurs campagnes en temps réel, de s’adapter rapidement aux évolutions du marché et de maximiser le retour sur investissement.
+\item Réponse à un besoin concret : plutôt que de naviguer entre plusieurs outils, l’utilisateur dispose d’un espace unique, complété par un chat agent IA, pour ses actions marketing.
 
-\item Expérience Utilisateur Optimisée : Offrir une interface ergonomique et intuitive centralisant toutes les activités marketing, permettant aux utilisateurs de gérer facilement leurs campagnes et publications depuis un seul tableau de bord.
+\item Valeur ajoutée pour l’utilisateur final : offrir un assistant conversationnel intégré à la plateforme afin de gagner en efficacité et en clarté opérationnelle.
 
 \end{itemize}
 
 % ===============================================================
-% SECTION 4 — MÉTHODE DE DÉVELOPPEMENT
+% SECTION 4 — GESTION DE PROJET
 % ===============================================================
 
-\section{Méthode de développement}
+\section{Gestion de projet}
 
-Cette partie est destinée à la présentation de la méthodologie adoptée pour la mise en place de la solution. Afin d’avoir une qualité convenable du projet et de respecter les délais fixés au préalable, notre projet est développé en utilisant les méthodes agiles comme méthodologie de développement, et plus spécifiquement la méthode Scrum.
+Pour le développement de la plateforme \textbf{Agent-Market} au sein de Tripass, j’ai opté pour la méthodologie \textbf{Waterfall}. Cette approche séquentielle m’a permis de réaliser chaque phase après la précédente, avec une documentation claire et un suivi rigoureux. Elle convenait bien au projet, car j’étais le principal responsable de la conception et du développement, sous l’encadrement de l’équipe Tripass.
 
 % ===================== 4.1 =====================
-\subsection{La méthodologie agile}
+\subsection{Méthodologie Waterfall}
 
-La méthodologie agile est un processus qui permet de gérer un projet en le décomposant en plusieurs parties. Elle implique une collaboration continue entre les parties prenantes, une amélioration itérative et progressive à chaque étape.
-
-Au départ, le client décrit comment le produit final sera utilisé et quel problème il doit résoudre. Cela permet de clarifier les attentes du client vis-à-vis de l’équipe du projet.
-
-Une fois les travaux amorcés, les équipes suivent un processus de planification et d’évaluation qui permet d’adapter les livrables finaux afin de mieux répondre aux besoins des clients. Une collaboration continue est nécessaire, à la fois entre les membres de l’équipe et avec les parties prenantes du projet, afin de prendre des décisions éclairées.
-
-
-% ===================== 4.2 =====================
-\subsection{La méthodologie de travail SCRUM}
-
-SCRUM est une méthode de développement agile orientée projet informatique dont les ressources sont régulièrement actualisées. La méthode SCRUM tire son nom du monde du rugby, SCRUM = mêlée. Le principe de base est d’être toujours prêt à réorienter le projet au fil de son avancement.
-
-C’est une approche dynamique et participative de la conduite du projet. La mêlée est une phase de jeu essentielle au rugby. Elle permet au jeu de repartir sur d’autres bases. La réunion dans la méthode SCRUM relaie cette métaphore.
-
-Comme illustré dans la Figure~\ref{fig:scrum_method}, SCRUM s’appuie sur des cycles courts et des interactions régulières afin d’assurer une meilleure adaptation aux besoins du projet.
+La méthodologie de développement adoptée pour ce projet est la méthode Waterfall, une approche linéaire qui se déroule en plusieurs phases distinctes. La figure~\ref{fig:waterfall_method} en présente le principe général.
 
 \begin{figure}[H]
 \centering
-\safeimage{width=\textwidth,height=0.25\textheight}{images/methode_scrum.png}
-\caption{Illustration du concept SCRUM (mêlée)}
-\label{fig:scrum_method}
+\safeimage{width=1.0\textwidth,height=0.45\textheight}{images/watterfall.png}
+\caption{Méthodologie Waterfall}
+\label{fig:waterfall_method}
 \end{figure}
 
-% ===================== 4.3 =====================
-\subsection{Les rôles dans SCRUM}
-
-SCRUM se concentre sur le travail d’équipe en remplaçant les chefs de projet, les sous-traitants et les propriétaires par différents rôles et fonctions.
+Les phases mises en œuvre dans le cadre d’Agent-Market sont les suivantes :
 
 \begin{itemize}[leftmargin=2em,itemsep=6pt]
 
-\item Scrum Master : On dit souvent qu’un Scrum Master est un coach. C’est vrai parce que son rôle est aussi de faire de son mieux pour que le projet aboutisse. Mais le Scrum Master est avant tout le leader du projet. Il s’assure que le principe Scrum est respecté, il organise le rôle, le temps et les objectifs.
+\item \textbf{Requirements :} Identification et documentation des exigences spécifiques d’Agent-Market, incluant des échanges avec les parties prenantes de Tripass afin de définir clairement les besoins et attentes (gestion des publications, campagnes, leads et assistant IA). Cette phase critique assure une compréhension commune des objectifs du projet.
 
-\item Product Owner : Orienté business, il partage la vision du produit à réaliser avec l’équipe de développement. Il est responsable de la réussite du projet et travaille en étroite collaboration avec les équipes de développement, de marketing et les clients.
+\item \textbf{Analysis :} Analyse détaillée des besoins et spécifications fonctionnelles, comprenant l’étude de faisabilité, l’évaluation des risques et la définition des critères de succès pour s’assurer que toutes les exigences sont réalisables. Cette étape permet de prévenir les problèmes potentiels avant qu’ils ne surviennent.
 
-\item Équipe de Dev : C’est une équipe capable de mener le projet de bout en bout. Elle est pluridisciplinaire et autonome, ce qui permet une grande flexibilité dans la réalisation des tâches.
+\item \textbf{Design :} Élaboration de l’architecture technique et des designs de l’application, incluant la création des schémas de bases de données, des diagrammes UML et des prototypes d’interface utilisateur, afin de fournir une feuille de route claire avant la phase de codage.
+
+\item \textbf{Code :} Programmation et implémentation des fonctionnalités définies (frontend, API, worker, intégrations et assistant conversationnel), avec des revues régulières et l’utilisation de pratiques de développement standard pour garantir la qualité et la conformité aux spécifications.
+
+\item \textbf{Test :} Vérification et validation des fonctionnalités développées par des tests unitaires, des tests d’intégration, des tests système et des tests d’acceptation, afin de s’assurer que la plateforme répond aux exigences initiales et reste fiable.
+
+\item \textbf{Maintenance :} Suivi et correction des éventuels problèmes post-déploiement, incluant la gestion des incidents, les mises à jour et l’ajout de nouvelles fonctionnalités en réponse aux retours des utilisateurs. Cette phase assure la pérennité et l’amélioration continue de la solution.
 
 \end{itemize}
 
-
-% ===================== 4.4 =====================
-\subsection{Équipe Scrum}
-
-L’équipe de notre projet est constituée des membres suivants :
-
-\begin{table}[H]
-\centering
-\caption{Définition des rôles SCRUM}
-\label{tab:scrum_team}
-
-\renewcommand{\arraystretch}{1.5}
-\begin{tabular}{|p{0.45\textwidth}|p{0.45\textwidth}|}
-\hline
-\textbf{Nom et Prénom} & \textbf{Rôle} \\
-\hline
-Mr. Abid Khirani & Product Owner \\
-\hline
-Mr. Mouhcine Karim & Scrum Master \\
-\hline
-Mohamed Mokid & Développeur Full Stack (Back-end / Front-end) \\
-\hline
-\end{tabular}
-
-\renewcommand{\arraystretch}{1.0}
-\end{table}
-
-% ===================== 4.5 =====================
-\subsection{Planification du projet}
-
-Après le choix de l’équipe Scrum et la répartition des rôles, il est nécessaire de préparer les sprints et de définir leurs objectifs. La planification du projet constitue une étape cruciale permettant de structurer et d’organiser les différentes phases du développement afin d’assurer une exécution fluide et efficace.
-
-Cette section présente les étapes ainsi que les échéances du projet en suivant la méthodologie Scrum, qui favorise une approche itérative et incrémentale. Le projet s’étend sur une période de quatre mois, durant laquelle plusieurs sprints ont été définis pour couvrir l’analyse et la conception, le développement des fonctionnalités front-end et back-end, ainsi que les phases de test.
-
-Chaque sprint est conçu pour atteindre des objectifs spécifiques et produire des livrables concrets, garantissant ainsi une progression continue et mesurable tout au long du projet.
-
-Le tableau ci-dessous présente le planning du projet.
-
-
-\renewcommand{\arraystretch}{1.4}
-
-\begin{longtable}{|p{0.12\textwidth}|p{0.18\textwidth}|p{0.30\textwidth}|p{0.32\textwidth}|}
-
-\caption{Planning SCRUM} \\
-
-\hline
-\textbf{Sprint} & \textbf{Dates} & \textbf{Objectifs} & \textbf{Livrables} \\
-\hline
-\endfirsthead
-
-\hline
-\textbf{Sprint} & \textbf{Dates} & \textbf{Objectifs} & \textbf{Livrables} \\
-\hline
-\endhead
-
-% ===== YOUR CONTENT HERE =====
-Sprint 1 &
-01/04/2026 – 08/04/2026 (7 jours) &
-• Initialisation du projet \newline
-• Configuration de l’environnement \newline
-• Mise en place de l’architecture &
-• Création du repo Git \newline
-• Configuration Docker (MongoDB + Redis) \newline
-• Initialisation Next.js \newline
-• Initialisation Fastify API \newline
-• Service realtime \newline
-• AI Worker (Python Celery) \newline
-• Variables .env \\
-\hline
-
-Sprint 2 &
-09/04/2026 – 16/04/2026 (8 jours) &
-• Authentification utilisateurs \newline
-• Dashboard principal &
-• Login / Logout \newline
-• JWT Authentication \newline
-• Middleware Auth \newline
-• UI Login \newline
-• Dashboard Layout \\
-\hline
-
-Sprint 3 &
-17/04/2026 – 30/04/2026 (14 jours) &
-• Connexion réseaux sociaux (OAuth) \newline
-• Gestion comptes sociaux &
-• OAuth LinkedIn / Facebook / Instagram \newline
-• Endpoints callback \newline
-• Stockage MongoDB \newline
-• UI connexion comptes \\
-\hline
-
-Sprint 4 &
-01/05/2026 – 15/05/2026 (15 jours) &
-• Post Manager \newline
-• Gestion des publications &
-• API création posts \newline
-• Draft posts \newline
-• UI Create Post \newline
-• Publication multi-plateformes \\
-\hline
-
-Sprint 5 &
-16/05/2026 – 31/05/2026 (16 jours) &
-• Planification automatique &
-• Scheduler \newline
-• Queue Redis \newline
-• Celery Worker \newline
-• Calendrier éditorial \\
-\hline
-
-Sprint 6 &
-01/06/2026 – 15/06/2026 (15 jours) &
-• Génération de contenu IA &
-• Intégration IA \newline
-• Génération hashtags \newline
-• Suggestions contenu \\
-\hline
-
-Sprint 7 &
-16/06/2026 – 05/07/2026 (20 jours) &
-• Gestion campagnes Ads &
-• Création campagnes \newline
-• APIs Ads \newline
-• Dashboard campagnes \\
-\hline
-
-Sprint 8 &
-06/07/2026 – 20/07/2026 (15 jours) &
-• Génération de leads &
-• Landing pages \newline
-• Formulaires \newline
-• Tracking UTM \\
-\hline
-
-Sprint 9 &
-21/07/2026 – 05/08/2026 (16 jours) &
-• KPI Dashboard &
-• CTR, CPC, CPA \newline
-• Graphiques \newline
-• Analyse performance \\
-\hline
-
-Sprint 10 &
-06/08/2026 – 15/08/2026 (10 jours) &
-• Temps réel \newline
-• Notifications &
-• WebSocket \newline
-• Notifications \newline
-• Activity feed \\
-\hline
-
-Sprint 11 &
-16/08/2026 – 22/08/2026 (7 jours) &
-• SEO Automation &
-• Génération contenu SEO \newline
-• Tracking ranking \\
-\hline
-
-Sprint 12 &
-23/08/2026 – 29/08/2026 (7 jours) &
-• Budget \& Reporting &
-• Budget alerts \newline
-• Reports PDF \newline
-• Weekly reports \newline
-• Email notifications \\
-\hline
-
-Sprint 13 &
-30/08/2026 – 03/09/2026 (5 jours) &
-• Finalisation du projet &
-• UI polish \newline
-• Bug fixing \newline
-• Optimisation des performances \newline
-• Documentation \newline
-• Déploiement \\
-\hline
-
-\end{longtable}
-
-\renewcommand{\arraystretch}{1.0}
-
-
-% ===================== 4.6 =====================
+% ===================== 1.4.2 =====================
 \subsection{Diagramme de Gantt}
 
 Le diagramme de Gantt, nommé d’après son créateur Henry Gantt, est une représentation visuelle des tâches et de leurs échéances. Il offre une vision claire du projet, facilitant l’organisation, la coordination et le suivi des activités.
 
-Cet outil a joué un rôle important dans la progression du projet, en permettant de respecter les délais, de gérer les dépendances entre les tâches et de suivre l’avancement des travaux.
+Cet outil a joué un rôle important dans la progression du projet, en permettant de respecter les délais, de gérer les dépendances entre les tâches et de suivre l’avancement des travaux selon les phases Waterfall.
+
+Dans le cadre d’Agent-Market, le diagramme de Gantt a servi à planifier le stage de quatre mois en découpant le travail par modules (recueil des besoins, conception UML, infrastructure, authentification et workspaces, publications sociales, campagnes publicitaires et leads, assistant IA, temps réel et reporting, tests, puis documentation et déploiement). Il a ainsi permis de visualiser les enchaînements entre ces lots, d’anticiper les chevauchements (par exemple entre le frontend et le worker) et d’assurer un suivi régulier de l’avancement auprès de l’équipe Tripass.
 
 La figure~\ref{fig:gantt_project} ci-dessous illustre le diagramme de Gantt du projet :
 
 \begin{figure}[H]
 \centering
-\safeimage{width=1.02\textwidth,height=0.35\textheight}{images/gantt.png}
+\safeimage{width=1.0\textwidth,height=0.25\textheight}{images/Gantt.png}
 \caption{Diagramme de Gantt du projet}
 \label{fig:gantt_project}
 \end{figure}
 
 
-% ===================== 4.6 =====================
+
+% ===================== 4.4 =====================
 \subsection{Conclusion}
 
-En conclusion, le chapitre a présenté un aperçu de l’entreprise dans laquelle j’ai effectué monstage et a introduit le projet qui a été au cœur de mon travail. À travers ce chapitre, j’ai présenté les objectifs du projet, les exigences qu’il visait à résoudre et le plan poursa réalisation en utilisantla méthodologie Scrum.
+En conclusion, ce chapitre a présenté l’organisme d’accueil Tripass, le contexte du projet Agent-Market, ainsi que la problématique, les objectifs et les motivations du stage. Il a également détaillé la méthode de gestion de projet retenue, à savoir la méthodologie Waterfall, ainsi que l’outil Notion utilisé pour le suivi et le diagramme de Gantt pour la planification temporelle.
 
-En comprenant le contexte général entourant le projet, y compris les objectifs, les valeurs et l’environnement de travail de l’entreprise, nous avons une meilleure appréciation de l’importancedu projet et de son alignement avec les objectifs de l’organisation. De plus, la présentation de la méthodologie Scrum met en évidence l’approche choisie pour la gestion et la livraison du projet.
-
-À mesure que nous avançons dans les chapitres suivants, nous explorerons le projet en détail,en examinant sa mise en œuvre, les défis rencontrés et les résultats obtenus. Les informations fournies dans ce chapitre servent de base à une compréhension globale du parcours du projet et deses contributions au sein de l’entreprise.
+Cette vision d’ensemble permet de mieux situer le projet dans son environnement organisationnel et méthodologique. Les chapitres suivants approfondiront l’analyse du projet, la conception et la réalisation de la plateforme.
 
 
 
 \newpage
-
 % ===============================================================
 % PAGE 22 — CHAPTER 2
 % ===============================================================
 
 \refstepcounter{chapter}
 
-\addcontentsline{toc}{chapter}{Chapitre \thechapter : Étude fonctionnelle}
-\vspace*{8cm}
+\addcontentsline{toc}{chapter}{Chapitre \thechapter : Analyse du projet}
 
-\noindent\textcolor{darkgreen}{\rule{\textwidth}{4pt}}
-
-\vspace{1.5cm}
-
-\begin{center}
-{\chapterpagetitle{Chapitre \thechapter : Étude fonctionnelle }}
-\end{center}
-
-\vspace{1.5cm}
-
-\noindent\textcolor{darkgreen}{\rule{\textwidth}{4pt}}
-
-\vfill
-
-\newpage
+\chapterpagetitle{Analyse du projet}
 
 % ===============================================================
 % PAGE 23
@@ -896,7 +685,7 @@ En comprenant le contexte général entourant le projet, y compris les objectifs
 
 \section{Introduction}
 
-Dans ce chapitre, nous formalisons les exigences du projet \textbf{Agent-Market} à partir de la problématique et des objectifs définis au chapitre~1. Nous y analysons les besoins fonctionnels, non fonctionnels et techniques.
+Dans ce chapitre, nous analysons le projet \textbf{Agent-Market} à partir de la problématique et des objectifs définis au chapitre~1. Nous y formalisons les besoins fonctionnels, non fonctionnels et techniques, puis présentons les fonctionnalités de l’assistant conversationnel (agent IA).
 
 
 
@@ -1100,9 +889,33 @@ Infrastructure & MongoDB~7, Redis~7, Docker Compose \\
 \end{tabular}
 \end{table}
 
+\section{Présentation des fonctionnalités de l’assistant IA}
+
+Dans le cadre du développement d’\textbf{Agent-Market}, un assistant conversationnel (agent IA) a été conçu pour accompagner les utilisateurs dans leurs activités marketing : création de contenu, planification de publications, orchestration de campagnes et suivi des performances. Plusieurs fonctionnalités ont été mises en place pour améliorer l’efficacité opérationnelle et offrir une expérience plus fluide.
+
+Pour les utilisateurs :
+
+\begin{itemize}[leftmargin=2em,itemsep=6pt]
+
+\item \textbf{Conversation en langage naturel :} L’utilisateur exprime son besoin marketing dans un chat dédié (par exemple créer une publication, préparer une campagne ou analyser des performances). Cette entrée constitue le point de départ de l’assistance IA.
+
+\item \textbf{Contexte workspace et historique :} L’assistant s’appuie sur le workspace actif, les comptes connectés et l’historique de conversation afin de produire des réponses cohérentes et adaptées à l’environnement de l’utilisateur.
+
+\item \textbf{Planification de workflows :} À partir de la requête, l’agent décompose la demande en étapes exécutables (génération de contenu, sélection de comptes, planification, publication, etc.) et propose un plan d’action structuré.
+
+\item \textbf{Validation avant exécution :} Le workflow proposé est présenté à l’utilisateur, qui peut le valider, l’ajuster ou l’annuler. Aucune action marketing sensible n’est lancée sans cette validation.
+
+\item \textbf{Exécution assistée :} Une fois validé, le workflow est pris en charge par la plateforme (API, worker Celery et connecteurs vers les réseaux sociaux ou outils publicitaires) pour réaliser les actions prévues.
+
+\item \textbf{Suivi et restitution des résultats :} L’utilisateur peut suivre l’avancement des étapes et consulter les résultats obtenus (contenus générés, publications, campagnes préparées ou erreurs éventuelles) directement depuis l’interface de l’assistant.
+
+\end{itemize}
+
+Une attention particulière a également été portée à l’intégration multi-fournisseurs IA (OpenAI, Gemini, Anthropic), à la fluidité de l’expérience conversationnelle et à la cohérence des données manipulées par l’agent au sein du workspace.
+
 \section{Conclusion}
 
-Ce chapitre a formalisé les exigences fonctionnelles, non fonctionnelles et techniques d’\textbf{Agent-Market}. Le chapitre suivant traduira ces exigences en modèles UML (cas d’utilisation, séquences, classes, activités) ; le chapitre sur les outils et technologies détaillera ensuite le rôle de chaque composant de la stack.
+Ce chapitre a analysé le projet \textbf{Agent-Market} à travers ses besoins fonctionnels, non fonctionnels et techniques, ainsi que les fonctionnalités de l’assistant IA. Le chapitre suivant traduira ces éléments en modèles UML (cas d’utilisation, séquences, classes, activités) ; le chapitre sur les outils et technologies détaillera ensuite le rôle de chaque composant de la stack.
 
 
 \newpage
@@ -1115,23 +928,24 @@ Ce chapitre a formalisé les exigences fonctionnelles, non fonctionnelles et tec
 
 \addcontentsline{toc}{chapter}{Chapitre \thechapter : Étude conceptuelle}
 
-\vspace*{8cm}
+\chapterpagetitle{Étude conceptuelle}
 
-\noindent\textcolor{darkgreen}{\rule{\textwidth}{4pt}}
+% Espacement flottants : éviter les grands vides autour des figures
+\setlength{\intextsep}{8pt plus 2pt minus 2pt}
+\setlength{\textfloatsep}{10pt plus 2pt minus 2pt}
+\setlength{\floatsep}{8pt plus 2pt minus 2pt}
+\captionsetup{skip=6pt}
 
-\vspace{1.5cm}
-
-\begin{center}
-{\chapterpagetitle{Chapitre \thechapter : Étude conceptuelle }}
-\end{center}
-
-\vspace{1.5cm}
-
-\noindent\textcolor{darkgreen}{\rule{\textwidth}{4pt}}
-
-\vfill
-
-\newpage
+% Garde la phrase d'accroche avec la figure (évite une page qui commence par une figure)
+% Usage : \figlead[0.55\textheight]{phrase...}
+\newcommand{\figlead}[2][0.82\textheight]{%
+  \par\Needspace{#1}%
+  #2\par\nopagebreak\vspace{2pt}%
+}
+% Colle le titre « Description textuelle » à son tableau (sans Needspace agressif)
+\newcommand{\deschead}[1]{%
+  \par\noindent\textbf{Description textuelle «~#1~»}\par\nopagebreak\vspace{2pt}%
+}
 
 % ===============================================================
 % CHAPITRE — MODÉLISATION UML
@@ -1139,53 +953,16 @@ Ce chapitre a formalisé les exigences fonctionnelles, non fonctionnelles et tec
 
 \section{Introduction}
 
-Ce chapitre présente l’étude conceptuelle de la plateforme \textbf{Agent-Market}. Nous commençons par une vue globale de l’architecture système : les composants runtime, leurs responsabilités et les flux de données qui les relient. Cette vision d’ensemble permet de situer le fonctionnement de la solution avant d’aborder, dans la suite du chapitre, la modélisation UML détaillée (cas d’utilisation, séquences, classes et activités).
-
-\section{Architecture du système}
-
-Agent-Market repose sur une architecture modulaire distribuée en plusieurs services complémentaires. La figure~\ref{fig:architecture_globale} illustre cette organisation : un frontend web, une API d’orchestration, un worker asynchrone, un moteur temps réel, ainsi que les couches de persistance et de messagerie (MongoDB et Redis). Le système interagit en outre avec des services externes d’intelligence artificielle, de réseaux sociaux et de plateformes publicitaires.
+L’analyse et la conception du projet \textbf{Agent-Market} ont été menées dans le but de définir de manière précise les besoins fonctionnels et techniques de la solution. Cette phase pose les bases du développement en s’appuyant sur la modélisation UML : cas d’utilisation, séquences, classes et activités.
 
 \begin{figure}[H]
 \centering
-\safeimage{width=1.05\textwidth ,height=0.5\textheight}{images/Architecture_Système_(Vue_Globale).png}
-\caption{Architecture système d’Agent-Market — vue globale}
-\label{fig:architecture_globale}
+\safeimage{width=0.45\textwidth, height=0.18\textheight}{images/uml.png}
 \end{figure}
 
-\subsection{Composants internes}
-
-\begin{itemize}[leftmargin=2em,itemsep=6pt]
-
-\item \textbf{Frontend (Next.js) :} Interface utilisateur du dashboard marketing. Elle consomme l’API REST en transmettant un jeton JWT et reçoit les mises à jour live via WebSocket.
-
-\item \textbf{API Backend (Fastify) :} Point d’entrée central et orchestrateur du système. Elle valide les requêtes, persiste les données métier dans MongoDB, enqueue les tâches lourdes vers Redis et publie les événements applicatifs.
-
-\item \textbf{Worker asynchrone (Celery + Beat) :} Exécute les opérations en arrière-plan : publication sur les réseaux sociaux, synchronisation des campagnes publicitaires, imports de métriques et appels aux fournisseurs IA. Celery Beat planifie les tâches récurrentes (posts dus, synchronisations périodiques).
-
-\item \textbf{Moteur temps réel (SocketCluster) :} Relais WebSocket entre l’interface et le backend. Il s’abonne au canal Redis pub/sub pour diffuser instantanément les notifications (publications, workflows, synchronisations) vers le dashboard.
-
-\item \textbf{MongoDB :} Base documentaire, source de vérité applicative (utilisateurs, workspaces, posts, campagnes, leads, workflows agent).
-
-\item \textbf{Redis :} Broker de messages pour Celery, file d’attente API→worker, backend de résultats et canal pub/sub pour le temps réel.
-
-\end{itemize}
-
-\subsection{Intégrations externes et flux principaux}
-
-\begin{itemize}[leftmargin=2em,itemsep=6pt]
-
-\item \textbf{Services IA (OpenAI, Gemini, Anthropic) :} Appelés par le worker pour la génération de contenu, la planification de workflows et l’assistant conversationnel.
-
-\item \textbf{Réseaux sociaux (X, Meta, TikTok, LinkedIn) :} Connectés via OAuth et API ; le worker publie les posts et importe followers, contenus et insights.
-
-\item \textbf{Plateformes publicitaires (Google Ads, Meta Ads) :} Gestion des campagnes, synchronisation des performances et récupération des métriques publicitaires.
-
-\end{itemize}
-
-Le flux général suit une logique en trois temps : le frontend envoie une requête authentifiée à l’API ; l’API persiste l’état et, si nécessaire, délègue l’exécution au worker via Redis ; les événements significatifs sont propagés en temps réel vers l’interface grâce à Redis pub/sub et SocketCluster.
+Les diagrammes présentés dans ce chapitre décrivent à la fois la structure du système et son comportement dynamique, en cohérence avec les modules métier de la plateforme.
 
 \section{Le langage UML}
-
 
 UML fournit un ensemble de notations graphiques et de conventions permettant de modéliser les aspects structurels et comportementaux d’un système. Il facilite la compréhension globale du système en offrant une représentation visuelle des composants, de leurs relations et de leurs interactions.
 
@@ -1212,315 +989,219 @@ Le choix d’UML comme langage de modélisation est justifié par plusieurs avan
 % ===============================================================
 \section{Diagramme de cas d’utilisation}
 
-Le diagramme de cas d’utilisation permet de représenter les interactions entre les acteurs et le système. Il met en évidence les fonctionnalités principales offertes par la plateforme Agent-Market ainsi que les différents scénarios d’utilisation.
+Le diagramme de cas d’utilisation représente les interactions entre les acteurs et le système. Il met en évidence les fonctionnalités principales d’Agent-Market et les scénarios d’usage associés aux modules métier.
 
-% ===================== 4.1 =====================
 \subsection{Identification des acteurs}
 
-Trois acteurs principaux interagissent avec le système. Le tableau~\ref{tab:acteurs} présente chacun d’eux ainsi que son rôle au sein de la plateforme.
+Les acteurs se répartissent entre \textbf{humains} (Utilisateur, Admin, Visiteur web) et \textbf{systèmes externes} (Fournisseur IA, plateformes sociales et publicitaires). Les premiers initient les cas d’usage ; les seconds réalisent les échanges techniques (IA, OAuth, publication). Le tableau~\ref{tab:acteurs} en synthétise les rôles.
 
 \begin{table}[H]
 \centering
-\renewcommand{\arraystretch}{1.4}
+\caption{Identification des acteurs du système}
+\label{tab:acteurs}
+\renewcommand{\arraystretch}{1.35}
 \begin{tabularx}{\textwidth}{|>{\bfseries\raggedright\arraybackslash}p{4.5cm}|>{\raggedright\arraybackslash}X|}
 \hline
 \rowcolor{tableheadergreen}
 \textcolor{white}{Acteur} & \textcolor{white}{\textbf{Rôle}} \\
 \hline
-Utilisateur & Responsable des activités marketing, de la gestion des publications sociales et des campagnes publicitaires. \\
+Utilisateur & Marketeur authentifié : publications, campagnes, profil et dialogue avec l’assistant IA. \\
 \hline
-Owner / Admin Workspace & Utilisateur disposant de privilèges supplémentaires pour administrer les membres et les paramètres du workspace. \\
+Admin & Spécialisation de l’Utilisateur ; gère le workspace (membres, rôles, préférences). \\
 \hline
-Visiteur Web & Utilisateur externe pouvant soumettre des formulaires de génération de leads. \\
+Fournisseur IA & Service externe (ex.\ Gemini) pour comprendre les demandes, planifier et exécuter. \\
+\hline
+Plateformes sociales & Réseaux (Meta, X, etc.) pour OAuth, publication et métriques. \\
+\hline
+Plateformes publicitaires & Google Ads / Meta Ads pour OAuth, publication et performances. \\
+\hline
+Visiteur web & Internautes soumettant un formulaire public de lead. \\
 \hline
 \end{tabularx}
-\caption{Identification des acteurs du système}
-\label{tab:acteurs}
 \end{table}
 
-% ===================== 4.2 =====================
+Cette distinction permet de clarifier les frontières du système : les acteurs humains initient les cas d’usage, tandis que les systèmes externes réalisent les échanges techniques indispensables à l’automatisation marketing.
+
 \subsection{Diagramme global des cas d’utilisation}
 
-Le diagramme global des cas d’utilisation d’Agent-Market présente les différentes interactions entre les acteurs du système et les fonctionnalités offertes par la plateforme.
-
-Le système est organisé autour de trois grands modules :
-
-\begin{itemize}
-\item \textbf{Authentification \& Workspace} : gestion des comptes utilisateurs, de l’authentification, des workspaces et de la collaboration entre membres.
-\item \textbf{Gestion Sociale} : création, planification et publication de contenu sur les réseaux sociaux ainsi que le suivi des performances.
-\item \textbf{Gestion Publicitaire} : création et gestion des campagnes publicitaires, collecte des leads et analyse des performances marketing.
-\end{itemize}
-
-La plateforme interagit également avec plusieurs systèmes externes tels que les plateformes sociales, les plateformes publicitaires et les fournisseurs de services d’intelligence artificielle.
+La figure~\ref{fig:uc_global} présente la vue d’ensemble d’Agent-Market. L’\textbf{Utilisateur} accède aux modules métier (assistant IA, publications, campagnes, profil) ; l’\textbf{Admin} hérite de ces droits et ajoute la \textbf{Gestion Workspace}. Tous ces cas \textbf{incluent} «~Se connecter~». Les \textbf{extend} de la gestion workspace couvrent invitation, rôles et préférences.
 
 \begin{figure}[H]
 \centering
-\safeimage{width=1.0\textwidth ,height=0.98\textheight}{images/Diagramme_de_cas_d'utilisation.png}
-\caption{Diagramme global des cas d’utilisation du système Agent-Market}\end{figure}
+\safeimage{width=0.92\textwidth,height=0.44\textheight}{images/use_case_global.png}
+\caption{Diagramme global des cas d’utilisation du système Agent-Market}
+\label{fig:uc_global}
+\end{figure}
 
-% ===============================================================
-% TABLE — AUTHENTIFICATION
-% ===============================================================
+Le tableau détaille le cas «~Authentification et gestion du workspace~» : connexion JWT, rattachement à un workspace, et actions Admin (membres, rôles, préférences). 
 
-Ce tableau décrit le cas d’utilisation selon lequel un utilisateur ou un administrateur de workspace peut accéder à la plateforme Agent-Market, créer un compte, rejoindre un espace de travail et gérer les paramètres associés. Le processus garantit l’authentification sécurisée via JWT tout en gérant les erreurs éventuelles liées aux identifiants, aux invitations ou aux permissions insuffisantes.
-
-\noindent\textbf{Description textuelle « Authentification et gestion du workspace »}
-
+\deschead{Authentification et gestion du workspace}
 \begin{table}[H]
 \centering
 \caption{Description textuelle — Authentification et Workspace}
-
-\renewcommand{\arraystretch}{1.5}
+\renewcommand{\arraystretch}{1.4}
 \begin{tabular}{|p{0.28\textwidth}|p{0.62\textwidth}|}
 \hline
 \textbf{Cas d’utilisation} & Authentification et gestion du workspace \\
 \hline
-\textbf{Acteurs} & Utilisateur, Admin Workspace \\
+\textbf{Acteurs} & Utilisateur, Admin \\
 \hline
 \textbf{Résumé} &
-Permet aux utilisateurs de créer un compte, se connecter, créer ou rejoindre un workspace et gérer leur profil. Les administrateurs peuvent également gérer les membres, les rôles et les paramètres du workspace. \\
+Créer un compte, se connecter, rejoindre ou administrer un workspace (membres, rôles, préférences). \\
 \hline
 \textbf{Précondition} &
-L’utilisateur dispose d’un accès à la plateforme. \\
+Accès à la plateforme. \\
 \hline
 \textbf{Scénario principal} &
-\begin{itemize}[leftmargin=*]
-\item L’utilisateur crée un compte ou se connecte.
-\item Le système authentifie l’utilisateur via JWT.
-\item L’utilisateur crée un workspace personnel ou rejoint un workspace via invitation.
-\item L’utilisateur accède à son espace de travail.
-\item L’administrateur invite des membres et configure les rôles.
-\item L’administrateur gère les préférences du workspace.
+\begin{itemize}[leftmargin=*,itemsep=2pt,topsep=2pt]
+\item L’utilisateur se connecte (cas inclus par les autres modules).
+\item Il crée un compte ou ouvre une session JWT.
+\item L’Admin invite des membres, gère rôles et préférences.
 \end{itemize}
 \\
-\hline
-\textbf{Scénarios alternatifs} &
-\begin{itemize}[leftmargin=*]
-\item Identifiants invalides.
-\item Invitation expirée ou invalide.
-\item Permissions insuffisantes pour certaines actions administratives.
-\end{itemize}
-\\
+
 \hline
 \end{tabular}
 \end{table}
 
-% ===============================================================
-% TABLE — GESTION SOCIALE
-% ===============================================================
+Les alternatives couvrent identifiants invalides, invitations expirées et permissions insuffisantes.
 
-Ce tableau décrit le cas d’utilisation par lequel un utilisateur authentifié peut gérer ses publications sur les réseaux sociaux au sein d’Agent-Market. Il couvre la connexion des comptes via OAuth, la création et la génération assistée par IA des contenus, la planification des publications ainsi que le suivi des performances. Le processus prend également en charge les erreurs liées aux plateformes externes ou à la génération de contenu.
+\subsection{Cas d’utilisation — Gestion des publications}
 
-\noindent\textbf{Description textuelle « Gestion Sociale »}
+\figlead[0.55\textheight]{La figure~\ref{fig:uc_post} reprend le cycle brouillon–programmation–publication multi-comptes, ainsi que le recours optionnel à la génération de contenu par IA}
+\begin{figure}[H]
+\centering
+\safeimage{width=1.0\textwidth,height=0.45\textheight}{images/use_case_post.png}
+\caption{Diagramme de cas d’utilisation — Gestion des publications}
+\label{fig:uc_post}
+\end{figure}
 
+
+\deschead{Gestion des publications}
 \begin{table}[H]
 \centering
-\caption{Description textuelle — Gestion Sociale}
-
-\renewcommand{\arraystretch}{1.5}
+\caption{Description textuelle — Gestion des publications}
+\renewcommand{\arraystretch}{1.4}
 \begin{tabular}{|p{0.28\textwidth}|p{0.62\textwidth}|}
 \hline
-\textbf{Cas d’utilisation} & Gestion Sociale \\
+\textbf{Cas d’utilisation} & Gestion des publications \\
 \hline
-\textbf{Acteurs} & Utilisateur \\
+\textbf{Acteurs} & Utilisateur, Fournisseur IA, Plateformes sociales \\
 \hline
 \textbf{Résumé} &
-Permet la création, la génération assistée par IA, la planification et la publication de contenus sur plusieurs réseaux sociaux. \\
+Créer, générer (IA), programmer et publier des posts multi-comptes, puis consulter calendrier et métriques. \\
 \hline
 \textbf{Précondition} &
-L’utilisateur est authentifié. \\
+Utilisateur authentifié. \\
 \hline
 \textbf{Scénario principal} &
-\begin{itemize}[leftmargin=*]
-\item L’utilisateur connecte ses comptes sociaux via OAuth.
-\item L’utilisateur crée un brouillon de publication.
-\item L’utilisateur peut générer du contenu à l’aide de l’IA.
-\item L’utilisateur sélectionne les comptes sociaux destinataires.
-\item L’utilisateur publie immédiatement ou programme la publication.
-\item Le système synchronise les informations avec les plateformes sociales.
-\item L’utilisateur consulte le calendrier éditorial et les métriques sociales.
-\end{itemize}
-\\
-\hline
-\textbf{Scénarios alternatifs} &
-\begin{itemize}[leftmargin=*]
-\item Échec de connexion OAuth.
-\item Rejet de publication par une plateforme sociale.
-\item Échec de génération du contenu IA.
-\item Indisponibilité temporaire d’une plateforme externe.
+\begin{itemize}[leftmargin=*,itemsep=2pt,topsep=2pt]
+\item Connexion des comptes sociaux via OAuth.
+\item Création d’un brouillon (éventuellement généré par IA).
+\item Publication immédiate ou programmation.
+\item Consultation du calendrier et des métriques.
 \end{itemize}
 \\
 \hline
 \end{tabular}
 \end{table}
-% ===============================================================
-% TABLE — GESTION PUBLICITAIRE
-% ===============================================================
 
-Ce tableau décrit le cas d’utilisation selon lequel un utilisateur peut créer, publier et suivre des campagnes publicitaires, gérer des landing pages et collecter des leads via des formulaires soumis par des visiteurs web. Le processus couvre la connexion aux plateformes publicitaires, la synchronisation des campagnes et l’analyse des performances marketing, tout en gérant les échecs de connexion, de publication ou de validation des formulaires.
+Le tableau détaille le cas «~Gestion des publications~» qui couvre génération IA, brouillon, programmation, publication, calendrier et métriques. Programmer et publier \textbf{incluent} le brouillon et la sélection de comptes ; cette dernière \textbf{inclut} l’OAuth. Les acteurs externes sont le \textbf{Fournisseur IA} et les \textbf{plateformes de médias sociaux}.
 
-\noindent\textbf{Description textuelle « Gestion Publicitaire »}
+\subsection{Cas d’utilisation — Gestion des campagnes publicitaires}
 
+La figure~\ref{fig:uc_ad} présente ces cas et relations pour la gestion des campagnes publicitaires~: génération IA, programmation et publication de campagnes, connexion OAuth Ads, performances, landing pages et leads. Programmer ou publier \textbf{inclut} le brouillon et la sélection d’un compte Ads. Le \textbf{Visiteur web} soumet le formulaire public de lead. 
+
+\begin{figure}[H]
+\centering
+\safeimage{width=1.1\textwidth,height=0.6\textheight}{images/use_case_ad.png}
+\caption{Diagramme de cas d’utilisation — Gestion des campagnes publicitaires}
+\label{fig:uc_ad}
+\end{figure}
+
+On y retrouve la chaîne brouillon–programmation–publication, la connexion aux plateformes Ads et le parcours lead via landing page.
+
+Le tableau détaille le cas «~Gestion des campagnes publicitaires~» : création, programmation et publication, gestion des landing pages et leads, analyse des performances.
+
+\deschead{Gestion des campagnes publicitaires}
 \begin{table}[H]
 \centering
-\caption{Description textuelle — Gestion Publicitaire}
-
-\renewcommand{\arraystretch}{1.5}
+\caption{Description textuelle — Gestion des campagnes publicitaires}
+\renewcommand{\arraystretch}{1.4}
 \begin{tabular}{|p{0.28\textwidth}|p{0.62\textwidth}|}
 \hline
-\textbf{Cas d’utilisation} & Gestion Publicitaire \\
+\textbf{Cas d’utilisation} & Gestion des campagnes publicitaires \\
 \hline
-\textbf{Acteurs} & Utilisateur, Visiteur Web \\
+\textbf{Acteurs} & Utilisateur, Fournisseur IA, Plateformes Ads, Visiteur web \\
 \hline
 \textbf{Résumé} &
-Permet de créer, planifier et publier des campagnes publicitaires, gérer les landing pages, collecter les leads et analyser les performances marketing. \\
+Créer, programmer et publier des campagnes, gérer landing pages et leads, analyser les performances. \\
 \hline
 \textbf{Précondition} &
-L’utilisateur possède au moins un compte publicitaire connecté. \\
+Au moins un compte publicitaire connecté (ou connexion OAuth). \\
 \hline
 \textbf{Scénario principal} &
-\begin{itemize}[leftmargin=*]
-\item L’utilisateur connecte un compte publicitaire via OAuth si aucun compte n’est encore associé.
-\item L’utilisateur crée un brouillon de campagne.
-\item L’utilisateur sélectionne un compte publicitaire connecté.
-\item L’utilisateur publie ou programme la campagne.
-\item Les plateformes publicitaires exécutent ou planifient la campagne.
-\item Le système synchronise les campagnes avec les plateformes publicitaires.
-\item L’utilisateur gère les landing pages.
-\item Les visiteurs soumettent des formulaires de génération de leads.
-\item L’utilisateur consulte les leads collectés.
-\item L’utilisateur consulte les performances publicitaires.
-\end{itemize}
-\\
-\hline
-\textbf{Scénarios alternatifs} &
-\begin{itemize}[leftmargin=*]
-\item Échec de connexion à une plateforme publicitaire.
-\item Campagne rejetée par la plateforme Ads.
-\item Échec de synchronisation des campagnes.
-\item Formulaire de lead invalide ou incomplet.
+\begin{itemize}[leftmargin=*,itemsep=2pt,topsep=2pt]
+\item Création d’une campagne en brouillon (contenu éventuellement IA).
+\item Sélection du compte Ads, puis publication ou programmation.
+\item Gestion des landing pages ; le visiteur soumet un lead.
+\item Consultation des leads et des performances.
 \end{itemize}
 \\
 \hline
 \end{tabular}
 \end{table}
+
+Les alternatives couvrent l’échec OAuth Ads, le rejet de campagne et le formulaire de lead invalide.
 
 \subsection{Cas d’utilisation de l’Assistant IA}
 
-
-
-Le diagramme de cas d’utilisation de l’Assistant IA présente les interactions entre l’utilisateur et le module d’intelligence artificielle de la plateforme Agent-Market.
-
-
-
-L’assistant permet à l’utilisateur d’échanger en langage naturel afin d’obtenir de l’aide pour ses activités marketing. À partir de la conversation, l’assistant peut proposer des workflows automatisés composés de plusieurs étapes. Ces workflows doivent être validés par l’utilisateur avant leur exécution.
-
-
-
-Le module s’appuie sur un fournisseur de services d’intelligence artificielle pour la génération des plans d’action et l’exécution des tâches automatisées. L’utilisateur peut également suivre l’état d’avancement des traitements lancés par l’assistant.
-
-
-
+\figlead[0.40\textheight]{La figure~\ref{fig:uc_assistant} synthétise ce parcours conversationnel et décisionnel de l’Assistant IA.}
 \begin{figure}[H]
-
 \centering
-
-\safeimage{width=1\textwidth}{images/Diagramme_de_cas_d'utilisation_Assistant_IA.png}
-
+\safeimage{width=0.75\textwidth,height=0.3\textheight}{images/use_case_assistant.png}
 \caption{Diagramme de cas d’utilisation de l’Assistant IA}
-
+\label{fig:uc_assistant}
 \end{figure}
 
-% ===============================================================
-% TABLE — Assistant IA
-% ===============================================================
+L’utilisateur \textbf{discute} avec l’assistant et \textbf{approuve} les workflows. Le fournisseur IA participe à la compréhension (toute langue), à la planification multi-étapes et à l’exécution. Les relations \textbf{include} enchaînent discussion $\rightarrow$ planification $\rightarrow$ approbation $\rightarrow$ exécution.
 
-Ce tableau décrit le cas d’utilisation par lequel un utilisateur authentifié interagit avec l’assistant conversationnel d’Agent-Market pour exprimer un besoin marketing, obtenir un workflow automatisé proposé par l’intelligence artificielle, le valider puis en suivre l’exécution. Le processus s’appuie sur un fournisseur IA externe et gère les situations où la demande est ambiguë, le workflow est refusé ou une étape d’exécution échoue.
 
-\noindent\textbf{Description textuelle « Assistant IA »}
-
+\deschead{Assistant IA}
 \begin{table}[H]
-
 \centering
-
 \caption{Description textuelle — Assistant IA}
-
-\renewcommand{\arraystretch}{1.5}
-
+\renewcommand{\arraystretch}{1.4}
 \begin{tabular}{|p{0.28\textwidth}|p{0.62\textwidth}|}
-
 \hline
-
 \textbf{Cas d’utilisation} & Assistant IA \\
-
 \hline
-
 \textbf{Acteurs} & Utilisateur, Fournisseur IA \\
-
 \hline
-
 \textbf{Résumé} &
-
-Permet à l’utilisateur d’interagir avec un assistant conversationnel capable de planifier, exécuter et superviser des workflows automatisés à l’aide de l’intelligence artificielle. \\
-
+Dialoguer en langage naturel, obtenir un plan multi-étapes, l’approuver puis l’exécuter via l’IA. \\
 \hline
-
 \textbf{Précondition} &
-
-L’utilisateur est authentifié et dispose d’un accès au module Assistant IA. \\
-
+Utilisateur authentifié avec accès à l’assistant. \\
 \hline
-
 \textbf{Scénario principal} &
-
-\begin{itemize}[leftmargin=*]
-
-\item L’utilisateur démarre une conversation avec l’assistant IA.
-
-\item L’utilisateur exprime un besoin ou un objectif.
-
-\item L’assistant analyse la demande et génère un workflow composé de plusieurs étapes.
-
-\item Le workflow proposé est présenté à l’utilisateur.
-
+\begin{itemize}[leftmargin=*,itemsep=2pt,topsep=2pt]
+\item L’utilisateur ouvre une conversation et exprime son besoin.
+\item Le fournisseur IA comprend la demande et propose un plan.
 \item L’utilisateur approuve le workflow.
-
-\item Le système exécute les différentes tâches planifiées.
-
-\item L’utilisateur consulte l’état d’avancement du traitement.
-
-\item Le système retourne les résultats obtenus.
-
+\item Le système exécute les étapes et restitue le résultat.
 \end{itemize}
-
 \\
-
 \hline
-
 \textbf{Scénarios alternatifs} &
-
-\begin{itemize}[leftmargin=*]
-
-\item La demande de l’utilisateur est ambiguë ou incomplète.
-
-\item Le workflow généré est refusé par l’utilisateur.
-
-\item Une étape du workflow échoue durant l’exécution.
-
-\item Le fournisseur IA est temporairement indisponible.
-
-\item L’utilisateur annule l’exécution avant la fin du traitement.
-
-\end{itemize}
-
-\\
-
+Demande ambiguë ; refus du plan ; échec d’une étape ; IA indisponible. \\
 \hline
-
 \end{tabular}
-
 \end{table}
 
+
+
+Ce module relie ainsi l’intention exprimée en langage naturel à une exécution outillée, sous contrôle explicite de l’utilisateur.
 
 % ===============================================================
 % 5. DIAGRAMMES DE SÉQUENCE
@@ -1528,40 +1209,101 @@ L’utilisateur est authentifié et dispose d’un accès au module Assistant IA
 
 \section{Diagrammes de séquence}
 
-Les diagrammes de séquence permettent de représenter l’enchaînement chronologique des interactions entre les acteurs et le système. Ils décrivent le comportement dynamique de la plateforme Agent-Market.
+Les diagrammes de séquence décrivent l’enchaînement chronologique des interactions entre acteurs et composants. Ils précisent le comportement dynamique des flux d’authentification, d’OAuth, de publication sociale et d’assistance IA. Contrairement aux cas d’utilisation, ils rendent visibles les messages échangés, les retours et les alternatives (\texttt{alt}, \texttt{loop}) entre l’interface, l’API, la base de données, le worker et les services externes.
 
-% ===================== 5.1 =====================
 \subsection{Authentification et contexte workspace}
 
-Ce diagramme de séquence décrit le processus complet d’authentification dans la plateforme Agent-Market, incluant l’inscription, la connexion, l’exécution de requêtes authentifiées et la gestion du changement de workspace. Il met en évidence l’utilisation de JWT pour sécuriser les échanges ainsi que la gestion multi-workspace par utilisateur.
+Le parcours d’accès se découpe en trois phases : \textbf{inscription} (unicité de l’email, puis invitation ou workspace personnel), \textbf{connexion} (vérification du compte et chargement des workspaces) et \textbf{consultation} dans le workspace actif (contrôle de session puis lecture des données). Les participants sont l’utilisateur, le frontend Next.js, l’API backend et la base de données.
 
+\figlead[0.88\textheight]{La figure~\ref{fig:seq_auth} présente ce déroulement sous forme de diagramme de séquence.}
 \begin{figure}[H]
 \centering
-\safeimage{width=1.0\textwidth,height=0.88\textheight}{images/Diagramme_de_sequence;authentification_et_contexte_workspace.png}
+\safeimage{width=1.0\textwidth,height=0.85\textheight}{images/Authentification_et_contexte_workspace.png}
 \caption{Diagramme de séquence — Authentification et contexte workspace}
+\label{fig:seq_auth}
 \end{figure}
 
-% ===================== 5.2 =====================
-\subsection{Connexion des comptes sociaux ou publicitaires}
+Lors de l’inscription, le système vérifie que l’email n’existe pas déjà, crée le compte, puis soit valide une invitation et rattache l’utilisateur à un workspace existant, soit crée un workspace personnel. La connexion recharge les workspaces accessibles et fixe le workspace actif dans la session. Toute consultation ultérieure commence par un contrôle de session et de contexte, afin d’isoler les données multi-tenant avant la lecture en base.
 
-Ce diagramme de séquence illustre le processus complet de connexion des comptes sociaux ou publicitaires via OAuth sur la plateforme Agent-Market. Il met en évidence les interactions entre l’utilisateur, l’application web, l’API backend et les fournisseurs externes (Meta, Google, X, etc.), ainsi que le traitement asynchrone des données via un worker.
+En synthèse, le diagramme met en évidence :
+\begin{itemize}[leftmargin=2em,itemsep=2pt,topsep=4pt]
+\item la création de session JWT et le choix du workspace actif ;
+\item le branchement invitation / workspace personnel à l’inscription ;
+\item le garde-fou systématique avant toute lecture métier.
+\end{itemize}
 
+Ce scénario garantit qu’aucune consultation métier n’a lieu sans session valide et sans contexte workspace résolu. Il constitue le prérequis de tous les enchaînements suivants : sans workspace actif, ni OAuth ni publication ne peuvent être exécutés de manière cohérente.
+
+\subsection{Connexion d’un compte social (OAuth)}
+
+La connexion OAuth enchaîne quatre phases : \textbf{démarrage}, \textbf{autorisation} auprès de la plateforme externe, \textbf{enregistrement} du compte (avec sélection éventuelle de page/compte), puis \textbf{synchronisation} asynchrone (import posts et métriques par le worker). Les acteurs externes typiques sont Meta, X ou LinkedIn.
+
+Au démarrage, l’interface demande à l’API une URL d’autorisation ; le contexte (workspace, réseau choisi) est mémorisé côté serveur. Après authentification chez le fournisseur, le callback renvoie un code ou des jetons. Lorsque plusieurs pages ou comptes sont disponibles, l’utilisateur en sélectionne un avant l’enregistrement en base. Le worker lance ensuite un import initial, persiste les données récupérées et notifie l’interface de la fin de synchronisation, ce qui actualise la liste des comptes connectés.
+
+Les points clés à retenir sont :
+\begin{itemize}[leftmargin=2em,itemsep=2pt,topsep=4pt]
+\item la redirection OAuth et la mémorisation du contexte applicatif ;
+\item la sélection optionnelle d’une page ou d’un compte côté fournisseur ;
+\item l’import asynchrone (posts, métriques) avant la notification UI.
+\end{itemize}
+
+\figlead[0.88\textheight]{La figure~\ref{fig:seq_oauth} détaille ces interactions jusqu’à la notification de fin de synchronisation.}
 \begin{figure}[H]
 \centering
-\safeimage{width=1.1\textwidth,height=0.8\textheight}{images/Diagramme_de_sequence;Connecter_compte_social (OAuth).png}
-\caption{Diagramme de séquence — Connexion des comptes sociaux ou publicitaires}
+\safeimage{width=1.0\textwidth,height=0.8\textheight}{images/Connecter_compte.png}
+\caption{Diagramme de séquence — Connexion d’un compte social (OAuth)}
+\label{fig:seq_oauth}
 \end{figure}
 
-% ===================== 5.3 =====================
-\subsection{Planification et publication d’un post}
+À l’issue de la synchronisation, l’API notifie l’interface afin d’actualiser la liste des comptes connectés. Cette étape conditionne la sélection multi-comptes lors de la création et de la publication d’un post.
 
-Ce diagramme de séquence décrit le processus complet de création, planification et publication d’un post sur la plateforme Agent-Market. Il met en évidence les interactions entre l’utilisateur, le système backend, les workers asynchrones et les connecteurs vers les plateformes sociales, ainsi que la gestion des notifications en temps réel.
+\subsection{Planification et publication d’un post social}
 
+\figlead[0.88\textheight]{La figure~\ref{fig:seq_post} formalise cette délégation au worker et le suivi du statut par compte.}
 \begin{figure}[H]
 \centering
-\safeimage{width=1.0\textwidth,height=0.89\textheight}{images/Diagramme_de_sequence;publication_d'un_post.png}
-\caption{Diagramme de séquence — Publication d’un post}
+\safeimage{width=1.0\textwidth,height=0.83\textheight}{images/Planification_et_publication_post_social.png}
+\caption{Diagramme de séquence — Planification et publication d’un post social}
+\label{fig:seq_post}
 \end{figure}
+
+Ce flux couvre le cycle \textbf{brouillon $\rightarrow$ immédiat ou programmé $\rightarrow$ multi-comptes}. Après création du brouillon, l’utilisateur choisit une publication immédiate (worker lancé tout de suite) ou programmée (planification persistée, exécution à l’heure due). L’exécution charge le post, publie en boucle sur chaque compte cible, enregistre les statuts, puis notifie l’interface.
+
+La phase de création persiste le contenu, les médias et les comptes cibles comme brouillon. En publication immédiate, l’API délègue au worker sans attendre ; en publication programmée, seule la date/heure est enregistrée jusqu’à l’échéance. Pendant l’exécution, chaque compte fait l’objet d’un appel distinct vers le réseau social : succès et erreurs sont historisés séparément, puis un statut global est calculé. La notification finale permet à l’utilisateur de consulter le résultat sans recharger manuellement l’ensemble du dashboard.
+
+Le diagramme insiste donc sur :
+\begin{itemize}[leftmargin=2em,itemsep=2pt,topsep=4pt]
+\item l’alternative publication immédiate / publication programmée ;
+\item la boucle multi-comptes avec statut unitaire puis statut global ;
+\item la remontée du résultat vers l’interface (notification).
+\end{itemize}
+
+
+
+Ce diagramme est indispensable pour comprendre une publication multi-réseaux fiable et traçable.
+
+\subsection{Fonctionnement de l’Assistant IA}
+
+Le dialogue suit la chaîne utilisateur $\rightarrow$ interface $\rightarrow$ API $\rightarrow$ worker IA $\rightarrow$ LLM. Après compréhension de la demande, une alternative distingue la \textbf{conversation simple} (réponse affichée) du \textbf{workflow} (plan à valider, exécution bouclée sur les plateformes externes, résumé LLM, résultat final).
+
+Dans le cas conversationnel, le worker retourne directement une réponse exploitable dans le chat. Dans le cas workflow, un plan multi-étapes est soumis à validation : l’utilisateur approuve, l’API lance l’exécution, chaque étape interroge les connecteurs ou le LLM, puis un résumé consolide les résultats. Cette séparation protège les actions à effet de bord (publication, campagne) derrière un contrôle humain explicite.
+
+On retient notamment :
+\begin{itemize}[leftmargin=2em,itemsep=2pt,topsep=4pt]
+\item la bifurcation conversation simple / workflow après analyse LLM ;
+\item l’étape d’approbation avant toute exécution outillée ;
+\item la génération d’un résumé final à l’issue de la boucle d’étapes.
+\end{itemize}
+
+\figlead[0.85\textheight]{La figure~\ref{fig:seq_assistant} montre ces deux branches au sein d’un même enchaînement.}
+\begin{figure}[H]
+\centering
+\safeimage{width=0.9\textwidth,height=0.75\textheight}{images/Assistant_IA.png}
+\caption{Diagramme de séquence — Fonctionnement de l’Assistant IA}
+\label{fig:seq_assistant}
+\end{figure}
+
+Ce scénario relie la conversation, la validation humaine et l’exécution automatisée.
 
 % ===============================================================
 % 6. DIAGRAMME DE CLASSE
@@ -1569,242 +1311,105 @@ Ce diagramme de séquence décrit le processus complet de création, planificati
 
 \section{Diagramme de classe}
 
-Le diagramme de classe représente la structure statique du système Agent-Market. Il décrit les principales entités métier ainsi que leurs relations, notamment la gestion des utilisateurs, des workspaces, des comptes connectés aux plateformes sociales et publicitaires, des contenus marketing, des campagnes publicitaires et des workflows d’intelligence artificielle.
+Le diagramme de classe de figure~\ref{fig:class} décrit la structure statique d’Agent-Market. 
 
-Les classes présentées correspondent au modèle de données utilisé dans MongoDB et permettent de structurer les différentes fonctionnalités de la plateforme.
 
-% ===================== TABLE =====================
+\figlead[0.78\textheight]{Le diagramme de classe ci-dessous synthétise ces relations assurent la cohérence des données multi-tenant et préparent l’implémentation des modules social, Ads et assistant.}
+\begin{figure}[H]
+\centering
+\safeimage{width=1.05\textwidth,height=0.76\textheight}{images/class.png}
+\caption{Diagramme de classe du système Agent-Market}
+\label{fig:class}
+\end{figure}
+
+Le \textbf{Workspace} agrège utilisateurs, comptes, contenus, campagnes et artefacts d’agent. La classe \textbf{Compte} se spécialise en comptes publicitaires et comptes de réseaux sociaux ; les posts et campagnes publient respectivement sur ces comptes. Les relations de composition lient \textbf{AgentConversation} à \textbf{AgentMessage}, tandis qu’\textbf{AgentWorkflow} orchestre les traitements IA.
+
+Le tableau~\ref{tab:classes} résume les classes du modèle ; la figure~\ref{fig:class} en donne la vue UML complète.
+
 \begin{table}[H]
 \centering
 \caption{Dictionnaire des classes du système Agent-Market}
-
-\renewcommand{\arraystretch}{1.25}
-\setlength{\tabcolsep}{6pt}
-
-\begin{tabular}{|p{0.22\textwidth}|p{0.30\textwidth}|p{0.38\textwidth}|}
+\label{tab:classes}
+\renewcommand{\arraystretch}{1.55}
+\setlength{\tabcolsep}{8pt}
+\begin{tabular}{|p{0.26\textwidth}|p{0.33\textwidth}|p{0.33\textwidth}|}
 \hline
 \textbf{Classe} & \textbf{Description} & \textbf{Responsabilités principales} \\
 \hline
-
-Utilisateur & Utilisateur de la plateforme Agent-Market
-& Authentification, gestion du profil et accès aux workspaces. \\
+Utilisateur & Compte applicatif & Authentification, profil, accès aux workspaces. \\
 \hline
-
-Workspace & Espace de travail collaboratif
-& Gestion des membres, ressources et organisation des données. \\
+Workspace & Espace collaboratif & Membres, invitations, organisation des données. \\
 \hline
-
-Role & Rôle d’un utilisateur dans un workspace
-& Gestion des permissions et des accès. \\
+Role & Permissions workspace & Contrôle d’accès. \\
 \hline
-
-Compte & Compte connecté via OAuth
-& Connexion aux plateformes externes et gestion des tokens. \\
+Compte & Compte OAuth générique & Tokens, provider, rattachement workspace. \\
 \hline
-
-Compte Social & Compte relié aux réseaux sociaux
-& Publication et récupération des contenus sociaux. \\
+Comptes de réseaux sociaux & Spécialisation sociale & Publication et métriques sociales. \\
 \hline
-
-Compte Ads & Compte lié aux plateformes publicitaires
-& Gestion des campagnes publicitaires et accès aux APIs Ads. \\
+Comptes publicitaires & Spécialisation Ads & Campagnes et APIs publicitaires. \\
 \hline
-
-Post & Publication sociale
-& Création, planification et publication multi-plateformes. \\
+Post & Publication sociale & Brouillon, planification, multi-comptes. \\
 \hline
-
-Media & Fichier multimédia
-& Stockage et association aux publications. \\
+Media & Fichier multimédia & Association aux posts/campagnes. \\
 \hline
-
-Campaign & Campagne marketing
-& Gestion du budget, ciblage et suivi des performances. \\
+Campaign & Campagne marketing & Statut, plateforme, publication Ads. \\
 \hline
-
-LandingPage & Page de conversion
-& Collecte de leads et suivi des conversions. \\
+LandingPage & Page de conversion & Collecte de leads. \\
 \hline
-
-Lead & Prospect marketing
-& Stockage des données utilisateurs et attribution aux campagnes. \\
+Lead & Prospect & Attribution à une landing page. \\
 \hline
-
-AgentConversation & Conversation avec l’agent IA
-& Gestion du contexte et historique des échanges. \\
+AgentConversation & Dialogue IA & Historique et contexte. \\
 \hline
-
-AgentMessage & Message d’une conversation IA
-& Stockage des messages utilisateur/IA. \\
+AgentMessage & Message de conversation & Contenu utilisateur / assistant. \\
 \hline
-
-AgentWorkflow & Workflow IA automatisé
-& Orchestration des tâches et suivi des étapes d’exécution. \\
+AgentWorkflow & Plan d’exécution IA & Création et suivi des étapes. \\
 \hline
-
 \end{tabular}
-
 \renewcommand{\arraystretch}{1.0}
 \end{table}
-\vspace{0.5cm}
 
-Le diagramme de classe offre une vue globale de l’architecture métier d’Agent-Market. Il met en évidence l’organisation des workspaces, la gestion des comptes connectés aux plateformes sociales et publicitaires, l’administration des campagnes marketing et des contenus sociaux, ainsi que l’intégration d’agents intelligents permettant d’automatiser diverses tâches marketing. Les relations entre les classes assurent la cohérence des données et facilitent la collaboration entre les utilisateurs au sein de la plateforme.
-
-\begin{figure}[H]
-\centering
-\safeimage{width=1.1\textwidth,height=0.8\textheight}{images/Diagramme_de_classe.png}
-\caption{Diagramme de classe du système Agent-Market}
-\end{figure}
+La figure~\ref{fig:class} met en évidence les multiplicités (workspace $1..*$ utilisateurs, posts liés à un média, campagnes liées aux comptes Ads, etc.) cohérentes avec le modèle MongoDB.
 
 
 \section{Diagramme d’activité}
 
-Le diagramme d’activité UML modélise, de manière dynamique, l’enchaînement des actions et les décisions prises au cours d’un processus métier. Dans le cadre d’Agent-Market, il permet de visualiser notamment le déroulement de l’assistant IA marketing et les workflows automatisés de publication de contenu.
+Les diagrammes d’activité formalisent les décisions et enchaînements du processus Assistant IA : d’abord conversation, planification et validation, puis exécution étape par étape jusqu’au résumé final.
 
-\subsection{Le processus global de l’Assistant IA}
+\subsection{Conversation, planification et validation}
 
-Ce diagramme illustre le fonctionnement global de l’Assistant IA d’Agent-Market, depuis la formulation de la demande utilisateur jusqu’à l’exécution des actions marketing et la restitution des résultats. Il met en évidence les différentes étapes de planification, de validation et d’exécution du workflow généré par l’intelligence artificielle.
-
-\subsubsection*{1. Ouverture de la conversation}
-
-Le processus débute lorsque l’utilisateur accède à l’interface de l’Assistant IA.
-
-\begin{itemize}
-    \item L’utilisateur ouvre l’espace de discussion dédié à l’assistant.
-    \item Il peut reprendre une conversation existante ou démarrer une nouvelle session.
-    \item Il saisit sa demande en langage naturel et peut joindre des ressources complémentaires, telles que des images ou des documents.
-\end{itemize}
-
-\subsubsection*{2. Planification du workflow}
-
-Après la soumission de la demande, le système procède à son analyse et prépare un plan d’exécution adapté.
-
-\begin{itemize}
-    \item La demande est validée puis enregistrée dans la conversation active.
-    \item Un workflow est créé afin de représenter les actions à réaliser.
-    \item L’assistant analyse le contexte disponible, notamment les ressources, les intégrations et les données associées à l’espace de travail.
-    \item Un ensemble structuré d’étapes est généré afin de répondre à l’objectif exprimé par l’utilisateur.
-    \item Si la planification automatique ne peut être établie correctement, le système applique une stratégie alternative garantissant la continuité du processus.
-\end{itemize}
-
-\subsubsection*{3. Validation du workflow}
-
-Selon la nature des actions à effectuer, une validation utilisateur peut être requise avant le lancement du traitement.
-
-\begin{itemize}
-    \item L’assistant présente un résumé du workflow ainsi que les étapes prévues.
-    \item L’utilisateur peut approuver, rejeter ou annuler le workflow proposé.
-    \item En cas de rejet ou d’annulation, le processus est interrompu.
-    \item Lorsque aucune validation n’est nécessaire, le workflow peut être exécuté directement.
-\end{itemize}
-
-\subsubsection*{4. Exécution des étapes}
-
-Une fois le workflow validé, le système exécute les différentes actions définies lors de la phase de planification.
-
-\begin{itemize}
-    \item Les étapes sont exécutées dans un ordre cohérent en tenant compte de leurs dépendances.
-    \item Les traitements peuvent inclure la génération de contenu, la préparation de campagnes marketing ou la publication sur les réseaux sociaux.
-    \item L’avancement de l’exécution est suivi en temps réel et communiqué à l’utilisateur.
-    \item En cas d’échec d’une étape, le système applique les règles prévues afin de poursuivre ou d’interrompre le workflow selon le niveau de criticité de l’erreur.
-\end{itemize}
-
-\subsubsection*{5. Finalisation et consultation des résultats}
-
-À l’issue de l’exécution, le système consolide les résultats obtenus et les met à disposition de l’utilisateur.
-
-\begin{itemize}
-    \item Le workflow est clôturé avec un statut indiquant son succès ou son échec.
-    \item Les résultats produits sont enregistrés et présentés dans l’interface.
-    \item L’utilisateur peut consulter les contenus générés, les publications effectuées, les campagnes préparées ainsi que les différents éléments produits par l’assistant.
-\end{itemize}
-
+\figlead[0.88\textheight]{La figure~\ref{fig:act_plan} présente ce flux de conversation, planification et validation.}
 \begin{figure}[H]
 \centering
-\safeimage{width=1.0\textwidth,height=0.98\textheight}{images/Diagramme_d'activité_du_processus_global_d'Assistant_IA.png}
-\caption{Diagramme d'activité du processus global de l'Assistant IA}
+\safeimage{width=0.8\textwidth,height=0.6\textheight}{images/ai-assistant-activity-planification.png}
+\caption{Diagramme d’activité — Conversation, planification et validation}
+\label{fig:act_plan}
 \end{figure}
 
-Ce diagramme met en évidence le cycle complet de traitement d’une demande au sein de l’Assistant IA d’Agent-Market. Il illustre la collaboration entre l’utilisateur et le système intelligent, depuis l’expression du besoin jusqu’à la production et l’exécution des actions marketing correspondantes.
+Le processus part de l’ouverture de l’assistant et de la saisie d’un message. Après enregistrement de la conversation et planification asynchrone, le worker charge le contexte (workspace, comptes, outils) et analyse l’intent via le LLM. Deux chemins se distinguent : \textbf{conversation} (génération et affichage d’une réponse) ou \textbf{workflow} (construction et affichage du plan). La validation peut conduire au refus (annulation), à une approbation manuelle ou à un mode \textbf{auto}, avant le lancement asynchrone de l’exécution.
 
-\subsection{Création et publication de deux posts Facebook}
+Cette activité complète la séquence Assistant IA en explicitant les décisions métier : nature de l’intent, nécessité d’un plan, mode de validation et bascule vers l’exécution. Elle montre aussi que le refus interrompt proprement le workflow, sans effet de bord sur les plateformes externes.
 
-Ce diagramme d’activité illustre le processus de création et de publication automatisée de deux publications Facebook à partir d’une demande formulée en langage naturel. Il met en évidence les différentes étapes de planification, de validation et d’exécution permettant à l’assistant intelligent de produire et de diffuser du contenu sur les réseaux sociaux.
 
-\subsubsection*{1. Formulation de la demande}
 
-Le processus débute lorsque l’utilisateur souhaite publier du contenu sur Facebook.
+Ce processus place la validation humaine au centre du cycle, tout en permettant une exécution automatique lorsque le mode le prévoit.
 
-\begin{itemize}
-\item L’utilisateur demande la création de deux publications portant sur un sujet donné.
-\item Il sélectionne Facebook comme plateforme de diffusion.
-\item Il définit les modalités de publication : une première publication immédiate et une seconde publication programmée.
-\item La demande est ensuite transmise au système pour traitement.
-\end{itemize}
+\subsection{Exécution du workflow et résultats}
 
-\subsubsection*{2. Planification du workflow}
-
-Après réception de la demande, le système prépare les différentes actions nécessaires à son exécution.
-
-\begin{itemize}
-\item La demande est enregistrée et un workflow est créé.
-\item L’assistant analyse les objectifs exprimés par l’utilisateur.
-\item Les étapes de création de contenu, de génération des visuels et de publication sont organisées dans un plan d’exécution cohérent.
-\item Le workflow généré est préparé pour validation.
-\end{itemize}
-
-\subsubsection*{3. Validation utilisateur}
-
-Avant le lancement des opérations, le workflow proposé est présenté à l’utilisateur.
-
-\begin{itemize}
-\item Le système affiche les actions prévues ainsi que leur enchaînement.
-\item L’utilisateur vérifie le plan proposé.
-\item Après validation, le workflow est autorisé à être exécuté.
-\end{itemize}
-
-\subsubsection*{4. Création et publication du premier post}
-
-Le système exécute la première partie du workflow.
-
-\begin{itemize}
-\item Le contenu textuel de la publication est généré.
-\item Une description du visuel est produite puis utilisée pour générer l’image associée.
-\item Un brouillon de publication est créé.
-\item La publication est diffusée immédiatement sur Facebook.
-\end{itemize}
-
-\subsubsection*{5. Création et programmation du second post}
-
-Le système poursuit ensuite l’exécution avec la seconde publication.
-
-\begin{itemize}
-\item Le contenu textuel du deuxième post est généré.
-\item Le visuel associé est créé selon le même processus.
-\item Un brouillon de publication est préparé.
-\item La publication est programmée pour être diffusée ultérieurement.
-\item Le post est automatiquement publié à la date et à l’heure prévues.
-\end{itemize}
-
-\subsubsection*{6. Finalisation et consultation des résultats}
-
-Une fois toutes les opérations terminées, le système clôture le workflow et présente les résultats obtenus.
-
-\begin{itemize}
-\item Le workflow est marqué comme terminé.
-\item Un récapitulatif des actions réalisées est généré.
-\item L’utilisateur peut consulter la publication déjà diffusée ainsi que la publication programmée.
-\end{itemize}
-
+\figlead[0.88\textheight]{La figure~\ref{fig:act_exec} détaille cette boucle d’exécution et la gestion des erreurs.}
 \begin{figure}[H]
 \centering
-\safeimage{width=1.0\textwidth,height=0.98\textheight}{images/Diagramme_d'activité_du_Création_et_publication_de_deux_posts_Facebook.png}
-\caption{Diagramme d'activité — Création et publication de deux posts Facebook}
+\safeimage{width=0.8\textwidth,height=0.6\textheight}{images/ai-assistant-activity-execution.png}
+\caption{Diagramme d’activité — Exécution du workflow et résultats}
+\label{fig:act_exec}
 \end{figure}
 
-Ce diagramme met en évidence la capacité de l’Assistant IA à automatiser l’ensemble du processus de création et de diffusion de contenu sur les réseaux sociaux. Il montre comment une simple demande utilisateur est transformée en un workflow structuré permettant la génération, la planification et la publication automatisée de plusieurs contenus Facebook.
+L’exécution décrit la boucle «~pour chaque étape~» : sélection de l’outil, puis action \textbf{externe} (connecteur Social/Ads) ou \textbf{interne} (création/mise à jour d’une ressource métier). En cas d’échec, une erreur critique marque le workflow en échec ; sinon l’échec est enregistré et le traitement poursuit. À la fin de la boucle, un résumé LLM est généré, le statut final est persisté et l’utilisateur est notifié.
+
+Le point central est la distinction entre erreur critique (arrêt) et erreur non critique (poursuite), qui évite qu’un incident local n’annule inutilement l’ensemble du plan. La notification de progression et le résumé final rendent le traitement observable depuis l’interface.
 
 
+
+Ces deux activités complètent les diagrammes de séquence de l’assistant en précisant les branchements métier (intent, validation, criticité des erreurs).
 
 % ===============================================================
 % 7. CONCLUSION
@@ -1812,11 +1417,9 @@ Ce diagramme met en évidence la capacité de l’Assistant IA à automatiser l�
 
 \section{Conclusion}
 
-Dans ce chapitre, nous avons présenté l’architecture globale du système, les diagrammes de cas d’utilisation, les diagrammes de séquence, le diagramme de classe ainsi que les diagrammes d’activité afin de mieux comprendre le fonctionnement de la plateforme.
+Ce chapitre a présenté la modélisation UML d’Agent-Market : cas d’utilisation (vue globale, publications, campagnes, assistant), diagrammes de séquence (authentification, OAuth, publication, assistant), diagramme de classe et diagrammes d’activité de planification puis d’exécution.
 
-Ces modèles UML permettent de visualiser les interactions entre les différentes composantes de la plateforme Agent-Market et constituent une base essentielle pour la phase de conception et de développement.
-
-Dans le chapitre suivant, nous présenterons les outils et technologies utilisés pour la réalisation du projet.
+Ces modèles clarifient les interactions entre acteurs, modules et composants techniques. Le chapitre suivant détaille l’architecture déployée et les technologies retenues pour la réalisation.
 
 \newpage
 
@@ -1828,23 +1431,7 @@ Dans le chapitre suivant, nous présenterons les outils et technologies utilisé
 
 \addcontentsline{toc}{chapter}{Chapitre \thechapter : Outils et technologies de développement}
 
-\vspace*{8cm}
-
-\noindent\textcolor{darkgreen}{\rule{\textwidth}{4pt}}
-
-\vspace{1.5cm}
-
-\begin{center}
-{\chapterpagetitle{Chapitre \thechapter : Outils et technologies de développement }}
-\end{center}
-
-\vspace{1.5cm}
-
-\noindent\textcolor{darkgreen}{\rule{\textwidth}{4pt}}
-
-\vfill
-
-\newpage
+\chapterpagetitle{Outils et technologies de développement}
 
 % ===============================================================
 % CHAPITRE — OUTILS ET TECHNOLOGIES
@@ -1852,128 +1439,344 @@ Dans le chapitre suivant, nous présenterons les outils et technologies utilisé
 
 \section{Introduction}
 
-Ce chapitre présente les technologies et outils mobilisés pour la réalisation de la plateforme Agent-Market. Nous distinguons d’abord la \textbf{stack technologique} de l’application, organisée selon les couches frontend, backend et persistance, puis l’\textbf{environnement de travail} qui assure le déploiement et l’exécution reproductible des services.
+Ce chapitre présente l’architecture déployée d’Agent-Market, puis les technologies et outils mobilisés pour sa réalisation. Nous détaillons d’abord la \textbf{vue système globale}, puis l’architecture de l’assistant IA en deux phases (\textbf{planification} et \textbf{exécution}), avant d’exposer la stack technique et l’environnement de travail.
+
+\section{Architecture du système}
+
+L’architecture d’Agent-Market se compose de plusieurs composants interconnectés, chacun ayant un rôle spécifique dans le traitement des demandes marketing, l’orchestration des tâches et la restitution des résultats. Voici une description détaillée de chaque composant et de leurs interactions à partir de la figure~\ref{fig:architecture_globale}.
+
+\begin{figure}[H]
+\centering
+\safeimage{width=1.0\textwidth,height=0.5\textheight}{images/Architecture_Système_(Vue_Globale).png}
+\caption{Architecture système d’Agent-Market — vue globale}
+\label{fig:architecture_globale}
+\end{figure}
+
+\begin{itemize}[leftmargin=2em,itemsep=6pt]
+
+\item \textbf{Utilisateur~:}
+Le processus commence par l’utilisateur, marketeur qui interagit avec la plateforme via l’interface web pour gérer publications, campagnes, comptes connectés et assistant IA.
+
+\textit{Interaction~:} l’utilisateur utilise l’interface (étape~1) pour consulter le dashboard, saisir des actions et suivre les notifications en temps réel.
+
+\item \textbf{Interface web (Next.js / React)~:}
+L’interface web est le point d’interaction entre l’utilisateur et l’application. Elle présente les écrans métier, envoie les requêtes authentifiées et affiche les mises à jour live.
+
+\textit{Interaction~:} elle envoie des requêtes HTTP sécurisées par JWT à l’API métier (étape~2) et reçoit les événements via le canal temps réel (étape~10) pour actualiser l’UI sans rechargement complet.
+
+\item \textbf{API métier (Fastify / Node.js)~:}
+L’API métier gère la logique applicative, l’authentification JWT, la validation des entrées et l’orchestration entre persistance, file de tâches et événements.
+
+\textit{Interaction~:} elle lit et enregistre les données dans MongoDB (étape~3), pousse les tâches via \texttt{LPUSH} vers Redis (étape~4), publie des événements (étape~8) et reçoit les retours HTTP internes du worker (étape~7).
+
+\item \textbf{MongoDB~:}
+MongoDB constitue la source de vérité documentaire (utilisateurs, workspaces, posts, campagnes, leads, conversations et workflows agent).
+
+\textit{Interaction~:} l’API y persiste l’état métier ; le worker contribue indirectement via les mises à jour remontées à l’API.
+
+\item \textbf{Redis (Celery + Pub/Sub)~:}
+Redis sert de broker de messages~: file d’attente des tâches Celery et canal pub/sub pour le temps réel.
+
+\textit{Interaction~:} il reçoit les tâches de l’API (étape~4), les livre au worker (étape~5), relaie les événements publiés (étapes~8--9) vers SocketCluster.
+
+\item \textbf{Worker (Python / Celery)~:}
+Le worker exécute les traitements longs~: génération IA, publication sociale, gestion Ads, imports et synchronisations.
+
+\textit{Interaction~:} il consomme les tâches Redis (étape~5), appelle les services externes (étapes~6a--6c), puis notifie l’API en HTTP interne (étape~7).
+
+\item \textbf{Temps réel (SocketCluster)~:}
+SocketCluster assure la diffusion WebSocket des notifications vers le dashboard.
+
+\textit{Interaction~:} il s’abonne au relais Redis pub/sub (étape~9) et pousse les mises à jour vers l’interface via le canal d’événements (étape~10).
+
+\item \textbf{Services externes (IA, Social, Ads)~:}
+Les fournisseurs IA (OpenAI / Anthropic, etc.), les réseaux sociaux (Meta, X, \ldots) et les plateformes Ads (Meta / Google) étendent les capacités métier hors du périmètre applicatif interne.
+
+\textit{Interaction~:} le worker leur délègue la génération de contenu (6a), la publication (6b) et la gestion de campagnes (6c).
+
+\end{itemize}
+
+\subsection{Synthèse du flux global}
+
+En résumé, l’utilisateur interagit via Next.js/React~; l’API Fastify orchestre JWT, MongoDB et Redis~; le worker Celery exécute les opérations lourdes vers l’IA, le social et les Ads~; Redis pub/sub et SocketCluster ramènent les événements vers l’interface. Cette chaîne garantit une séparation claire entre requête synchrone, traitement asynchrone et notification temps réel.
+
+\section{Architecture de l’assistant IA — planification}
+
+Au-delà de la vue système, l’assistant IA s’appuie sur la même chaîne technique pour une phase dédiée~: \textbf{comprendre / planifier}. La figure~\ref{fig:architecture_plan} détaille les composants et leurs interactions (A1~$\rightarrow$~A10).
+
+\begin{figure}[H]
+\centering
+\safeimage{width=1.0\textwidth,height=0.5\textheight}{images/architecture_ai-assistant-planing.png}
+\caption{Architecture de l’assistant IA — phase A (comprendre / planifier)}
+\label{fig:architecture_plan}
+\end{figure}
+
+\begin{itemize}[leftmargin=2em,itemsep=6pt]
+
+\item \textbf{Utilisateur~:}
+Il exprime un besoin marketing en langage naturel dans le chat.
+
+\textit{Interaction~:} envoi du message via le chat Next.js (A1).
+
+\item \textbf{Chat (Next.js)~:}
+Interface conversationnelle de l’assistant~; affiche ensuite le plan généré.
+
+\textit{Interaction~:} appelle \texttt{POST /agent/chat} (A2), puis interroge le statut du job pour afficher le plan (A10).
+
+\item \textbf{API (Fastify)~:}
+Orchestre la création de la conversation/workflow et l’enqueue de la planification.
+
+\textit{Interaction~:} persiste conversation et workflow dans MongoDB (A3), enfile \texttt{plan\_workflow} dans Redis (A4), reçoit le patch du planificateur (A9).
+
+\item \textbf{MongoDB~:}
+Stocke l’historique de conversation et l’état du workflow en cours de planification.
+
+\textit{Interaction~:} lecture/écriture par l’API aux étapes A3 et lors des mises à jour ultérieures.
+
+\item \textbf{Redis (bridge)~:}
+File d’attente entre l’API et le worker pour la tâche de planification.
+
+\textit{Interaction~:} reçoit \texttt{plan\_workflow} (A4) et la livre au worker (A5).
+
+\item \textbf{Worker (Celery)~:}
+Consomme la tâche asynchrone et démarre le module de planification.
+
+\textit{Interaction~:} consomme la tâche (A5) puis lance le planificateur (A6).
+
+\item \textbf{Planificateur~:}
+Construit un plan multi-étapes à partir de l’intention utilisateur et du catalogue d’outils.
+
+\textit{Interaction~:} injecte le catalogue (A7), interroge le LLM pour comprendre l’intention (A8), envoie un patch workflow à l’API (A9).
+
+\item \textbf{Catalogue d’outils~:}
+Référentiel des actions disponibles (social, Ads, ressources métier, etc.).
+
+\textit{Interaction~:} fourni au planificateur pour borner le plan aux capacités réellement exécutables (A7).
+
+\item \textbf{LLM~:}
+Fournisseur d’intelligence artificielle pour la compréhension de la demande et la proposition de plan.
+
+\textit{Interaction~:} reçoit le contexte du planificateur et retourne une intention structurée / un plan (A8).
+
+\end{itemize}
+
+\subsection{Synthèse de la phase A}
+
+La phase A transforme un message utilisateur en plan validable~: chat $\rightarrow$ API $\rightarrow$ MongoDB/Redis $\rightarrow$ worker/planificateur/LLM, puis affichage du plan dans l’interface. Aucune action à effet de bord (publication, campagne) n’est encore exécutée.
+
+\section{Architecture de l’assistant IA — exécution}
+
+Une fois le plan validé, la phase \textbf{B — valider / exécuter} (B1~$\rightarrow$~B10) met en œuvre les étapes prévues. La figure~\ref{fig:architecture_exec} en précise les composants.
+
+\begin{figure}[H]
+\centering
+\safeimage{width=1.0\textwidth,height=0.5\textheight}{images/architecture_ai-assistant-execution.png}
+\caption{Architecture de l’assistant IA — phase B (valider / exécuter)}
+\label{fig:architecture_exec}
+\end{figure}
+
+\begin{itemize}[leftmargin=2em,itemsep=6pt]
+
+\item \textbf{Utilisateur~:}
+Il examine le plan proposé et décide de l’approuver.
+
+\textit{Interaction~:} validation du plan dans le chat (B1).
+
+\item \textbf{Chat (Next.js)~:}
+Déclenche l’exécution et affiche progression puis résumé.
+
+\textit{Interaction~:} envoie \texttt{POST approve / execute} (B2) et reçoit le suivi via poll / WebSocket (B10).
+
+\item \textbf{API (Fastify)~:}
+Enfile l’exécution, persiste les mises à jour et expose le statut au chat.
+
+\textit{Interaction~:} enqueue \texttt{execute\_workflow} dans Redis (B3), reçoit patches/événements (B8), met à jour MongoDB (B9), notifie l’UI (B10).
+
+\item \textbf{Redis (bridge)~:}
+Transporter la tâche d’exécution vers le worker.
+
+\textit{Interaction~:} file \texttt{execute\_workflow} consommée en B4.
+
+\item \textbf{Worker (Celery)~:}
+Démarre le moteur d’exécution du workflow.
+
+\textit{Interaction~:} consomme la tâche (B4) et démarre l’exécuteur (B5).
+
+\item \textbf{Exécuteur~:}
+Parcourt les étapes du plan dans l’ordre défini.
+
+\textit{Interaction~:} dispatch chaque étape vers le dispatcher d’outils (B6) et remonte patches + events à l’API (B8).
+
+\item \textbf{Dispatcher (outils)~:}
+Route chaque étape vers le connecteur adapté.
+
+\textit{Interaction~:} actions marketing vers Social \& Ads (B7a) et génération de contenu via LLM (B7b).
+
+\item \textbf{Social \& Ads~:}
+Plateformes externes de publication et de publicité.
+
+\textit{Interaction~:} exécutent les actions demandées par le dispatcher (B7a) et retournent succès/erreur.
+
+\item \textbf{LLM~:}
+Génère les contenus nécessaires pendant l’exécution (textes, variantes, résumés intermédiaires selon les étapes).
+
+\textit{Interaction~:} appelé par le dispatcher pour la génération (B7b).
+
+\item \textbf{MongoDB~:}
+Conserve l’état final et intermédiaire du workflow exécuté.
+
+\textit{Interaction~:} mis à jour par l’API après chaque remontée d’événements (B9).
+
+\end{itemize}
+
+\subsection{Synthèse de la phase B}
+
+Après validation humaine, l’API enfile l’exécution~; le worker active l’exécuteur et le dispatcher orchestre Social/Ads et LLM. Les événements remontent à l’API/MongoDB, puis le chat affiche le résumé. Planification et exécution restent ainsi découplées, tout en réutilisant la même infrastructure que l’architecture système globale.
 
 % ===============================================================
 \section{Technologies de la plateforme}
 
-La plateforme repose sur une architecture distribuée en plusieurs services. Les technologies présentées ci-dessous correspondent aux composants décrits au chapitre précédent : interface web, API d’orchestration, worker asynchrone, moteur temps réel et couches de stockage.
+La plateforme repose sur les composants décrits ci-dessus. Les technologies suivantes correspondent à chaque couche~: interface web, API d’orchestration, worker asynchrone, moteur temps réel, stockage, fournisseurs IA et intégrations externes.
 
-% ===================== 2.1 =====================
+% Ligne techno : texte à gauche, logo à droite
+% Contrôle global des tailles (modifiez ces valeurs) :
+\newcommand{\techTextWidth}{0.78\textwidth}   % largeur du paragraphe
+\newcommand{\techLogoColWidth}{0.18\textwidth}% largeur de la colonne logo
+\newcommand{\techLogoHeight}{1.55cm}          % hauteur max du logo
+\newcommand{\techLogoWidth}{0.95\linewidth}  % largeur max du logo dans sa colonne
+% Usage :
+%   \techrow{images/Gemini.png}{...}           % taille par défaut
+%   \techrow[2.2cm]{images/Gemini.png}{...}    % hauteur personnalisée
+\newcommand{\techrow}[3][\techLogoHeight]{%
+  \par\noindent
+  \begin{minipage}[c]{\techTextWidth}
+  #3
+  \end{minipage}\hfill
+  \begin{minipage}[c]{\techLogoColWidth}
+  \centering
+  \safeimage{width=\techLogoWidth,height=#1,keepaspectratio}{#2}
+  \end{minipage}\par
+  \vspace{0.85em}%
+}
+
 \subsection{Frontend}
 
 La couche frontend constitue l’interface utilisateur du dashboard marketing. Elle consomme l’API REST et reçoit les mises à jour en temps réel via WebSocket.
 
 \subsubsection{Next.js}
 
-Next.js est un framework basé sur React permettant de développer des applications web performantes et optimisées. Il offre des fonctionnalités avancées telles que le rendu côté serveur (SSR), la génération statique (SSG) ainsi qu’un système de routage performant.
-
-\begin{figure}[H]
-\centering
-\safeimage{width=0.2\textwidth,height=0.125\textheight}{images/Nextjs.png}
-\end{figure}
+\techrow[2.2cm]{images/Nextjs.png}{%
+Next.js est un framework basé sur React permettant de développer des applications web performantes et optimisées. Il offre le rendu côté serveur (SSR), la génération statique (SSG) et un routage adapté au dashboard Agent-Market.%
+}
 
 \subsubsection{React}
 
-React est une bibliothèque JavaScript utilisée pour la construction d’interfaces utilisateur interactives. Elle permet de créer des composants réutilisables et de gérer efficacement l’état de l’application, tout en offrant une expérience utilisateur fluide et dynamique.
-
-\begin{figure}[H]
-\centering
-\safeimage{width=0.2\textwidth,height=0.125\textheight}{images/React.png}
-\end{figure}
+\techrow[2.2cm]{images/React.png}{%
+React est une bibliothèque JavaScript utilisée pour construire des interfaces interactives. Elle permet de créer des composants réutilisables et de gérer l’état de l’application de manière fluide.%
+}
 
 \subsubsection{CSS}
 
-CSS (Cascading Style Sheets) est utilisé pour la mise en forme et la présentation visuelle de l’application. Il permet de définir les styles, les animations et les mises en page responsives afin d’améliorer l’expérience utilisateur.
+\techrow[2.2cm]{images/CSS.png}{%
+CSS assure la mise en forme et la présentation visuelle de l’application~: styles, animations et mises en page responsives pour une expérience utilisateur cohérente.%
+}
 
-\begin{figure}[H]
-\centering
-\safeimage{width=0.2\textwidth,height=0.15\textheight}{images/CSS.png}
-\end{figure}
-
-% ===================== 2.2 =====================
 \subsection{Backend}
 
-La couche backend regroupe l’API d’orchestration, le worker asynchrone et le moteur de communication temps réel. Elle centralise la logique métier, délègue les traitements lourds et diffuse les événements vers l’interface.
+La couche backend regroupe l’API d’orchestration, le runtime Node.js, le worker asynchrone et le moteur de communication temps réel.
+
+\subsubsection{Node.js}
+
+\techrow[2.2cm]{images/node.png}{%
+Node.js fournit l’environnement d’exécution JavaScript côté serveur. Il héberge l’API Fastify et permet de traiter efficacement les requêtes concurrentes du dashboard.%
+}
 
 \subsubsection{Fastify}
 
-Fastify est un framework backend pour Node.js reconnu pour sa rapidité et sa faible consommation de ressources. Il permet de développer des API robustes, performantes et modulaires grâce à un système de plugins efficace.
-
-\begin{figure}[H]
-\centering
-\safeimage{width=0.2\textwidth,height=0.125\textheight}{images/Fastify.png}
-\end{figure}
+\techrow[2.2cm]{images/Fastify.png}{%
+Fastify est un framework backend Node.js reconnu pour sa rapidité et sa faible empreinte. Il structure l’API métier (JWT, validation, plugins) de façon modulaire et performante.%
+}
 
 \subsubsection{Python}
 
-Python est un langage polyvalent utilisé pour l’automatisation, le traitement de données et l’intelligence artificielle. Dans le projet Agent-Market, il est utilisé pour les traitements intelligents et les tâches analytiques.
-
-\begin{figure}[H]
-\centering
-\safeimage{width=0.2\textwidth,height=0.125\textheight}{images/Python.png}
-\end{figure}
+\techrow[2.2cm]{images/Python.png}{%
+Python est utilisé pour le worker d’automatisation, les connecteurs externes et les appels aux fournisseurs IA. Il convient aux traitements longs et aux intégrations data/IA.%
+}
 
 \subsubsection{Celery}
 
-Celery est un système de gestion de tâches asynchrones pour Python. Il permet d’exécuter des processus en arrière-plan tels que l’envoi de notifications ou le traitement de données sans bloquer l’application principale.
-
-\begin{figure}[H]
-\centering
-\safeimage{width=0.3\textwidth,height=0.125\textheight}{images/Celery.png}
-\end{figure}
+\techrow[2.2cm]{images/Celery.png}{%
+Celery orchestre les tâches asynchrones Python~: publication sociale, synchronisations Ads, planification de posts et exécution des workflows agent sans bloquer l’API.%
+}
 
 \subsubsection{SocketCluster}
 
-SocketCluster est une solution de communication en temps réel permettant l’échange instantané de données entre le serveur et les clients. Elle est utilisée pour les notifications, les mises à jour live et les tableaux de bord dynamiques.
+\techrow[2.2cm]{images/SocketCluster.png}{%
+SocketCluster assure la communication temps réel (WebSocket). Il relaie les événements Redis vers le dashboard pour les notifications live (publications, workflows, sync).%
+}
 
-\begin{figure}[H]
-\centering
-\safeimage{width=0.2\textwidth,height=0.125\textheight}{images/SocketCluster.png}
-\end{figure}
-
-% ===================== 2.3 =====================
 \subsection{Base de données et messagerie}
 
 Les couches de persistance et de messagerie assurent le stockage des données métier, la gestion des files de tâches et la diffusion des événements applicatifs.
 
 \subsubsection{MongoDB}
 
-MongoDB est une base de données NoSQL orientée documents. Elle stocke les données au format JSON, offrant ainsi une grande flexibilité, une scalabilité élevée et de bonnes performances pour les applications modernes.
-
-\begin{figure}[H]
-\centering
-\safeimage{width=0.3\textwidth,height=0.125\textheight}{images/MongoDB.png}
-\end{figure}
+\techrow[2.2cm]{images/MongoDB.png}{%
+MongoDB est la base documentaire NoSQL de la plateforme. Elle stocke utilisateurs, workspaces, posts, campagnes, leads, conversations et workflows au format flexible JSON/BSON.%
+}
 
 \subsubsection{Redis}
 
-Redis est une base de données en mémoire utilisée comme cache et broker de messages. Elle est combinée avec Celery pour gérer efficacement les files de tâches et sert de canal pub/sub pour la diffusion temps réel vers SocketCluster.
+\techrow[2.2cm]{images/Redis.png}{%
+Redis sert de broker Celery et de canal pub/sub. Il enfile les tâches API$\rightarrow$worker et relaie les événements temps réel vers SocketCluster.%
+}
 
-\begin{figure}[H]
-\centering
-\safeimage{width=0.2\textwidth,height=0.125\textheight}{images/Redis.png}
-\end{figure}
+\subsection{Fournisseurs d’intelligence artificielle}
 
-% ===============================================================
+L’assistant et la génération de contenu s’appuient sur plusieurs fournisseurs LLM configurables par workspace.
+
+\subsubsection{Google Gemini}
+
+\techrow[2.2cm]{images/Gemini.png}{%
+Gemini est un fournisseur LLM de Google utilisé pour la compréhension des demandes, la planification de workflows et la génération de contenus marketing (texte et, selon les cas, multimédia).%
+}
+
+\subsubsection{OpenAI}
+
+\techrow[2.2cm]{images/chatgpt.jpg}{%
+OpenAI fournit des modèles de langage pour la génération de contenu, le résumé de résultats et l’assistance conversationnelle au sein de l’agent.%
+}
+
+\subsection{Intégrations sociales et publicitaires}
+
+Les connecteurs OAuth et API relient Agent-Market aux plateformes de diffusion et d’acquisition.
+
+\subsubsection{Meta}
+
+\techrow[2.2cm]{images/Meta.png}{%
+Meta (Facebook / Instagram et Meta Ads) permet la connexion OAuth des pages, la publication sociale et la gestion/synchronisation des campagnes publicitaires.%
+}
+
+\subsubsection{Google Ads}
+
+\techrow[2.2cm]{images/google_ads.png}{%
+Google Ads est intégré pour connecter les comptes publicitaires, publier ou synchroniser les campagnes et récupérer les performances.%
+}
+
+
 \section{Environnement et outils de développement}
 
-Au-delà de la stack applicative, l’environnement de travail garantit le déploiement cohérent et reproductible de l’ensemble des services sur les postes de développement et en production.
+Au-delà de la stack applicative, l’environnement de travail garantit le déploiement cohérent et reproductible de l’ensemble des services.
 
-% ===================== 3.1 =====================
 \subsection{Docker Compose}
 
-Docker Compose est un outil permettant d’orchestrer plusieurs conteneurs Docker. Il facilite le déploiement de l’application en regroupant les services (frontend, backend, base de données, worker, moteur temps réel, etc.) dans une configuration unique et reproductible.
+\techrow[2.2cm]{images/DockerCompose.png}{%
+Docker Compose orchestre les conteneurs (frontend, API, MongoDB, Redis, worker Celery, SocketCluster, etc.) dans une configuration unique, reproductible en développement comme en production.%
+}
 
-\begin{figure}[H]
-\centering
-\safeimage{width=0.3\textwidth,height=0.2\textheight}{images/DockerCompose.png}
-\end{figure}
-
-% ===============================================================
 \section{Conclusion}
 
-Ce chapitre a présenté la stack technologique d’Agent-Market selon une organisation en trois couches — frontend, backend et base de données — ainsi que l’environnement de développement basé sur Docker Compose.
+Ce chapitre a présenté l’architecture système et agent, puis la stack technologique d’Agent-Market~: frontend, backend, persistance, fournisseurs IA (Gemini, OpenAI, Anthropic), intégrations Meta / Google Ads / X, et l’environnement Docker Compose.
 
 Le choix de ces technologies a été guidé par des critères de performance, de scalabilité et de maintenabilité. Elles constituent la base technique du projet et permettent de garantir une architecture moderne, robuste et évolutive.
 
@@ -1989,23 +1792,7 @@ Dans le chapitre suivant, nous présenterons la réalisation de la solution à t
 
 \addcontentsline{toc}{chapter}{Chapitre \thechapter : Réalisation}
 
-\vspace*{8cm}
-
-\noindent\textcolor{darkgreen}{\rule{\textwidth}{4pt}}
-
-\vspace{1.5cm}
-
-\begin{center}
-{\chapterpagetitle{Chapitre \thechapter : Réalisation }}
-\end{center}
-
-\vspace{1.5cm}
-
-\noindent\textcolor{darkgreen}{\rule{\textwidth}{4pt}}
-
-\vfill
-
-\newpage
+\chapterpagetitle{Réalisation}
 
 % ===============================================================
 % CHAPITRE — RÉALISATION
@@ -2013,22 +1800,25 @@ Dans le chapitre suivant, nous présenterons la réalisation de la solution à t
 
 \section{Introduction}
 
-Dans cette phase de réalisation, je vais décrire en détail comment la plateforme \textbf{Agent Market} a été concrètement développée et présentée à l’utilisateur. Nous explorerons les fonctionnalités mises en place, les interfaces graphiques réalisées, ainsi que les parcours utilisateur permettant de concrétiser les modules d’authentification, de gestion sociale, de campagnes publicitaires, de génération de leads et d’assistant IA. Cette section mettra en lumière le travail pratique accompli et l’implémentation des différentes composantes du système.
+Dans cette phase de réalisation, nous présentons l’implémentation de la plateforme \textbf{Agent Market} à travers ses principales fonctionnalités, ses interfaces graphiques et les parcours utilisateur couvrant l’authentification, la gestion des réseaux sociaux, les campagnes publicitaires, la génération de leads et l’assistant IA.
 
-L’application authentifiée s’organise autour d’une barre latérale structurée en trois piliers — \textbf{Workspace}, \textbf{Marketing} et \textbf{Operations} — d’une barre supérieure affichant le workspace actif, ainsi que d’un bouton flottant donnant accès à l’assistant IA depuis n’importe quelle page.
+L’application authentifiée s’articule autour d’une barre latérale organisée en trois sections — \textbf{Workspace}, \textbf{Marketing} et \textbf{Operations} —, d’une barre supérieure affichant le workspace actif, ainsi que d’un bouton flottant permettant d’accéder à l’assistant IA depuis n’importe quelle page.
+
 
 \section{Interfaces d’authentification et d’accueil}
 
 \subsection{Page de connexion}
 
-Cette interface constitue le point d’entrée de la plateforme. Elle présente le logo Agent Market, le titre de l’application et le sous-titre \textit{Sign in to your account}. L’utilisateur saisit son adresse e-mail et son mot de passe dans un formulaire centré, puis valide via le bouton \textbf{Sign in}. En cas d’échec, un message d’erreur indique que les identifiants sont invalides. Un lien permet de basculer vers la page d’inscription pour les nouveaux utilisateurs.
+Cette interface constitue le point d’entrée de la plateforme. Elle présente le logo Agent Market, le titre de l’application et le sous-titre \textit{Sign in to your account}. L’utilisateur saisit son adresse e-mail et son mot de passe dans un formulaire centré, puis valide via le bouton \textbf{Sign in}.
 
 \begin{figure}[H]
 \centering
-\safeimage{width=0.85\textwidth}{images/login.png}
+\safeimage{width=0.6\textwidth,height=0.4\textheight}{images/login.png}
 \caption{Interface de connexion Agent Market}
 \label{fig:ui_login}
 \end{figure}
+
+En cas d’échec, un message d’erreur indique que les identifiants sont invalides. Un lien permet également de basculer vers la page d’inscription pour les nouveaux utilisateurs.
 
 \subsection{Page d’inscription}
 
@@ -2036,18 +1826,18 @@ Cette interface permet de créer un compte sur la plateforme. Elle propose les c
 
 \begin{figure}[H]
 \centering
-\safeimage{width=0.85\textwidth}{images/register.png}
+\safeimage{width=0.6\textwidth,height=0.6\textheight}{images/register.png}
 \caption{Interface d’inscription}
 \label{fig:ui_register}
 \end{figure}
 
 \subsection{Tableau de bord Overview}
 
-Après authentification, l’utilisateur accède au tableau de bord \textbf{Overview}. Cette page offre une vue synthétique de l’activité du workspace : quatre indicateurs (Total Posts, Scheduled, Published, Failed), la liste des publications récentes et les comptes connectés. Un bouton \textbf{+ New Post} permet de démarrer rapidement une nouvelle publication. Lorsque aucune donnée n’est encore disponible, des états vides guident l’utilisateur : création d’un premier post ou connexion d’un compte via \textbf{Connect Account}.
+Après authentification, l’utilisateur accède au tableau de bord \textbf{Overview}, point d’entrée principal de l’espace de travail authentifié. Cette page offre une vue synthétique et immédiatement lisible de l’activité du workspace, destinée à permettre un diagnostic rapide de l’état éditorial sans naviguer vers des écrans plus détaillés. En tête de page, quatre indicateurs clés résument le volume et la santé des publications : \textbf{Total Posts} (ensemble des contenus créés), \textbf{Scheduled} (publications planifiées en attente), \textbf{Published} (contenus déjà diffusés avec succès) et \textbf{Failed} (échecs de publication à traiter). Sous ces métriques, la liste des publications récentes présente un aperçu chronologique des derniers contenus, avec leur statut et les informations essentielles pour un suivi au quotidien. Une zone dédiée aux comptes connectés rappelle les pages et profils déjà rattachés au workspace, facilitant le contrôle de la couverture multi-plateforme. Un bouton \textbf{+ New Post} permet de démarrer rapidement une nouvelle publication depuis le tableau de bord. Lorsque aucune donnée n’est encore disponible — workspace nouvellement créé ou absence de contenus —, des états vides guident explicitement l’utilisateur vers les actions prioritaires : création d’un premier post ou connexion d’un compte via \textbf{Connect Account}, afin de rendre la prise en main progressive et sans ambiguïté.
 
 \begin{figure}[H]
 \centering
-\safeimage{width=0.95\textwidth}{images/overview.png}
+\safeimage{width=1.0\textwidth,height=0.45\textheight}{images/overview.png}
 \caption{Tableau de bord Overview}
 \label{fig:ui_overview}
 \end{figure}
@@ -2056,80 +1846,81 @@ Après authentification, l’utilisateur accède au tableau de bord \textbf{Over
 
 \subsection{Connexion des comptes sociaux et publicitaires}
 
-L’écran \textbf{Accounts} centralise la connexion des pages et profils sociaux destinés à la publication, ainsi que des comptes publicitaires Google Ads et Meta Ads. Deux sections distinctes sont proposées : \textbf{Social Accounts} (bouton \textbf{Add Account}) et \textbf{Ads Accounts} (bouton \textbf{Connect Ads Account}). Chaque compte affiche son statut (Active / Unauthorized) et des actions de synchronisation ou de rafraîchissement. Des fenêtres modales permettent de choisir la plateforme (Facebook, Instagram, TikTok, LinkedIn, X, Google Ads, Meta Ads) avant de lancer le flux OAuth. Après authentification externe, une page de sélection d’entités permet de choisir la page ou le compte client à rattacher au workspace.
+L’écran \textbf{Accounts} centralise la connexion et la gestion des pages et profils sociaux destinés à la publication, ainsi que des comptes publicitaires Google Ads et Meta Ads. Il constitue le prérequis opérationnel pour la diffusion de contenus et le pilotage des campagnes : sans compte rattaché, les parcours de publication et de publicité ne peuvent aboutir. Deux sections distinctes structurent l’interface afin de séparer clairement les usages éditoriaux et publicitaires : \textbf{Social Accounts}, accessible via le bouton \textbf{Add Account}, regroupe les profils et pages des réseaux sociaux ; \textbf{Ads Accounts}, accessible via \textbf{Connect Ads Account}, regroupe les comptes publicitaires.
 
 \begin{figure}[H]
 \centering
-\safeimage{width=0.95\textwidth}{images/accounts.png}
+\safeimage{width=1.0\textwidth,height=0.45\textheight}{images/accounts.png}
 \caption{Interface de gestion des comptes connectés}
 \label{fig:ui_accounts}
 \end{figure}
 
-\begin{figure}[H]
-\centering
-\safeimage{width=0.75\textwidth}{images/accounts_modal.png}
-\caption{Modal d’ajout d’un compte social ou publicitaire}
-\label{fig:ui_accounts_modal}
-\end{figure}
+Chaque compte affiche son statut (\textbf{Active} lorsque les jetons sont valides, \textbf{Unauthorized} en cas d’expiration ou de révocation des autorisations) ainsi que des actions de synchronisation ou de rafraîchissement permettant de maintenir à jour les métadonnées et les permissions. Des fenêtres modales guident le choix de la plateforme cible — Facebook, Instagram, TikTok, LinkedIn, X pour le social, Google Ads et Meta Ads pour la publicité — avant de lancer le flux OAuth vers le fournisseur externe. Après authentification réussie chez le tiers, une page de sélection d’entités permet à l’utilisateur de choisir précisément la page, le profil ou le compte client à rattacher au workspace, évitant ainsi d’importer automatiquement l’ensemble des ressources disponibles et garantissant un contrôle fin du périmètre connecté.
 
 \subsection{Liste des publications}
 
-L’interface \textbf{Posts} permet de gérer l’ensemble des publications du workspace. Elle propose un bouton \textbf{New Post}, des onglets de filtre (All, Draft, Scheduled, Published, Failed) et un tableau présentant le contenu, le statut, la date planifiée et les comptes associés. Des actions d’édition, de duplication et de consultation des résultats de publication sont disponibles. Lorsque aucune publication n’existe, un état vide invite l’utilisateur à créer son premier post.
+L’interface \textbf{Posts} constitue le centre de gestion de l’ensemble des publications du workspace. Elle permet de suivre le cycle de vie des contenus — de la rédaction à la diffusion — et d’intervenir rapidement sur les éléments à corriger ou à republier. Un bouton \textbf{New Post} ouvre le parcours de création, tandis que des onglets de filtre (\textbf{All}, \textbf{Draft}, \textbf{Scheduled}, \textbf{Published}, \textbf{Failed}) facilitent le basculement entre les différentes étapes du pipeline éditorial. Le tableau principal présente, pour chaque publication, le contenu (texte et aperçu média), le statut courant, la date planifiée le cas échéant, ainsi que les comptes sociaux associés à la diffusion.
 
 \begin{figure}[H]
 \centering
-\safeimage{width=0.95\textwidth}{images/posts.png}
+\safeimage{width=1.0\textwidth,height=0.5\textheight}{images/posts.png}
 \caption{Interface de liste des publications}
 \label{fig:ui_posts}
 \end{figure}
 
 \subsection{Création et édition d’une publication}
 
-La création d’une publication s’effectue via un assistant multi-étapes (\textbf{Type}, \textbf{Content}, \textbf{Media}, \textbf{Preview}). L’utilisateur choisit un type (Image post / Video post), rédige ou génère le contenu à l’aide de l’IA (objectif, ton, hashtags), joint ou génère des médias, puis prévisualise le rendu par plateforme. L’écran d’édition complète ce parcours en permettant de sélectionner les comptes destinataires, de planifier une date et une heure, d’ajouter un premier commentaire (Facebook / Instagram) et de définir un ciblage géographique. Les actions finales proposées sont \textbf{Save Draft}, \textbf{Schedule} et \textbf{Publish}.
-
+La création d’une publication s’effectue via un assistant multi-étapes structuré en quatre phases (\textbf{Type}, \textbf{Content}, \textbf{Media}, \textbf{Preview}), conçu pour guider l’utilisateur de manière progressive et réduire les erreurs de configuration. À l’étape \textbf{Type}, l’utilisateur choisit le format du contenu — \textbf{Image post} ou \textbf{Video post} — selon le type de média à diffuser. L’étape \textbf{Content} permet de rédiger manuellement le texte ou de le générer à l’aide de l’IA en précisant un objectif, un ton rédactionnel et d’éventuels hashtags, afin d’adapter le message au contexte marketing. L’étape \textbf{Media} offre ensuite la possibilité de joindre des fichiers existants ou de générer des visuels via l’IA, avant que l’étape \textbf{Preview} ne présente un aperçu du rendu par plateforme, utile pour vérifier la cohérence du contenu sur chaque réseau. L’écran d’édition complète ce parcours en permettant de sélectionner les comptes destinataires, de planifier une date et une heure de publication, d’ajouter un premier commentaire (Facebook / Instagram) et de définir un ciblage géographique lorsque la plateforme le permet. 
 \begin{figure}[H]
 \centering
-\safeimage{width=0.95\textwidth}{images/post_wizard.png}
+\safeimage{width=1.0\textwidth,height=0.4\textheight}{images/post_wizard.png}
 \caption{Assistant de création de publication}
 \label{fig:ui_post_wizard}
 \end{figure}
 
 \begin{figure}[H]
 \centering
-\safeimage{width=0.95\textwidth}{images/post_editor.png}
+\safeimage{width=1.0\textwidth,height=0.4\textheight}{images/post_editor.png}
 \caption{Éditeur de publication avec prévisualisation}
 \label{fig:ui_post_editor}
 \end{figure}
 
+Les actions finales proposées — \textbf{Save Draft}, \textbf{Schedule} et \textbf{Publish} — couvrent respectivement la sauvegarde pour reprise ultérieure, la planification différée et la publication immédiate.
+
 \subsection{Calendrier éditorial}
 
-L’interface \textbf{Calendar} affiche une grille mensuelle des publications. L’utilisateur peut naviguer entre les mois, cliquer sur un jour pour créer un post à cette date, et déplacer par glisser-déposer les publications planifiées afin de les reprogrammer. Une légende visuelle distingue les statuts Draft, Scheduled, Published et Failed, facilitant ainsi la lecture de la planification éditoriale.
+L’interface \textbf{Calendar} affiche une grille mensuelle des publications, offrant une vision temporelle de la planification éditoriale du workspace. Contrairement à la liste \textbf{Posts}, qui privilégie le détail opérationnel de chaque contenu, le calendrier met l’accent sur la répartition dans le temps et sur la densité éditoriale jour après jour.
+
+Les publications planifiées peuvent en outre être déplacées par glisser-déposer afin d’être reprogrammées sans quitter le calendrier~: cette interaction directe facilite l’ajustement du planning lorsque les priorités marketing évoluent, qu’un créneau se libère ou qu’un conflit de publication apparaît.
 
 \begin{figure}[H]
 \centering
-\safeimage{width=0.95\textwidth}{images/calendar.png}
+\safeimage{width=1.0\textwidth,height=0.5\textheight}{images/calendar.png}
 \caption{Calendrier éditorial}
 \label{fig:ui_calendar}
 \end{figure}
 
+Une légende visuelle distingue clairement les statuts \textbf{Draft}, \textbf{Scheduled}, \textbf{Published} et \textbf{Failed}, permettant d’identifier d’un coup d’oeil les contenus encore en préparation, ceux prêts à paraître, ceux déjà diffusés et ceux ayant échoué. Cette lecture colorée et synthétique fluidifie le pilotage de la planification éditoriale et aide l’équipe à détecter rapidement les déséquilibres ou les actions à entreprendre.
+
+
 \subsection{Médiathèque}
 
-La page \textbf{Media Library} permet de gérer les images et vidéos du workspace. L’utilisateur peut importer des fichiers via \textbf{Upload}, sélectionner plusieurs éléments pour une suppression groupée, et parcourir la grille média paginée. Un état vide invite à téléverser les premiers fichiers lorsque la bibliothèque est encore vide.
+La page \textbf{Media Library} centralise la gestion des images et vidéos du workspace, servant de réservoir de ressources réutilisables lors de la création de publications ou de contenus marketing. L’utilisateur peut importer de nouveaux fichiers via le bouton \textbf{Upload}, sélectionner plusieurs éléments pour une suppression groupée afin d’alléger la bibliothèque, et parcourir la grille média paginée pour retrouver rapidement un actif. Chaque élément est présenté sous forme de vignette, ce qui facilite l’identification visuelle des médias disponibles. Un état vide invite explicitement à téléverser les premiers fichiers lorsque la bibliothèque est encore vide, guidant ainsi l’utilisateur vers la première étape d’alimentation de son espace média.
 
 \begin{figure}[H]
 \centering
-\safeimage{width=0.95\textwidth}{images/media.png}
+\safeimage{width=1.0\textwidth,height=0.5\textheight}{images/media.png}
 \caption{Interface de la médiathèque}
 \label{fig:ui_media}
 \end{figure}
 
 \subsection{Rapports de performance sociale}
 
-L’écran \textbf{Reports} consolide les analytics par plateforme sociale. L’utilisateur sélectionne un compte, définit une période, synchronise les métriques, puis consulte des cartes de statistiques et des graphiques d’évolution (engagement, followers). Des messages d’état vides indiquent clairement lorsqu’aucun compte n’est connecté ou lorsqu’aucune métrique n’a encore été importée.
+L’écran \textbf{Reports} consolide les analytics par plateforme sociale afin d’offrir une lecture unifiée de la performance des comptes connectés. L’utilisateur sélectionne d’abord un compte, définit une période d’analyse, puis synchronise les métriques depuis la plateforme source pour disposer de données à jour. Il consulte ensuite des cartes de statistiques synthétiques et des graphiques d’évolution — notamment sur l’engagement et les followers — qui permettent de comparer les périodes et d’identifier les tendances. Des messages d’état vides indiquent clairement lorsqu’aucun compte n’est connecté ou lorsqu’aucune métrique n’a encore été importée, orientant l’utilisateur vers la connexion d’un compte ou le lancement d’une première synchronisation avant toute analyse.
 
 \begin{figure}[H]
 \centering
-\safeimage{width=0.95\textwidth}{images/reports.png}
+\safeimage{width=1.0\textwidth,height=0.5\textheight}{images/reports.png}
 \caption{Interface des rapports sociaux}
 \label{fig:ui_reports}
 \end{figure}
@@ -2138,24 +1929,13 @@ L’écran \textbf{Reports} consolide les analytics par plateforme sociale. L’
 
 \subsection{Hub des campagnes Ads}
 
-La page \textbf{Ads} constitue le point d’entrée de la gestion publicitaire Google Ads et Meta Ads. Elle affiche des indicateurs globaux (budget, dépenses, CTR, campagnes actives), des panneaux par plateforme avec synchronisation, ainsi qu’un tableau \textbf{All Campaigns}. Des raccourcis permettent d’accéder à la performance, aux comptes et à la création d’une nouvelle campagne (\textbf{New Campaign}).
+La page \textbf{Ads} constitue le point d’entrée de la gestion publicitaire Google Ads et Meta Ads au sein du workspace. Elle offre une vue d’ensemble destinée à évaluer rapidement la santé des investissements publicitaires sans naviguer immédiatement vers les écrans détaillés. En tête de page, des indicateurs globaux résument le budget alloué, les dépenses réalisées, le taux de clics (CTR) et le nombre de campagnes actives. Des panneaux par plateforme, munis d’actions de synchronisation, permettent de rafraîchir les données issues de Google Ads et Meta Ads. Un tableau \textbf{All Campaigns} regroupe ensuite l’ensemble des campagnes pour un suivi transversal. Des raccourcis facilitent enfin l’accès à la performance détaillée, à la gestion des comptes publicitaires et à la création d’une nouvelle campagne via \textbf{New Campaign}.
 
 \begin{figure}[H]
 \centering
-\safeimage{width=0.95\textwidth}{images/ads.png}
+\safeimage{width=1.0\textwidth,height=0.5\textheight}{images/ads.png}
 \caption{Hub de gestion des campagnes publicitaires}
 \label{fig:ui_ads}
-\end{figure}
-
-\subsection{Création et gestion des campagnes}
-
-L’interface \textbf{Campaigns} liste les campagnes avec leurs attributs principaux (plateforme, type, budget, dépenses, CTR, statut, dates). L’utilisateur peut synchroniser Google Ads, filtrer par statut, éditer, publier ou supprimer une campagne. La création s’effectue via une fenêtre modale permettant de choisir la plateforme puis de renseigner le formulaire de configuration. Cette interface assure une vision cohérente entre les campagnes locales et celles synchronisées depuis les plateformes externes.
-
-\begin{figure}[H]
-\centering
-\safeimage{width=0.95\textwidth}{images/ads_campaigns.png}
-\caption{Liste et gestion des campagnes}
-\label{fig:ui_ads_campaigns}
 \end{figure}
 
 \subsection{Performance publicitaire}
@@ -2180,23 +1960,9 @@ L’interface \textbf{Landing Pages} permet de créer et publier des pages de co
 \label{fig:ui_landing_pages}
 \end{figure}
 
-\begin{figure}[H]
-\centering
-\safeimage{width=0.85\textwidth}{images/landing_page_editor.png}
-\caption{Éditeur de landing page}
-\label{fig:ui_landing_page_editor}
-\end{figure}
-
 \subsection{Collecte des leads}
 
 La page \textbf{Leads} centralise les prospects capturés via les formulaires des landing pages. Elle affiche un compteur de leads, un bouton \textbf{Export CSV}, et un tableau regroupant la date, les champs dynamiques, la page source et les paramètres UTM. Un état vide indique qu’aucune conversion n’a encore été enregistrée et invite à publier une landing page pour démarrer la collecte.
-
-\begin{figure}[H]
-\centering
-\safeimage{width=0.95\textwidth}{images/leads.png}
-\caption{Interface de gestion des leads}
-\label{fig:ui_leads}
-\end{figure}
 
 \section{Interfaces de l’Assistant IA}
 
@@ -2264,10 +2030,10 @@ Dans cette phase de réalisation, nous avons concrétisé la plateforme Agent Ma
 \newpage
 
 % ===============================================================
-% CONCLUSION GÉNÉRALE
+% CONCLUSION GÉNÉRALE ET PERSPECTIVES
 % ===============================================================
-\centeredgreentitle{Conclusion générale}
-\addfrontmattertotoc{Conclusion générale}
+\centeredgreentitle{Conclusion Générale et Perspectives}
+\addfrontmattertotoc{Conclusion Générale et Perspectives}
 
 En conclusion de ce stage chez \textbf{Tripass}, l’expérience acquise a été enrichissante et formatrice, offrant bien plus qu’une simple immersion dans le développement web full-stack. J’ai eu l’opportunité de concevoir et de développer la plateforme \textbf{Agent Market}, une solution intelligente de gestion marketing multi-plateformes visant à centraliser les publications sociales, les campagnes publicitaires, la génération de leads et l’automatisation assistée par IA.
 
@@ -2275,7 +2041,7 @@ La réalisation d’Agent Market a permis de mettre en place une architecture di
 
 Par ailleurs, le développement de l’assistant IA a introduit une dimension conversationnelle au cœur de la plateforme : l’utilisateur exprime un besoin en langage naturel, le système planifie un workflow, le valide auprès de l’utilisateur, puis l’exécute via le worker. L’intégration de fournisseurs LLM (Gemini, OpenAI, Anthropic), la génération de contenu, la création assistée de campagnes et de landing pages m’ont permis d’approfondir mes compétences en intelligence artificielle appliquée et de comprendre les défis de l’intégration d’agents intelligents dans une application métier réelle.
 
-Au-delà des aspects techniques, ce stage m’a permis de saisir les complexités de la gestion de projet Agile (Scrum), de comprendre les dynamiques d’une équipe pluridisciplinaire et d’apprécier l’importance de l’innovation continue. Les interactions quotidiennes avec des professionnels expérimentés — notamment mon encadrant pédagogique Mme. Mariem Malaine, Mr. Abid Khirani et Mr. Amine Ahbouch — m’ont permis de développer des compétences transversales, allant de la résolution de problèmes techniques à la communication efficace.
+Au-delà des aspects techniques, ce stage m’a permis de saisir les complexités de la gestion de projet (méthodologie Waterfall), de comprendre les dynamiques d’une équipe pluridisciplinaire et d’apprécier l’importance de l’innovation continue. Les interactions quotidiennes avec des professionnels expérimentés — notamment mon encadrant pédagogique Mme. Mariem Malaine, Mr. Abid Khirani et Mr. Amine Ahbouch — m’ont permis de développer des compétences transversales, allant de la résolution de problèmes techniques à la communication efficace.
 
 Les défis rencontrés — intégrations OAuth multi-plateformes, fiabilité des tâches asynchrones, cohérence des données entre systèmes externes et base locale, expérience utilisateur unifiée — ont été autant de sources d’apprentissage, renforçant ma capacité à m’adapter rapidement et à trouver des solutions pragmatiques. Cette expérience m’a également confronté à l’importance cruciale de la collaboration et du partage de connaissances au sein d’un environnement de travail dynamique.
 
@@ -2284,33 +2050,41 @@ En somme, ce stage chez Tripass a été une étape décisive dans mon parcours p
 \newpage
 
 % ===============================================================
-% BIBLIOGRAPHIE
+% RÉFÉRENCES
 % ===============================================================
-\centeredgreentitle{Bibliographie}
-\addfrontmattertotoc{Bibliographie}
+\centeredgreentitle{Références}
+\addfrontmattertotoc{Références}
 
-\begin{enumerate}[leftmargin=2em,itemsep=6pt]
-\item Next.js : \url{https://nextjs.org/docs}
-\item React : \url{https://react.dev/learn}
-\item Fastify : \url{https://fastify.dev/docs/latest/}
-\item Node.js : \url{https://nodejs.org/docs/latest/}
-\item MongoDB : \url{https://www.mongodb.com/docs/}
-\item Redis : \url{https://redis.io/docs/}
-\item Celery : \url{https://docs.celeryq.dev/}
-\item Python : \url{https://docs.python.org/3/}
-\item SocketCluster : \url{https://socketcluster.io/}
-\item Docker Compose : \url{https://docs.docker.com/compose/}
-\item Google Ads API : \url{https://developers.google.com/google-ads/api/docs/start}
-\item Meta Marketing API : \url{https://developers.facebook.com/docs/marketing-apis/}
-\item OpenAI API : \url{https://platform.openai.com/docs}
-\item Google Gemini API : \url{https://ai.google.dev/gemini-api/docs}
-\item Anthropic Claude API : \url{https://docs.anthropic.com/}
-\item UML — Object Management Group : \url{https://www.omg.org/spec/UML/}
-\item PlantUML : \url{https://plantuml.com/}
-\item Draw.io : \url{https://www.drawio.com/doc/}
-\item Postman : \url{https://learning.postman.com/docs/}
-\item Scrum Guide : \url{https://scrumguides.org/}
+\begin{enumerate}[leftmargin=2em,itemsep=6pt,label={[\arabic*]}]
+\item Vercel Inc., << Next.js Documentation >>, Documentation officielle Next.js, 2024, \url{https://nextjs.org/docs}, consulté le 26/07/2026.
+
+\item Meta Platforms Inc., << React Documentation >>, Documentation officielle React, 2024, \url{https://react.dev/learn}, consulté le 26/07/2026.
+
+\item Matteo Collina et al., << Fastify Documentation >>, Documentation officielle Fastify, 2024, \url{https://fastify.dev/docs/latest/}, consulté le 26/07/2026.
+
+\item MongoDB Inc., << MongoDB Manual >>, Documentation officielle MongoDB, 2024, \url{https://www.mongodb.com/docs/}, consulté le 26/07/2026.
+
+\item Redis Ltd., << Redis Documentation >>, Documentation officielle Redis, 2024, \url{https://redis.io/docs/}, consulté le 26/07/2026.
+
+\item Ask Solem et al., << Celery -- Distributed Task Queue >>, Documentation officielle Celery, 2024, \url{https://docs.celeryq.dev/}, consulté le 26/07/2026.
+
+\item OpenAI, << OpenAI API Documentation >>, Documentation officielle OpenAI, 2024, \url{https://platform.openai.com/docs}, consulté le 26/07/2026.
+
+\item Google, << Gemini API Documentation >>, Google AI for Developers, 2024, \url{https://ai.google.dev/gemini-api/docs}, consulté le 26/07/2026.
+
+\item Anthropic, << Claude API Documentation >>, Documentation officielle Anthropic, 2024, \url{https://docs.anthropic.com/}, consulté le 26/07/2026.
+
+\item Meta Platforms Inc., << Meta Marketing API >>, Documentation développeurs Meta, 2024, \url{https://developers.facebook.com/docs/marketing-apis/}, consulté le 26/07/2026.
+
+\item Google, << Google Ads API Documentation >>, Google Developers, 2024, \url{https://developers.google.com/google-ads/api/docs/start}, consulté le 26/07/2026.
+
+\item Object Management Group, << Unified Modeling Language (UML) >>, Spécification OMG, 2017, \url{https://www.omg.org/spec/UML/}, consulté le 26/07/2026.
+
+\item Winston W. Royce, << Managing the Development of Large Software Systems >>, Proceedings of IEEE WESCON, 1970, pp.~1--9.
+
+\item Docker Inc., << Docker Compose Documentation >>, Documentation officielle Docker, 2024, \url{https://docs.docker.com/compose/}, consulté le 26/07/2026.
+
+\item SocketCluster, << SocketCluster Documentation >>, Documentation officielle SocketCluster, 2024, \url{https://socketcluster.io/}, consulté le 26/07/2026.
 \end{enumerate}
 
 \end{document}
-

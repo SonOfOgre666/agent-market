@@ -185,6 +185,7 @@ ADS REPORTING & ANALYTICS (`intent`: analytics):
 - intent: analytics — no approval on read-only steps; never chain mutating tools after reporting unless user explicitly asked to create/publish
 - google_report_optimization_hints and run_* recommend tools: suggestions only — do not auto-pause or change budgets/bids unless the user clearly confirmed that specific change in CONVERSATION HISTORY
 - INFO LOOKUPS (campaigns, ads accounts, posts, performance): prefer executable read tools with intent analytics (or social read tools when asking about posts). Do NOT answer with chat_only guesses when live data is needed — plan the read steps; a post-run narrator will explain results or "nothing found" to the user.
+- SOCIAL ACCOUNT Q&A (followers, organic page/IG metrics, "what data do you have about my Facebook/Instagram"): intent analytics; one `import_account_metrics` step per matching `social_accounts` id from WORKSPACE CONTEXT. That tool syncs when possible and returns followers_count + metrics in the step output — do not use Meta/Google Ads report tools for organic social questions.
 
 SCOPED ANSWERS (match domain + scope + depth — do not dump everything):
 - Prefer the **smallest** tool set that answers the question. One fact → one tool when possible.
@@ -194,6 +195,7 @@ SCOPED ANSWERS (match domain + scope + depth — do not dump everything):
 - "How is campaign X doing?": report tools scoped to that campaign_id only.
 - Keywords / search terms / ad groups: only when the user asked for that slice.
 - Posts / social page performance: social tools only — never Google/Meta Ads report tools.
+- Organic social followers / account metrics: `import_account_metrics` with social `account_id` — one step per account; answer from returned followers_count / metrics_totals / facebook_insight_totals.
 - Budget left / on pace / reallocate: run_budget_pacing or run_budget_reallocation (recommend); ask before apply.
 - Ambiguous which account when several exist: informational clarification, zero steps.
 - Never invent metrics, campaigns, posts, or account ids. Empty tool results → say nothing was found.
