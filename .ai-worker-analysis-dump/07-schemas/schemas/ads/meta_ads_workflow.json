@@ -1,0 +1,117 @@
+{
+  "platform": "meta_ads",
+  "label": "Meta Ads",
+  "steps": [
+    {
+      "id": "objective",
+      "title": "Campaign Objective",
+      "description": "Choose what you want this campaign to achieve.",
+      "fields": [
+        {
+          "name": "objective",
+          "label": "Objective",
+          "type": "select",
+          "required": true,
+          "options": [
+            { "value": "OUTCOME_TRAFFIC", "label": "Traffic" },
+            { "value": "OUTCOME_AWARENESS", "label": "Awareness" },
+            { "value": "OUTCOME_ENGAGEMENT", "label": "Engagement" },
+            { "value": "OUTCOME_LEADS", "label": "Leads" },
+            { "value": "OUTCOME_SALES", "label": "Sales" },
+            { "value": "OUTCOME_APP_PROMOTION", "label": "App promotion" }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "campaign",
+      "title": "Campaign",
+      "fields": [
+        { "name": "name", "label": "Campaign name", "type": "text", "required": true },
+        { "name": "account_id", "label": "Connected account", "type": "ad_account", "required": true, "providers": ["meta_ads"] },
+        { "name": "ad_account_id", "label": "Ad account", "type": "meta_ad_account", "required": true }
+      ]
+    },
+    {
+      "id": "targeting",
+      "title": "Targeting",
+      "description": "Geo and interests use meta_search_geo_locations, meta_search_interests, meta_estimate_audience_size.",
+      "fields": [
+        { "name": "target_countries", "label": "Countries (ISO)", "type": "text", "required": false }
+      ]
+    },
+    {
+      "id": "adset",
+      "title": "Ad Set",
+      "description": "Optimization goals are filtered by objective in the wizard (publish_defaults enforces valid pairings). Sales conversion goals require a Meta Pixel (meta_list_ad_pixels).",
+      "fields": [
+        { "name": "adset_name", "label": "Ad set name", "type": "text", "required": true },
+        {
+          "name": "optimization_goal",
+          "label": "Optimization goal",
+          "type": "select",
+          "required": true,
+          "description": "Options depend on campaign objective. OUTCOME_SALES: OFFSITE_CONVERSIONS or VALUE only (not LINK_CLICKS).",
+          "options": [
+            { "value": "LINK_CLICKS", "label": "Link clicks" },
+            { "value": "LANDING_PAGE_VIEWS", "label": "Landing page views" },
+            { "value": "IMPRESSIONS", "label": "Impressions" },
+            { "value": "REACH", "label": "Reach" },
+            { "value": "THRUPLAY", "label": "ThruPlay (video required)" },
+            { "value": "POST_ENGAGEMENT", "label": "Post engagement" },
+            { "value": "LEAD_GENERATION", "label": "Lead generation (instant form)" },
+            { "value": "QUALITY_LEAD", "label": "Quality lead (instant form)" },
+            { "value": "OFFSITE_CONVERSIONS", "label": "Conversions (requires Pixel)" },
+            { "value": "VALUE", "label": "Conversion value (requires Pixel)" },
+            { "value": "APP_INSTALLS", "label": "App installs" }
+          ]
+        },
+        {
+          "name": "billing_event",
+          "label": "Billing event (auto)",
+          "type": "select",
+          "required": true,
+          "description": "LINK_CLICKS goal: IMPRESSIONS or LINK_CLICKS billing. Other goals: IMPRESSIONS only.",
+          "options": [
+            { "value": "IMPRESSIONS", "label": "Impressions" },
+            { "value": "LINK_CLICKS", "label": "Link clicks" }
+          ]
+        },
+        { "name": "daily_budget", "label": "Daily budget (USD)", "type": "number", "required": true, "min": 1 },
+        {
+          "name": "pixel_id",
+          "label": "Meta Pixel",
+          "type": "text",
+          "required": false,
+          "description": "Required for OUTCOME_SALES + OFFSITE_CONVERSIONS/VALUE. Listed via meta_list_ad_pixels; auto-selected when one pixel exists."
+        },
+        {
+          "name": "custom_event_type",
+          "label": "Conversion event",
+          "type": "text",
+          "required": false,
+          "description": "e.g. PURCHASE — used with Sales conversion goals."
+        }
+      ]
+    },
+    {
+      "id": "ads",
+      "title": "Ad creative",
+      "description": "Publish chain (reference_ads): meta_upload_ad_image → meta_create_creative(image_hash, page_id, link_url) → meta_create_ad. One-shot: meta_publish_campaign runs all steps.",
+      "fields": [
+        { "name": "page_id", "label": "Facebook Page", "type": "facebook_page", "required": true },
+        { "name": "link_url", "label": "Destination URL", "type": "url", "required": true },
+        { "name": "image_url", "label": "Ad image URL (public HTTPS)", "type": "url", "required": true },
+        { "name": "primary_text", "label": "Primary text", "type": "textarea", "required": false },
+        { "name": "headlines", "label": "Headline", "type": "text", "required": false },
+        { "name": "descriptions", "label": "Description", "type": "text", "required": false }
+      ]
+    },
+    {
+      "id": "review",
+      "title": "Review & save",
+      "description": "Save draft → Mongo only. Create & publish runs meta_publish_campaign (campaign → ad set → upload image if needed → creative → ad).",
+      "fields": []
+    }
+  ]
+}

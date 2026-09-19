@@ -23,5 +23,3 @@ uploads/
 .pytest_cache/
 celerybeat-schedule
 .claude/
-rapport/
-UML/

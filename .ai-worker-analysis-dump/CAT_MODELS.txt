@@ -1,0 +1,1970 @@
+
+================================================================================
+FILE: /home/sonofogre/Desktop/agent-market/apps/api/src/models/Account.js
+================================================================================
+import { getDb } from '../lib/mongo.js'
+import { ObjectId } from 'mongodb'
+import { nanoid } from 'nanoid'
+import {
+  SOCIAL_PROVIDERS,
+  ADS_PROVIDERS,
+  isSocialProvider,
+  isAdsProvider,
+  filterAccountsByKind,
+} from '../constants/accountKinds.js'
+
+export const COLLECTION = 'accounts'
+
+export { SOCIAL_PROVIDERS, ADS_PROVIDERS, isSocialProvider, isAdsProvider, filterAccountsByKind }
+
+/** All connectable providers (social + ads). */
+export const PROVIDERS = [...SOCIAL_PROVIDERS, ...ADS_PROVIDERS]
+
+// Providers that require at least one media item to publish
+export const MEDIA_REQUIRED_PROVIDERS = ['instagram', 'instagram_login', 'tiktok']
+
+export async function findAll(workspace_id, { kind } = {}) {
+  const filter = workspace_id ? { workspace_id } : {}
+  const rows = await getDb().collection(COLLECTION).find(filter).sort({ created_at: 1 }).toArray()
+  return filterAccountsByKind(rows, kind)
+}
+
+export async function findById(id) {
+  return getDb().collection(COLLECTION).findOne({ _id: new ObjectId(id) })
+}
+
+export async function findByUuid(uuid) {
+  return getDb().collection(COLLECTION).findOne({ uuid })
+}
+
+export async function findByProvider(provider, providerId) {
+  return getDb().collection(COLLECTION).findOne({ provider, provider_id: providerId })
+}
+
+export async function upsertAccount({ workspace_id, provider, provider_id, name, username, media, data, access_token, authorized = true, pending_entities = false }) {
+  const now = new Date()
+  const existing = await findByProvider(provider, provider_id)
+  if (existing) {
+    await getDb().collection(COLLECTION).updateOne(
+      { _id: existing._id },
+      { $set: { name, username, media, data, access_token, authorized, updated_at: now, pending_entities, ...(workspace_id && { workspace_id }) } }
+    )
+    return findById(existing._id.toString())
+  }
+  const doc = {
+    uuid: nanoid(),
+    workspace_id: workspace_id || null,
+    provider,
+    provider_id,
+    name,
+    username,
+    media: media || {},
+    data: data || {},
+    access_token,
+    authorized,
+    pending_entities,
+    created_at: now,
+    updated_at: now,
+  }
+  const result = await getDb().collection(COLLECTION).insertOne(doc)
+  return { ...doc, _id: result.insertedId }
+}
+
+export async function updateAccount(id, fields) {
+  fields.updated_at = new Date()
+  await getDb().collection(COLLECTION).updateOne({ _id: new ObjectId(id) }, { $set: fields })
+  return findById(id)
+}
+
+export async function deleteAccount(id) {
+  return getDb().collection(COLLECTION).deleteOne({ _id: new ObjectId(id) })
+}
+
+export function serialize(account) {
+  if (!account) return null
+  return {
+    id: account._id.toString(),
+    uuid: account.uuid,
+    name: account.name,
+    username: account.username,
+    provider: account.provider,
+    provider_id: account.provider_id,
+    media: account.media || {},
+    data: account.data || {},
+    authorized: account.authorized,
+    created_at: account.created_at,
+  }
+}
+
+
+================================================================================
+FILE: /home/sonofogre/Desktop/agent-market/apps/api/src/models/AgentConversation.js
+================================================================================
+import { getDb } from '../lib/mongo.js'
+import { ObjectId } from 'mongodb'
+import { nanoid } from 'nanoid'
+
+export const COLLECTION = 'agent_conversations'
+
+export async function findById(id, workspace_id) {
+  const filter = { _id: new ObjectId(id) }
+  if (workspace_id) filter.workspace_id = workspace_id
+  return getDb().collection(COLLECTION).findOne(filter)
+}
+
+export async function create({ workspace_id, user_id, title = null }) {
+  const now = new Date()
+  const doc = {
+    workspace_id,
+    user_id,
+    title: title || 'Marketing assistant',
+    messages: [],
+    created_at: now,
+    updated_at: now,
+  }
+  const res = await getDb().collection(COLLECTION).insertOne(doc)
+  return { ...doc, _id: res.insertedId }
+}
+
+export async function appendMessage(conversationId, workspace_id, message) {
+  const filter = { _id: new ObjectId(conversationId) }
+  if (workspace_id) filter.workspace_id = workspace_id
+  const entry = {
+    id: nanoid(),
+    role: message.role,
+    content: message.content,
+    workflow_id: message.workflow_id || null,
+    attachments: Array.isArray(message.attachments) && message.attachments.length
+      ? message.attachments
+      : null,
+    created_at: new Date(),
+  }
+  await getDb().collection(COLLECTION).updateOne(filter, {
+    $push: { messages: entry },
+    $set: { updated_at: new Date() },
+  })
+  return entry
+}
+
+export async function listRecent(workspace_id, { limit = 20 } = {}) {
+  return getDb().collection(COLLECTION)
+    .find({ workspace_id })
+    .sort({ updated_at: -1 })
+    .limit(limit)
+    .toArray()
+}
+
+export async function deleteById(id, workspace_id) {
+  const filter = { _id: new ObjectId(id) }
+  if (workspace_id) filter.workspace_id = workspace_id
+  const res = await getDb().collection(COLLECTION).deleteOne(filter)
+  return res.deletedCount > 0
+}
+
+export function serialize(doc) {
+  if (!doc) return null
+  return {
+    id: doc._id.toString(),
+    workspace_id: doc.workspace_id,
+    user_id: doc.user_id,
+    title: doc.title,
+    messages: (doc.messages || []).map(m => ({
+      id: m.id,
+      role: m.role,
+      content: m.content,
+      workflow_id: m.workflow_id || null,
+      attachments: m.attachments || null,
+      created_at: m.created_at,
+    })),
+    created_at: doc.created_at,
+    updated_at: doc.updated_at,
+  }
+}
+
+
+================================================================================
+FILE: /home/sonofogre/Desktop/agent-market/apps/api/src/models/AgentWorkflow.js
+================================================================================
+import { getDb } from '../lib/mongo.js'
+import { ObjectId } from 'mongodb'
+import { nanoid } from 'nanoid'
+
+export const COLLECTION = 'agent_workflows'
+
+export const WorkflowStatus = {
+  PENDING: 'pending',
+  PLANNING: 'planning',
+  PLANNED: 'planned',
+  AWAITING_APPROVAL: 'awaiting_approval',
+  APPROVED: 'approved',
+  QUEUED: 'queued',
+  RUNNING: 'running',
+  COMPLETED: 'completed',
+  FAILED: 'failed',
+  CANCELLED: 'cancelled',
+}
+
+export async function findById(id, workspace_id) {
+  const filter = { _id: new ObjectId(id) }
+  if (workspace_id) filter.workspace_id = workspace_id
+  return getDb().collection(COLLECTION).findOne(filter)
+}
+
+export async function create({
+  workspace_id,
+  user_id,
+  conversation_id,
+  user_message,
+  attached_media,
+  status = WorkflowStatus.PLANNING,
+}) {
+  const now = new Date()
+  const workflow_id = `wf_${nanoid(12)}`
+  const doc = {
+    workflow_id,
+    workspace_id,
+    user_id,
+    conversation_id: conversation_id || null,
+    user_message,
+    attached_media: Array.isArray(attached_media) && attached_media.length ? attached_media : null,
+    status,
+    intent: null,
+    summary: null,
+    graph: null,
+    approval_gates: [],
+    step_results: null,
+    execution_errors: [],
+    created_at: now,
+    updated_at: now,
+  }
+  const res = await getDb().collection(COLLECTION).insertOne(doc)
+  return { ...doc, _id: res.insertedId }
+}
+
+export async function listRecent(workspace_id, { limit = 20 } = {}) {
+  return getDb().collection(COLLECTION)
+    .find({ workspace_id })
+    .sort({ updated_at: -1 })
+    .limit(limit)
+    .toArray()
+}
+
+export async function deleteByConversationId(conversation_id, workspace_id) {
+  const filter = { conversation_id }
+  if (workspace_id) filter.workspace_id = workspace_id
+  const res = await getDb().collection(COLLECTION).deleteMany(filter)
+  return res.deletedCount
+}
+
+export async function patch(id, workspace_id, fields) {
+  const filter = { _id: new ObjectId(id) }
+  if (workspace_id) filter.workspace_id = workspace_id
+  const $set = { updated_at: new Date() }
+  const allowed = [
+    'status', 'intent', 'summary', 'graph', 'approval_gates',
+    'step_results', 'execution_errors', 'approved_at', 'approved_by',
+  ]
+  for (const k of allowed) {
+    if (fields[k] !== undefined) $set[k] = fields[k]
+  }
+  await getDb().collection(COLLECTION).updateOne(filter, { $set })
+  return findById(id, workspace_id)
+}
+
+const TERMINAL_STATUSES = new Set(['completed', 'failed', 'cancelled', 'awaiting_approval'])
+const INTERRUPTED_MSG = 'Step interrupted — worker stopped before completion.'
+
+function normalizeStepResults(stepResults, workflowStatus) {
+  if (!stepResults || typeof stepResults !== 'object') return stepResults
+  if (!TERMINAL_STATUSES.has(workflowStatus)) return stepResults
+
+  let changed = false
+  const out = { ...stepResults }
+  for (const [sid, row] of Object.entries(out)) {
+    if (row?.status === 'running') {
+      out[sid] = {
+        ...row,
+        status: 'failed',
+        error: row.error || INTERRUPTED_MSG,
+      }
+      changed = true
+    }
+  }
+  return changed ? out : stepResults
+}
+
+export function serialize(doc) {
+  if (!doc) return null
+  const status = doc.status
+  return {
+    id: doc._id.toString(),
+    workflow_id: doc.workflow_id,
+    workspace_id: doc.workspace_id,
+    conversation_id: doc.conversation_id,
+    user_message: doc.user_message,
+    status,
+    intent: doc.intent,
+    summary: doc.summary,
+    graph: doc.graph,
+    approval_gates: doc.approval_gates || [],
+    step_results: normalizeStepResults(doc.step_results, status),
+    execution_errors: doc.execution_errors || [],
+    created_at: doc.created_at,
+    updated_at: doc.updated_at,
+    approved_at: doc.approved_at,
+  }
+}
+
+
+================================================================================
+FILE: /home/sonofogre/Desktop/agent-market/apps/api/src/models/AiCatalog.js
+================================================================================
+import { getDb } from '../lib/mongo.js'
+import {
+  AI_CATALOG_ID,
+  buildAiCatalogSeedDocument,
+  catalogNeedsSync,
+  syncCatalogWithSeed,
+} from '../lib/aiCatalogSeed.js'
+
+export const COLLECTION = 'ai_catalog'
+
+let cachedCatalog = null
+let cacheAt = 0
+const CACHE_MS = 30_000
+
+export async function seedCatalogIfMissing() {
+  const db = getDb()
+  const existing = await db.collection(COLLECTION).findOne({ _id: AI_CATALOG_ID })
+  if (!existing) {
+    const doc = buildAiCatalogSeedDocument()
+    await db.collection(COLLECTION).insertOne(doc)
+    return doc
+  }
+
+  const synced = syncCatalogWithSeed(existing)
+  if (catalogNeedsSync(existing, synced)) {
+    await db.collection(COLLECTION).replaceOne({ _id: AI_CATALOG_ID }, synced)
+    return synced
+  }
+  return synced
+}
+
+export async function getCatalog({ fresh = false } = {}) {
+  if (!fresh && cachedCatalog && Date.now() - cacheAt < CACHE_MS) {
+    return cachedCatalog
+  }
+  const doc = await getDb().collection(COLLECTION).findOne({ _id: AI_CATALOG_ID })
+  if (!doc) {
+    const seeded = await seedCatalogIfMissing()
+    cachedCatalog = seeded
+    cacheAt = Date.now()
+    return seeded
+  }
+  const synced = syncCatalogWithSeed(doc)
+  if (catalogNeedsSync(doc, synced)) {
+    await getDb().collection(COLLECTION).replaceOne({ _id: AI_CATALOG_ID }, synced)
+    cachedCatalog = synced
+  } else {
+    cachedCatalog = synced
+  }
+  cacheAt = Date.now()
+  return cachedCatalog
+}
+
+export function invalidateCatalogCache() {
+  cachedCatalog = null
+  cacheAt = 0
+}
+
+/** UI / API-friendly maps derived from DB catalog. */
+export function catalogViews(catalog) {
+  const models_by_provider_feature = {}
+  const model_labels = {}
+  const api_model_by_selection = {}
+
+  for (const m of catalog.models || []) {
+    if (!m.feature_id || m.feature_id === 'planner') continue
+    if (!models_by_provider_feature[m.feature_id]) models_by_provider_feature[m.feature_id] = {}
+    if (!models_by_provider_feature[m.feature_id][m.provider_id]) {
+      models_by_provider_feature[m.feature_id][m.provider_id] = []
+    }
+    models_by_provider_feature[m.feature_id][m.provider_id].push({
+      id: m.model_id,
+      label: m.label || m.model_id,
+      api_model_id: m.api_model_id || m.model_id,
+    })
+    model_labels[m.model_id] = m.label || m.model_id
+    api_model_by_selection[`${m.feature_id}:${m.provider_id}:${m.model_id}`] =
+      m.api_model_id || m.model_id
+  }
+
+  const planner_models_by_provider = {}
+  const planner_api_model_by_selection = {}
+  for (const m of catalog.planner?.models || []) {
+    if (!planner_models_by_provider[m.provider_id]) planner_models_by_provider[m.provider_id] = []
+    planner_models_by_provider[m.provider_id].push({
+      id: m.model_id,
+      label: m.label || m.model_id,
+      api_model_id: m.api_model_id || m.model_id,
+    })
+    planner_api_model_by_selection[`${m.provider_id}:${m.model_id}`] = m.api_model_id || m.model_id
+  }
+
+  return {
+    provider_ids: catalog.provider_ids || [],
+    provider_labels: catalog.provider_labels || {},
+    feature_ids: catalog.feature_ids || [],
+    feature_labels: catalog.feature_labels || {},
+    providers_for_feature: catalog.providers_for_feature || {},
+    models_by_provider_feature,
+    planner_models_by_provider,
+    planner_provider_ids: catalog.planner?.provider_ids || catalog.provider_ids || [],
+    model_labels,
+    api_model_by_selection,
+    planner_api_model_by_selection,
+    defaults: catalog.defaults || { features: {} },
+    planner_defaults: catalog.planner?.defaults || {},
+  }
+}
+
+function findCatalogModelRow(catalog, { featureId, providerId, modelId, planner = false }) {
+  if (planner) {
+    return (catalog.planner?.models || []).find(
+      m => m.provider_id === providerId && m.model_id === modelId,
+    )
+  }
+  return (catalog.models || []).find(
+    m => m.feature_id === featureId && m.provider_id === providerId && m.model_id === modelId,
+  )
+}
+
+function assertCatalogModelIdsMatch(row) {
+  if (!row) return null
+  const api = row.api_model_id || row.model_id
+  if (api !== row.model_id) {
+    return (
+      `Catalog entry "${row.model_id}" is misconfigured (api_model_id=${api}). `
+      + 'model_id and api_model_id must match.'
+    )
+  }
+  return null
+}
+
+export function resolveApiModelId(catalog, { featureId, providerId, modelId, planner = false }) {
+  const row = findCatalogModelRow(catalog, { featureId, providerId, modelId, planner })
+  if (row) return row.api_model_id || row.model_id
+  return modelId
+}
+
+export async function validateFeatureAssignment(featureId, provider, model, workspace_id = null) {
+  const catalog = await getCatalog()
+  const v = workspace_id
+    ? await (await import('../lib/aiCatalogWorkspace.js')).getWorkspaceCatalogViews(workspace_id)
+    : catalogViews(catalog)
+  if (!v.feature_ids.includes(featureId)) return `Unknown feature: ${featureId}`
+  if (!v.provider_ids.includes(provider)) return `Unknown provider: ${provider}`
+  if (!(v.providers_for_feature[featureId] || []).includes(provider)) {
+    return `${v.provider_labels[provider] || provider} does not support ${v.feature_labels[featureId] || featureId}`
+  }
+  const models = (v.models_by_provider_feature[featureId]?.[provider] || []).map(m => m.id)
+  if (provider === 'ollama') {
+    if (!models.length) {
+      return 'No Ollama models loaded — save and test your Ollama server to fetch installed models'
+    }
+    if (!models.includes(model)) {
+      return `Model "${model}" is not installed on Ollama — available: ${models.join(', ')}`
+    }
+    return null
+  }
+  if (!models.includes(model)) return `Invalid model ${model} for ${provider} / ${featureId}`
+  const row = findCatalogModelRow(catalog, { featureId, providerId: provider, modelId: model })
+  return assertCatalogModelIdsMatch(row)
+}
+
+export async function validatePlannerAssignment(provider, model, maxWorkflowSteps, workspace_id = null) {
+  const catalog = await getCatalog()
+  const v = workspace_id
+    ? await (await import('../lib/aiCatalogWorkspace.js')).getWorkspaceCatalogViews(workspace_id)
+    : catalogViews(catalog)
+  if (!v.planner_provider_ids.includes(provider)) return `Unknown planner provider: ${provider}`
+  const models = (v.planner_models_by_provider[provider] || []).map(m => m.id)
+  if (provider === 'ollama') {
+    if (!models.length) {
+      return 'No Ollama models loaded — save and test your Ollama server to fetch installed models'
+    }
+    if (!models.includes(model)) {
+      return `Model "${model}" is not installed on Ollama — available: ${models.join(', ')}`
+    }
+  } else if (!models.includes(model)) {
+    return `Invalid planner model: ${model}`
+  }
+  const row = findCatalogModelRow(catalog, { providerId: provider, modelId: model, planner: true })
+  const mismatch = provider === 'ollama' ? null : assertCatalogModelIdsMatch(row)
+  if (mismatch) return mismatch
+  const n = Number(maxWorkflowSteps)
+  if (!Number.isFinite(n) || n < 1 || n > 50) return 'max_workflow_steps must be between 1 and 50'
+  return null
+}
+
+export function getDefaultFeatureConfig(_catalog) {
+  return {}
+}
+
+export function getDefaultPlannerConfig(catalog) {
+  const d = catalogViews(catalog).planner_defaults
+  return {
+    provider: '',
+    model: '',
+    max_workflow_steps: Number(d.max_workflow_steps ?? 10),
+  }
+}
+
+
+================================================================================
+FILE: /home/sonofogre/Desktop/agent-market/apps/api/src/models/AiExecution.js
+================================================================================
+import { getDb } from '../lib/mongo.js'
+import { getCatalog } from './AiCatalog.js'
+
+export const COLLECTION = 'ai_executions'
+
+export const FEATURE_LABELS = {
+  planner: 'Planner',
+  post_generation: 'Post Gen',
+  image_generation: 'Image Gen',
+  video_generation: 'Video Gen',
+  image_script: 'Image Script',
+  video_script: 'Video Script',
+  google_search_marketing: 'Google Ads Marketing',
+  meta_ad_marketing: 'Meta Ads',
+  landing_page_copy: 'Landing Page',
+  key_test: 'Key Test',
+}
+
+const OPCODE_TO_FEATURE = {
+  generate_post: 'post_generation',
+  generate_image: 'image_generation',
+  generate_video: 'video_generation',
+  generate_image_script: 'image_script',
+  generate_video_script: 'video_script',
+  generate_script: 'video_script',
+  planner: 'planner',
+  landing_page_plan: 'landing_page_copy',
+}
+
+function featureLabel(featureId) {
+  return FEATURE_LABELS[featureId] || featureId || 'AI'
+}
+
+async function resolveModelLabel(modelId) {
+  if (!modelId) return ''
+  try {
+    const catalog = await getCatalog()
+    return catalog?.model_labels?.[modelId] || modelId
+  } catch {
+    return modelId
+  }
+}
+
+export async function insertExecution(row) {
+  const now = new Date()
+  const featureId = row.feature_id
+    || OPCODE_TO_FEATURE[row.opcode]
+    || row.opcode
+    || 'unknown'
+  const doc = {
+    workspace_id: String(row.workspace_id || ''),
+    created_at: now,
+    feature_id: featureId,
+    feature: row.feature || featureLabel(featureId),
+    opcode: row.opcode || null,
+    provider: (row.provider || '').toLowerCase() || null,
+    model: row.model || null,
+    api_model_id: row.api_model_id || null,
+    execution_type: row.execution_type || 'text',
+    input_tokens: numOrNull(row.input_tokens),
+    output_tokens: numOrNull(row.output_tokens),
+    total_tokens: numOrNull(row.total_tokens),
+    duration_ms: numOrNull(row.duration_ms),
+    status: row.status === 'failed' ? 'failed' : 'success',
+    error: row.error ? String(row.error).slice(0, 2000) : null,
+    source: row.source || null,
+  }
+  if (!doc.workspace_id) {
+    const err = new Error('workspace_id is required')
+    err.statusCode = 400
+    throw err
+  }
+  const result = await getDb().collection(COLLECTION).insertOne(doc)
+  return { ...doc, _id: result.insertedId }
+}
+
+function numOrNull(v) {
+  const n = Number(v)
+  return Number.isFinite(n) && n >= 0 ? Math.round(n) : null
+}
+
+export async function listByWorkspace(workspace_id, { page = 1, per_page = 50, feature_id, provider } = {}) {
+  const filter = { workspace_id: String(workspace_id) }
+  if (feature_id) filter.feature_id = String(feature_id)
+  if (provider) filter.provider = String(provider).toLowerCase()
+
+  const skip = Math.max(0, (page - 1) * per_page)
+  const limit = Math.min(Math.max(1, per_page), 200)
+
+  const coll = getDb().collection(COLLECTION)
+  const [items, total] = await Promise.all([
+    coll.find(filter).sort({ created_at: -1 }).skip(skip).limit(limit).toArray(),
+    coll.countDocuments(filter),
+  ])
+
+  const serialized = await Promise.all(items.map(serialize))
+  return {
+    items: serialized,
+    total,
+    page,
+    per_page: limit,
+    pages: Math.ceil(total / limit) || 1,
+  }
+}
+
+export async function serialize(doc) {
+  if (!doc) return null
+  const modelLabel = await resolveModelLabel(doc.model)
+  return {
+    id: doc._id.toString(),
+    workspace_id: doc.workspace_id,
+    created_at: doc.created_at,
+    feature_id: doc.feature_id,
+    feature: doc.feature || featureLabel(doc.feature_id),
+    opcode: doc.opcode,
+    provider: doc.provider,
+    model: doc.model,
+    model_label: modelLabel,
+    api_model_id: doc.api_model_id,
+    execution_type: doc.execution_type,
+    input_tokens: doc.input_tokens,
+    output_tokens: doc.output_tokens,
+    total_tokens: doc.total_tokens,
+    duration_ms: doc.duration_ms,
+    status: doc.status,
+    error: doc.error,
+    source: doc.source,
+  }
+}
+
+
+================================================================================
+FILE: /home/sonofogre/Desktop/agent-market/apps/api/src/models/AiWorkspaceConfig.js
+================================================================================
+import { getDb } from '../lib/mongo.js'
+import {
+  getCatalog,
+  catalogViews,
+  validateFeatureAssignment,
+  validatePlannerAssignment,
+} from './AiCatalog.js'
+import { remapLegacyModelId } from '../lib/aiCatalogSeed.js'
+import { getWorkspaceCatalogViews } from '../lib/aiCatalogWorkspace.js'
+
+export const COLLECTION = 'ai_workspace_configs'
+
+function pickModelForProvider(views, featureId, providerId, preferredModel) {
+  const isPlanner = featureId === 'planner'
+  const models = isPlanner
+    ? (views.planner_models_by_provider[providerId] || []).map(m => m.id)
+    : (views.models_by_provider_feature[featureId]?.[providerId] || []).map(m => m.id)
+  const remapped = remapLegacyModelId(preferredModel)
+  if (!providerId) return ''
+  if (providerId === 'ollama') {
+    if (models.includes(remapped)) return remapped
+    return models[0] || remapped || ''
+  }
+  if (models.includes(remapped)) return remapped
+  return remapped || models[0] || ''
+}
+
+function normalizeFeatureRow(views, featureId, stored = {}) {
+  const provider = (stored.provider || '').trim().toLowerCase()
+  if (!provider) return { provider: '', model: '' }
+  const model = pickModelForProvider(views, featureId, provider, stored.model || '')
+  return { provider, model }
+}
+
+function normalizePlannerRow(views, stored = {}) {
+  const provider = (stored.provider || '').trim().toLowerCase()
+  if (!provider) {
+    return {
+      provider: '',
+      model: '',
+      max_workflow_steps: Number(stored.max_workflow_steps ?? 10),
+    }
+  }
+  const model = pickModelForProvider(views, 'planner', provider, stored.model || '')
+  return {
+    provider,
+    model,
+    max_workflow_steps: Number(stored.max_workflow_steps ?? 10),
+  }
+}
+
+function emptyFeatureMap(catalog) {
+  const out = {}
+  for (const id of catalog.feature_ids || []) {
+    out[id] = { provider: '', model: '' }
+  }
+  return out
+}
+
+async function mergeFeatures(workspace_id, stored = {}) {
+  const catalog = await getCatalog()
+  const views = workspace_id
+    ? await getWorkspaceCatalogViews(workspace_id)
+    : catalogViews(catalog)
+  const legacyBrief = stored.campaign_brief
+  const adsMarketingIds = ['google_search_marketing', 'meta_ad_marketing', 'landing_page_copy']
+  const out = {}
+  for (const id of catalog.feature_ids || []) {
+    const inherited = !stored[id] && legacyBrief && adsMarketingIds.includes(id) ? legacyBrief : {}
+    out[id] = normalizeFeatureRow(views, id, {
+      ...inherited,
+      ...(stored[id] || {}),
+    })
+  }
+  return out
+}
+
+async function mergePlanner(workspace_id, stored = {}) {
+  const catalog = await getCatalog()
+  const views = workspace_id
+    ? await getWorkspaceCatalogViews(workspace_id)
+    : catalogViews(catalog)
+  return normalizePlannerRow(views, stored)
+}
+
+export async function findByWorkspace(workspace_id) {
+  return getDb().collection(COLLECTION).findOne({ workspace_id })
+}
+
+export async function getConfig(workspace_id) {
+  const doc = await findByWorkspace(workspace_id)
+  return {
+    features: await mergeFeatures(workspace_id, doc?.features),
+    planner: await mergePlanner(workspace_id, doc?.planner),
+  }
+}
+
+export async function upsertFeatures(workspace_id, featuresPatch) {
+  const doc = await findByWorkspace(workspace_id)
+  const merged = await mergeFeatures(workspace_id, { ...(doc?.features || {}), ...(featuresPatch || {}) })
+  const catalog = await getCatalog()
+  for (const id of catalog.feature_ids || []) {
+    const row = merged[id]
+    if (!row?.provider || !row?.model) continue
+    const err = await validateFeatureAssignment(id, row.provider, row.model, workspace_id)
+    if (err) {
+      const e = new Error(err)
+      e.statusCode = 422
+      throw e
+    }
+  }
+  const now = new Date()
+  await getDb().collection(COLLECTION).updateOne(
+    { workspace_id },
+    {
+      $set: { features: merged, updated_at: now },
+      $setOnInsert: {
+        workspace_id,
+        created_at: now,
+        planner: { max_workflow_steps: 10 },
+      },
+    },
+    { upsert: true },
+  )
+  return getConfig(workspace_id)
+}
+
+export async function upsertPlanner(workspace_id, planner) {
+  const merged = await mergePlanner(workspace_id, planner)
+  if (merged.provider && merged.model) {
+    const err = await validatePlannerAssignment(
+      merged.provider,
+      merged.model,
+      merged.max_workflow_steps,
+      workspace_id,
+    )
+    if (err) {
+      const e = new Error(err)
+      e.statusCode = 422
+      throw e
+    }
+  }
+  const catalog = await getCatalog()
+  const now = new Date()
+  await getDb().collection(COLLECTION).updateOne(
+    { workspace_id },
+    {
+      $set: { planner: merged, updated_at: now },
+      $setOnInsert: {
+        workspace_id,
+        created_at: now,
+        features: emptyFeatureMap(catalog),
+      },
+    },
+    { upsert: true },
+  )
+  return getConfig(workspace_id)
+}
+
+export async function serialize(doc) {
+  if (!doc) return null
+  return {
+    workspace_id: doc.workspace_id,
+    features: await mergeFeatures(doc.workspace_id, doc.features),
+    planner: await mergePlanner(doc.workspace_id, doc.planner),
+    updated_at: doc.updated_at,
+  }
+}
+
+
+================================================================================
+FILE: /home/sonofogre/Desktop/agent-market/apps/api/src/models/Campaign.js
+================================================================================
+import { getDb } from '../lib/mongo.js'
+import { ObjectId } from 'mongodb'
+import { nanoid } from 'nanoid'
+import { normalizeCampaignPlatformQuery } from '../constants/accountKinds.js'
+
+const COLLECTION = 'ads_campaigns'
+
+export const CampaignStatus = { DRAFT: 'draft', ACTIVE: 'active', PAUSED: 'paused', ENDED: 'ended' }
+/** Canonical paid-ads platforms (UI + new campaigns). */
+export const CampaignPlatform = { GOOGLE: 'google_ads', META: 'meta_ads' }
+export const ADS_CAMPAIGN_PLATFORMS = ['google_ads', 'meta_ads']
+export const CampaignType = { SEARCH: 'search', DISPLAY: 'display', VIDEO: 'video', SOCIAL: 'social' }
+export const ScheduleStatus = { PENDING: 'pending', PROCESSING: 'processing', PROCESSED: 'processed' }
+
+export async function findAll(workspace_id, { status, platform, page = 1, per_page = 20 } = {}) {
+  const filter = { workspace_id, deleted_at: null }
+  if (status && String(status) !== 'undefined') filter.status = status
+  if (platform) {
+    const canonical = normalizeCampaignPlatformQuery(platform)
+    if (canonical === 'meta_ads') {
+      filter.platform = { $in: ['meta_ads', 'meta', 'facebook'] }
+    } else if (canonical === 'google_ads') {
+      filter.platform = { $in: ['google_ads', 'google'] }
+    } else if (canonical) {
+      filter.platform = canonical
+    }
+  }
+  const skip = (page - 1) * per_page
+  const [items, total] = await Promise.all([
+    getDb().collection(COLLECTION).find(filter).sort({ created_at: -1 }).skip(skip).limit(per_page).toArray(),
+    getDb().collection(COLLECTION).countDocuments(filter),
+  ])
+  return { items, total, page, per_page, last_page: Math.ceil(total / per_page) }
+}
+
+export async function findById(id, workspace_id) {
+  try {
+    const filter = { _id: new ObjectId(id), deleted_at: null }
+    if (workspace_id) filter.workspace_id = workspace_id
+    return getDb().collection(COLLECTION).findOne(filter)
+  } catch {
+    return null // id is not a valid 24-char ObjectId hex — caller should use findByUuid
+  }
+}
+
+export async function findByUuid(uuid, workspace_id) {
+  const filter = { uuid, deleted_at: null }
+  if (workspace_id) filter.workspace_id = workspace_id
+  return getDb().collection(COLLECTION).findOne(filter)
+}
+
+// Find campaigns scheduled to launch now (like Post's findScheduledReady)
+export async function findScheduledReady() {
+  const now = new Date()
+  return getDb().collection(COLLECTION).find({
+    deleted_at: null,
+    status: CampaignStatus.DRAFT,
+    schedule_status: ScheduleStatus.PENDING,
+    scheduled_at: { $lte: now },
+  }).toArray()
+}
+
+export async function createCampaign({
+  workspace_id,
+  name,
+  platform,
+  type,
+  budget,
+  start_date,
+  end_date,
+  keywords = [],
+  targeting = {},
+  assets = {},
+  objective = null,
+  creatives = {},
+  account_id = null,
+  ad_account_id = null,
+  goal = null,
+  pixel_id = null,
+  custom_event_type = null,
+  application_id = null,
+  object_store_url = null,
+  lead_gen_form_id = null,
+}) {
+  const now = new Date()
+  const doc = {
+    uuid: nanoid(),
+    workspace_id,
+    name,
+    platform,
+    type: type || CampaignType.SOCIAL,
+    status: CampaignStatus.DRAFT,
+    budget: {
+      amount: budget?.amount || 0,
+      currency: budget?.currency || 'USD',
+      type: budget?.type || 'daily',
+    },
+    start_date: start_date ? new Date(start_date) : null,
+    end_date: end_date ? new Date(end_date) : null,
+    keywords,
+    targeting,
+    assets,
+    // Ad publishing fields
+    objective: objective || goal || null,
+    creatives,
+    pixel_id: pixel_id || null,
+    custom_event_type: custom_event_type || null,
+    application_id: application_id || null,
+    object_store_url: object_store_url || null,
+    lead_gen_form_id: lead_gen_form_id || creatives?.lead_gen_form_id || null,
+    account_id: account_id || null,
+    ad_account_id: ad_account_id || null,
+    scheduled_at: null,
+    schedule_status: null,
+    platform_campaign_id: null,
+    platform_ad_set_id: null,
+    platform_ad_id: null,
+    published_at: null,
+    publish_errors: [],
+    metrics: { impressions: 0, clicks: 0, conversions: 0, spend: 0, conversion_value: 0, ctr: 0, cpc: 0, cpa: 0, roas: 0 },
+    deleted_at: null,
+    created_at: now,
+    updated_at: now,
+  }
+  const result = await getDb().collection(COLLECTION).insertOne(doc)
+  return { ...doc, _id: result.insertedId }
+}
+
+export async function updateCampaign(id, updates) {
+  const now = new Date()
+  const allowed = [
+    'name', 'platform', 'type', 'status', 'budget', 'start_date', 'end_date',
+    'keywords', 'targeting', 'assets', 'metrics', 'objective', 'creatives',
+    'account_id', 'ad_account_id', 'scheduled_at', 'schedule_status',
+    'platform_campaign_id', 'platform_ad_set_id', 'platform_ad_id',
+    'published_at', 'publish_errors',
+  ]
+  const $set = { updated_at: now }
+  for (const k of allowed) if (updates[k] !== undefined) $set[k] = updates[k]
+  if (updates.start_date) $set.start_date = new Date(updates.start_date)
+  if (updates.end_date) $set.end_date = new Date(updates.end_date)
+  if (updates.scheduled_at) $set.scheduled_at = new Date(updates.scheduled_at)
+  await getDb().collection(COLLECTION).updateOne({ _id: new ObjectId(id) }, { $set })
+  return findById(id)
+}
+
+export async function deleteCampaign(id) {
+  await getDb().collection(COLLECTION).updateOne({ _id: new ObjectId(id) }, { $set: { deleted_at: new Date() } })
+}
+
+export function serialize(c) {
+  return {
+    id: c._id.toString(),
+    uuid: c.uuid,
+    workspace_id: c.workspace_id,
+    name: c.name,
+    platform: c.platform,
+    type: c.type,
+    status: c.status,
+    budget: c.budget,
+    start_date: c.start_date,
+    end_date: c.end_date,
+    keywords: c.keywords || [],
+    targeting: c.targeting || {},
+    assets: c.assets || {},
+    objective: c.objective || null,
+    creatives: c.creatives || {},
+    account_id: c.account_id || null,
+    ad_account_id: c.ad_account_id || null,
+    scheduled_at: c.scheduled_at || null,
+    schedule_status: c.schedule_status || null,
+    platform_campaign_id: c.platform_campaign_id || null,
+    platform_ad_set_id: c.platform_ad_set_id || null,
+    platform_ad_id: c.platform_ad_id || null,
+    published_at: c.published_at || null,
+    publish_errors: c.publish_errors || [],
+    metrics: c.metrics || {},
+    created_at: c.created_at,
+    updated_at: c.updated_at,
+  }
+}
+
+
+================================================================================
+FILE: /home/sonofogre/Desktop/agent-market/apps/api/src/models/ImportedPost.js
+================================================================================
+import { getDb } from '../lib/mongo.js'
+
+export const COLLECTION = 'imported_posts'
+
+export async function upsert(account_id, provider_post_id, content, metrics = {}) {
+  await getDb().collection(COLLECTION).updateOne(
+    { account_id, provider_post_id },
+    {
+      $set: { account_id, provider_post_id, content, metrics, updated_at: new Date() },
+      $setOnInsert: { created_at: new Date() },
+    },
+    { upsert: true }
+  )
+}
+
+export async function findByAccount(account_id, { page = 1, per_page = 20 } = {}) {
+  const skip = (page - 1) * per_page
+  const [items, total] = await Promise.all([
+    getDb().collection(COLLECTION).find({ account_id }).sort({ created_at: -1 }).skip(skip).limit(per_page).toArray(),
+    getDb().collection(COLLECTION).countDocuments({ account_id }),
+  ])
+  return { items, total, page, per_page, last_page: Math.ceil(total / per_page) }
+}
+
+
+================================================================================
+FILE: /home/sonofogre/Desktop/agent-market/apps/api/src/models/Integration.js
+================================================================================
+import { getDb } from '../lib/mongo.js'
+
+import crypto from 'crypto'
+
+export const COLLECTION = 'integrations'
+
+/** Integration provider keys (API credentials stored per workspace). */
+export const INTEGRATION_NAMES = [
+  'twitter',
+  'facebook',
+  'tiktok',
+  'linkedin',
+  'instagram_login',
+  'unsplash',
+  'giphy',
+  'google_ads',
+  'openai',
+  'anthropic',
+  'gemini',
+  'openrouter',
+  'ollama',
+]
+
+/** Stored under Settings → AI (provider API keys). */
+export const AI_PROVIDER_NAMES = ['openai', 'anthropic', 'gemini', 'openrouter', 'ollama']
+
+const ENCRYPT_KEY = (process.env.APP_KEY || 'agentmarket-default-key-32bytes!!').slice(0, 32)
+const IV_LEN = 16
+
+function encrypt(text) {
+  const iv = crypto.randomBytes(IV_LEN)
+  const cipher = crypto.createCipheriv('aes-256-cbc', Buffer.from(ENCRYPT_KEY), iv)
+  const encrypted = Buffer.concat([cipher.update(JSON.stringify(text)), cipher.final()])
+  return iv.toString('hex') + ':' + encrypted.toString('hex')
+}
+
+function decrypt(text) {
+  try {
+    const [ivHex, encHex] = text.split(':')
+    const iv = Buffer.from(ivHex, 'hex')
+    const enc = Buffer.from(encHex, 'hex')
+    const decipher = crypto.createDecipheriv('aes-256-cbc', Buffer.from(ENCRYPT_KEY), iv)
+    const decrypted = Buffer.concat([decipher.update(enc), decipher.final()])
+    return JSON.parse(decrypted.toString())
+  } catch {
+    return {}
+  }
+}
+
+export async function findAll(workspace_id) {
+  const filter = workspace_id ? { workspace_id } : {}
+  return getDb().collection(COLLECTION).find(filter).toArray()
+}
+
+export async function findByName(name, workspace_id) {
+  const filter = { name }
+  if (workspace_id) filter.workspace_id = workspace_id
+  return getDb().collection(COLLECTION).findOne(filter)
+}
+
+export async function getDecryptedConfig(name, workspace_id) {
+  const row = await findByName(name, workspace_id)
+  if (!row) return {}
+  return decrypt(row.configuration)
+}
+
+export async function upsertIntegration(name, configuration, workspace_id, active = true) {
+  const encrypted = encrypt(configuration)
+  const existing = await findByName(name, workspace_id)
+  if (existing) {
+    await getDb().collection(COLLECTION).updateOne(
+      { _id: existing._id },
+      { $set: { configuration: encrypted, active, updated_at: new Date() } },
+    )
+  } else {
+    await getDb().collection(COLLECTION).insertOne({
+      name,
+      workspace_id: workspace_id || null,
+      configuration: encrypted,
+      active,
+      created_at: new Date(),
+      updated_at: new Date(),
+    })
+  }
+  return findByName(name, workspace_id)
+}
+
+export async function setTestStatus(name, workspace_id, test_status) {
+  const filter = { name }
+  if (workspace_id) filter.workspace_id = workspace_id
+  await getDb().collection(COLLECTION).updateOne(filter, {
+    $set: { test_status, tested_at: new Date(), updated_at: new Date() },
+  })
+}
+
+export async function getProviderMeta(workspace_id) {
+  const rows = await findAll(workspace_id)
+  const byName = Object.fromEntries(rows.map(r => [r.name, r]))
+  return byName
+}
+
+export function serialize(integration, includeConfig = false) {
+  if (!integration) return null
+  const out = {
+    id: integration._id.toString(),
+    name: integration.name,
+    active: integration.active,
+    test_status: integration.test_status || null,
+    tested_at: integration.tested_at || null,
+  }
+  if (includeConfig) out.configuration = decrypt(integration.configuration)
+  return out
+}
+
+/** True if workspace has credentials stored (api_key, or base_url for Ollama). */
+export async function hasApiKey(name, workspace_id) {
+  const cfg = await getDecryptedConfig(name, workspace_id)
+  if (name === 'ollama') {
+    return Boolean((cfg.base_url || '').trim())
+  }
+  return Boolean((cfg.api_key || '').trim())
+}
+
+
+================================================================================
+FILE: /home/sonofogre/Desktop/agent-market/apps/api/src/models/LandingPage.js
+================================================================================
+import { getDb } from '../lib/mongo.js'
+import { ObjectId } from 'mongodb'
+import { nanoid } from 'nanoid'
+
+const COLLECTION = 'ads_landing_pages'
+
+export function sanitizeSlug(input) {
+  const slug = String(input || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 80)
+  return slug || 'landing-page'
+}
+
+async function resolveUniqueSlug(preferred, fallbackTitle) {
+  const base = sanitizeSlug(preferred) || sanitizeSlug(fallbackTitle)
+  let slug = base
+  let i = 1
+  while (await getDb().collection(COLLECTION).findOne({ slug })) {
+    slug = `${base}-${i++}`
+  }
+  return slug
+}
+
+export async function findAll(workspace_id, { status, page = 1, per_page = 20 } = {}) {
+  const filter = { workspace_id, deleted_at: null }
+  if (status) filter.status = status
+  const skip = (page - 1) * per_page
+  const [items, total] = await Promise.all([
+    getDb().collection(COLLECTION).find(filter).sort({ created_at: -1 }).skip(skip).limit(per_page).toArray(),
+    getDb().collection(COLLECTION).countDocuments(filter),
+  ])
+  return { items, total, page, per_page }
+}
+
+export async function findById(id, workspace_id) {
+  const filter = { _id: new ObjectId(id), deleted_at: null }
+  if (workspace_id) filter.workspace_id = workspace_id
+  return getDb().collection(COLLECTION).findOne(filter)
+}
+
+export async function findBySlug(slug) {
+  return getDb().collection(COLLECTION).findOne({ slug, status: 'published', deleted_at: null })
+}
+
+export async function createLandingPage({ workspace_id, campaign_id, title, slug: preferredSlug, headline, subheadline, body, cta_text, cta_url, form_fields, meta }) {
+  const now = new Date()
+  const slug = await resolveUniqueSlug(preferredSlug, title)
+  const doc = {
+    uuid: nanoid(),
+    workspace_id,
+    campaign_id: campaign_id || null,
+    title,
+    slug,
+    headline: headline || title,
+    subheadline: subheadline || '',
+    body: body || '',
+    cta_text: cta_text || 'Get Started',
+    cta_url: cta_url || '',
+    form_fields: form_fields || [
+      { name: 'name', type: 'text', label: 'Full Name', required: true },
+      { name: 'email', type: 'email', label: 'Email Address', required: true },
+    ],
+    meta: meta || {},
+    status: 'draft',
+    lead_count: 0,
+    view_count: 0,
+    deleted_at: null,
+    created_at: now,
+    updated_at: now,
+  }
+  const result = await getDb().collection(COLLECTION).insertOne(doc)
+  return { ...doc, _id: result.insertedId }
+}
+
+export async function updateLandingPage(id, updates) {
+  const allowed = ['title', 'headline', 'subheadline', 'body', 'cta_text', 'cta_url', 'form_fields', 'meta', 'status']
+  const $set = { updated_at: new Date() }
+  for (const k of allowed) if (updates[k] !== undefined) $set[k] = updates[k]
+  await getDb().collection(COLLECTION).updateOne({ _id: new ObjectId(id) }, { $set })
+  return findById(id)
+}
+
+export async function incrementViewCount(id) {
+  await getDb().collection(COLLECTION).updateOne({ _id: new ObjectId(id) }, { $inc: { view_count: 1 } })
+}
+
+export async function incrementLeadCount(id) {
+  await getDb().collection(COLLECTION).updateOne({ _id: new ObjectId(id) }, { $inc: { lead_count: 1 } })
+}
+
+export async function deleteLandingPage(id) {
+  await getDb().collection(COLLECTION).updateOne({ _id: new ObjectId(id) }, { $set: { deleted_at: new Date() } })
+}
+
+export function serialize(p) {
+  return {
+    id: p._id.toString(),
+    uuid: p.uuid,
+    workspace_id: p.workspace_id,
+    campaign_id: p.campaign_id,
+    title: p.title,
+    slug: p.slug,
+    headline: p.headline,
+    subheadline: p.subheadline,
+    body: p.body,
+    cta_text: p.cta_text,
+    cta_url: p.cta_url,
+    form_fields: p.form_fields || [],
+    meta: p.meta || {},
+    status: p.status,
+    lead_count: p.lead_count || 0,
+    view_count: p.view_count || 0,
+    created_at: p.created_at,
+    updated_at: p.updated_at,
+  }
+}
+
+
+================================================================================
+FILE: /home/sonofogre/Desktop/agent-market/apps/api/src/models/Lead.js
+================================================================================
+import { getDb } from '../lib/mongo.js'
+import { ObjectId } from 'mongodb'
+import { nanoid } from 'nanoid'
+
+const COLLECTION = 'ads_leads'
+
+export async function findAll(workspace_id, { landing_page_id, campaign_id, page = 1, per_page = 30 } = {}) {
+  const filter = { workspace_id }
+  if (landing_page_id) filter.landing_page_id = landing_page_id
+  if (campaign_id) filter.campaign_id = campaign_id
+  const skip = (page - 1) * per_page
+  const [items, total] = await Promise.all([
+    getDb().collection(COLLECTION).find(filter).sort({ created_at: -1 }).skip(skip).limit(per_page).toArray(),
+    getDb().collection(COLLECTION).countDocuments(filter),
+  ])
+  return { items, total, page, per_page, last_page: Math.ceil(total / per_page) }
+}
+
+export async function createLead({
+  workspace_id,
+  landing_page_id,
+  landing_page_slug,
+  campaign_id,
+  data,
+  utm,
+  touchpoints,
+  ip,
+  user_agent,
+}) {
+  const now = new Date()
+  const normalizedTouchpoints = Array.isArray(touchpoints) && touchpoints.length
+    ? touchpoints.slice(-20)
+    : null
+  const doc = {
+    uuid: nanoid(),
+    workspace_id,
+    landing_page_id: landing_page_id || null,
+    landing_page_slug: landing_page_slug || null,
+    campaign_id: campaign_id || null,
+    data: data || {},
+    utm: utm || {},
+    touchpoints: normalizedTouchpoints,
+    ip: ip || null,
+    user_agent: user_agent || null,
+    created_at: now,
+  }
+  const result = await getDb().collection(COLLECTION).insertOne(doc)
+  return { ...doc, _id: result.insertedId }
+}
+
+export function serialize(l) {
+  return {
+    id: l._id.toString(),
+    uuid: l.uuid,
+    landing_page_id: l.landing_page_id,
+    landing_page_slug: l.landing_page_slug,
+    campaign_id: l.campaign_id,
+    data: l.data || {},
+    utm: l.utm || {},
+    touchpoints: l.touchpoints || [],
+    created_at: l.created_at,
+  }
+}
+
+
+================================================================================
+FILE: /home/sonofogre/Desktop/agent-market/apps/api/src/models/Media.js
+================================================================================
+import { getDb } from '../lib/mongo.js'
+import { ObjectId } from 'mongodb'
+import { nanoid } from 'nanoid'
+import fs from 'fs/promises'
+import path from 'path'
+
+export const COLLECTION = 'media'
+
+export const ALLOWED_MIME = ['image/jpeg', 'image/png', 'image/gif', 'video/mp4', 'video/x-m4v']
+export const MAX_SIZE = { image: 20 * 1024 * 1024, gif: 15 * 1024 * 1024, video: 200 * 1024 * 1024 }
+
+export async function findAll({ workspace_id, page = 1, per_page = 24 } = {}) {
+  const filter = workspace_id ? { workspace_id } : {}
+  const skip = (page - 1) * per_page
+  const [items, total] = await Promise.all([
+    getDb().collection(COLLECTION).find(filter).sort({ created_at: -1 }).skip(skip).limit(per_page).toArray(),
+    getDb().collection(COLLECTION).countDocuments(filter),
+  ])
+  return { items, total, page, per_page, last_page: Math.ceil(total / per_page) }
+}
+
+export async function findById(id) {
+  return getDb().collection(COLLECTION).findOne({ _id: new ObjectId(id) })
+}
+
+export async function findByUuid(uuid) {
+  return getDb().collection(COLLECTION).findOne({ uuid })
+}
+
+export async function createMedia({ workspace_id, name, mime_type, disk = 'local', path: filePath, size, size_total, conversions = [] }) {
+  const doc = {
+    uuid: nanoid(),
+    workspace_id: workspace_id || null,
+    name,
+    mime_type,
+    disk,
+    path: filePath,
+    size,
+    size_total: size_total || size,
+    conversions,
+    created_at: new Date(),
+    updated_at: new Date(),
+  }
+  const result = await getDb().collection(COLLECTION).insertOne(doc)
+  return { ...doc, _id: result.insertedId }
+}
+
+export async function updateConversions(id, conversions) {
+  await getDb().collection(COLLECTION).updateOne(
+    { _id: new ObjectId(id) },
+    { $set: { conversions, updated_at: new Date() } }
+  )
+}
+
+export async function deleteMediaItems(ids) {
+  const objectIds = ids.map(id => new ObjectId(id))
+  const items = await getDb().collection(COLLECTION).find({ _id: { $in: objectIds } }).toArray()
+
+  for (const item of items) {
+    try {
+      const uploadDir = process.env.STORAGE_LOCAL_PATH || './uploads'
+      await fs.unlink(path.join(uploadDir, item.path)).catch(() => {})
+      for (const conv of item.conversions || []) {
+        await fs.unlink(path.join(uploadDir, conv.path)).catch(() => {})
+      }
+    } catch {}
+  }
+
+  return getDb().collection(COLLECTION).deleteMany({ _id: { $in: objectIds } })
+}
+
+export function getPublicUrl(media) {
+  if (!media) return null
+  const base = process.env.API_URL || 'http://localhost:4010'
+  return `${base}/uploads/${media.path}`
+}
+
+export function serialize(media) {
+  if (!media) return null
+  return {
+    id: media._id.toString(),
+    uuid: media.uuid,
+    name: media.name,
+    mime_type: media.mime_type,
+    disk: media.disk,
+    url: getPublicUrl(media),
+    size: media.size,
+    size_total: media.size_total,
+    conversions: (media.conversions || []).map(c => ({
+      ...c,
+      url: `${process.env.API_URL || 'http://localhost:4010'}/uploads/${c.path}`,
+    })),
+    created_at: media.created_at,
+  }
+}
+
+
+================================================================================
+FILE: /home/sonofogre/Desktop/agent-market/apps/api/src/models/Metric.js
+================================================================================
+import { getDb } from '../lib/mongo.js'
+import { ObjectId } from 'mongodb'
+
+export const COLLECTION = 'metrics'
+
+export async function upsert(account_id, date, data) {
+  const dateStr = typeof date === 'string' ? date : date.toISOString().split('T')[0]
+  await getDb().collection(COLLECTION).updateOne(
+    { account_id, date: dateStr },
+    { $set: { account_id, date: dateStr, data, updated_at: new Date() }, $setOnInsert: { created_at: new Date() } },
+    { upsert: true }
+  )
+}
+
+export async function findByAccount(account_id, { from, to } = {}) {
+  const filter = { account_id }
+  if (from || to) {
+    filter.date = {}
+    if (from) filter.date.$gte = from
+    if (to) filter.date.$lte = to
+  }
+  return getDb().collection(COLLECTION).find(filter).sort({ date: 1 }).toArray()
+}
+
+// Audience (follower counts)
+export async function upsertAudience(account_id, date, total) {
+  const dateStr = typeof date === 'string' ? date : date.toISOString().split('T')[0]
+  await getDb().collection('audience').updateOne(
+    { account_id, date: dateStr },
+    { $set: { account_id, date: dateStr, total, updated_at: new Date() }, $setOnInsert: { created_at: new Date() } },
+    { upsert: true }
+  )
+}
+
+export async function findAudienceByAccount(account_id, { from, to } = {}) {
+  const filter = { account_id }
+  if (from || to) {
+    filter.date = {}
+    if (from) filter.date.$gte = from
+    if (to) filter.date.$lte = to
+  }
+  return getDb().collection('audience').find(filter).sort({ date: 1 }).toArray()
+}
+
+// Facebook Insights
+export async function upsertFacebookInsight(account_id, type, value, date) {
+  const dateStr = typeof date === 'string' ? date : date.toISOString().split('T')[0]
+  await getDb().collection('facebook_insights').updateOne(
+    { account_id, type, date: dateStr },
+    { $set: { account_id, type, value, date: dateStr, updated_at: new Date() }, $setOnInsert: { created_at: new Date() } },
+    { upsert: true }
+  )
+}
+
+export async function findFacebookInsightsByAccount(account_id, { from, to } = {}) {
+  const filter = { account_id }
+  if (from || to) {
+    filter.date = {}
+    if (from) filter.date.$gte = from
+    if (to) filter.date.$lte = to
+  }
+  return getDb().collection('facebook_insights').find(filter).sort({ date: 1 }).toArray()
+}
+
+
+================================================================================
+FILE: /home/sonofogre/Desktop/agent-market/apps/api/src/models/Post.js
+================================================================================
+import { getDb } from '../lib/mongo.js'
+import { ObjectId } from 'mongodb'
+import { nanoid } from 'nanoid'
+
+export const COLLECTION = 'posts'
+
+// Status values (mirrors Laravel enums)
+export const PostStatus = { DRAFT: 0, SCHEDULED: 1, PUBLISHED: 2, FAILED: 3 }
+export const ScheduleStatus = { PENDING: 0, PROCESSING: 1, PROCESSED: 2 }
+
+export async function findAll({ workspace_id, status, keyword, account_id, page = 1, per_page = 15 } = {}) {
+  const filter = { deleted_at: null }
+  if (workspace_id) filter.workspace_id = workspace_id
+  if (status !== undefined && status !== null && status !== '') filter.status = parseInt(status)
+  if (account_id) filter.account_ids = account_id
+
+  if (keyword) {
+    const re = new RegExp(keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i')
+    filter['versions.content.body'] = re
+  }
+
+  const skip = (page - 1) * per_page
+  const [items, total] = await Promise.all([
+    getDb().collection(COLLECTION).find(filter).sort({ created_at: -1 }).skip(skip).limit(per_page).toArray(),
+    getDb().collection(COLLECTION).countDocuments(filter),
+  ])
+  return { items, total, page, per_page, last_page: Math.ceil(total / per_page) }
+}
+
+export async function findById(id, workspace_id) {
+  const filter = { _id: new ObjectId(id), deleted_at: null }
+  if (workspace_id) filter.workspace_id = workspace_id
+  return getDb().collection(COLLECTION).findOne(filter)
+}
+
+export async function findByUuid(uuid, workspace_id) {
+  const filter = { uuid, deleted_at: null }
+  if (workspace_id) filter.workspace_id = workspace_id
+  return getDb().collection(COLLECTION).findOne(filter)
+}
+
+export async function findForCalendar({ workspace_id, date }) {
+  const d = new Date(`${date}-01T12:00:00`)
+  const start = new Date(d.getFullYear(), d.getMonth(), 1)
+  const end = new Date(d.getFullYear(), d.getMonth() + 1, 0, 23, 59, 59)
+  const filter = {
+    deleted_at: null,
+    scheduled_at: { $gte: start, $lte: end },
+  }
+  if (workspace_id) filter.workspace_id = workspace_id
+  return getDb().collection(COLLECTION).find(filter).sort({ scheduled_at: 1 }).toArray()
+}
+
+export async function findScheduledReady() {
+  // Worker runs without user context — finds all ready posts across all users
+  return getDb().collection(COLLECTION).find({
+    deleted_at: null,
+    status: PostStatus.SCHEDULED,
+    schedule_status: ScheduleStatus.PENDING,
+    scheduled_at: { $lte: new Date() },
+  }).toArray()
+}
+
+export async function createPost({ workspace_id, account_ids = [], versions = [], scheduled_at, status } = {}) {
+  const now = new Date()
+  const doc = {
+    uuid: nanoid(),
+    workspace_id: workspace_id || null,
+    status: status !== undefined ? status : (scheduled_at ? PostStatus.SCHEDULED : PostStatus.DRAFT),
+    schedule_status: ScheduleStatus.PENDING,
+    scheduled_at: scheduled_at ? new Date(scheduled_at) : null,
+    published_at: null,
+    account_ids,
+    versions,
+    created_at: now,
+    updated_at: now,
+    deleted_at: null,
+  }
+  const result = await getDb().collection(COLLECTION).insertOne(doc)
+  return { ...doc, _id: result.insertedId }
+}
+
+export async function updatePost(id, fields) {
+  fields.updated_at = new Date()
+  await getDb().collection(COLLECTION).updateOne({ _id: new ObjectId(id) }, { $set: fields })
+  return getDb().collection(COLLECTION).findOne({ _id: new ObjectId(id), deleted_at: null })
+}
+
+export async function deletePost(id) {
+  return getDb().collection(COLLECTION).updateOne(
+    { _id: new ObjectId(id) },
+    { $set: { deleted_at: new Date() } }
+  )
+}
+
+export async function deleteManyPosts(ids) {
+  const objectIds = ids.map(id => new ObjectId(id))
+  return getDb().collection(COLLECTION).updateMany(
+    { _id: { $in: objectIds } },
+    { $set: { deleted_at: new Date() } }
+  )
+}
+
+export async function findPublishAccountResults(postId) {
+  return getDb()
+    .collection('post_accounts')
+    .find({ post_id: String(postId) })
+    .toArray()
+}
+
+export async function findPublishSummaries(postIds = []) {
+  const ids = postIds.map(String).filter(Boolean)
+  if (!ids.length) return {}
+
+  const rows = await getDb()
+    .collection('post_accounts')
+    .find({ post_id: { $in: ids } })
+    .toArray()
+
+  return rows.reduce((acc, row) => {
+    const postId = String(row.post_id)
+    const current = acc[postId] || { total: 0, succeeded: 0, failed: 0, partial: false }
+    const failed = Array.isArray(row.errors) && row.errors.length > 0
+    current.total += 1
+    if (failed) current.failed += 1
+    else current.succeeded += 1
+    current.partial = current.succeeded > 0 && current.failed > 0
+    acc[postId] = current
+    return acc
+  }, {})
+}
+
+export async function duplicatePost(id, workspace_id) {
+  const original = await getDb().collection(COLLECTION).findOne({ _id: new ObjectId(id), deleted_at: null })
+  if (!original) return null
+  const { _id, uuid, created_at, updated_at, deleted_at, published_at, tag_ids: _tags, ...fields } = original
+  return createPost({
+    ...fields,
+    workspace_id: workspace_id || fields.workspace_id,
+    status: PostStatus.DRAFT,
+    schedule_status: ScheduleStatus.PENDING,
+    scheduled_at: null,
+  })
+}
+
+export function serialize(post) {
+  if (!post) return null
+  const { _id, tag_ids, ...rest } = post
+  return {
+    ...rest,
+    id: _id.toString(),
+  }
+}
+
+
+================================================================================
+FILE: /home/sonofogre/Desktop/agent-market/apps/api/src/models/Setting.js
+================================================================================
+import { getDb } from '../lib/mongo.js'
+import { getRedis } from '../lib/redis.js'
+
+export const COLLECTION = 'settings'
+
+// Mirrors Settings.php form() — all fields with their defaults
+const DEFAULTS = {
+  timezone:       'UTC',
+  date_format:    'human',   // 'human' = relative (e.g. "2 hours ago") | 'full' = absolute
+  time_format:    12,
+  week_starts_on: 1,         // 0 = Sunday, 1 = Monday, 6 = Saturday
+  admin_email:    '',
+  default_accounts: [],
+  auto_analyze_comments: false,
+  agent_auto_approve: false,
+}
+
+// Mirrors Settings.php rules()
+const VALID_TIMEZONES = Intl.supportedValuesOf('timeZone')
+
+const WEEKDAY_NAMES = {
+  sunday: 0, monday: 1, saturday: 6,
+}
+
+function normalizeWeekStartsOn(value) {
+  if (typeof value === 'string') {
+    const mapped = WEEKDAY_NAMES[value.toLowerCase()]
+    if (mapped !== undefined) return mapped
+  }
+  const n = Number(value)
+  return [0, 1, 6].includes(n) ? n : undefined
+}
+
+export function validate(settings) {
+  const errors = {}
+  if (settings.timezone !== undefined && !VALID_TIMEZONES.includes(settings.timezone)) {
+    errors.timezone = 'Invalid timezone'
+  }
+  if (settings.time_format !== undefined && ![12, 24, '12', '24'].includes(settings.time_format)) {
+    errors.time_format = 'Must be 12 or 24'
+  }
+  if (settings.week_starts_on !== undefined) {
+    const week = normalizeWeekStartsOn(settings.week_starts_on)
+    if (week === undefined) {
+      errors.week_starts_on = 'Must be 0 (Sunday), 1 (Monday), or 6 (Saturday)'
+    }
+  }
+  if (settings.admin_email !== undefined && settings.admin_email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(settings.admin_email)) {
+    errors.admin_email = 'Invalid email address'
+  }
+  if (settings.default_accounts !== undefined && !Array.isArray(settings.default_accounts)) {
+    errors.default_accounts = 'Must be an array'
+  }
+  if (settings.auto_analyze_comments !== undefined && typeof settings.auto_analyze_comments !== 'boolean') {
+    errors.auto_analyze_comments = 'Must be true or false'
+  }
+  if (settings.agent_auto_approve !== undefined && typeof settings.agent_auto_approve !== 'boolean') {
+    errors.agent_auto_approve = 'Must be true or false'
+  }
+  return Object.keys(errors).length ? errors : null
+}
+
+const CACHE_PREFIX = 'agentmarket:settings:'
+
+function cacheKey(name, workspace_id) {
+  return `${CACHE_PREFIX}${workspace_id ? workspace_id + ':' : ''}${name}`
+}
+
+export async function get(name, workspace_id) {
+  const key = cacheKey(name, workspace_id)
+  const cached = await getRedis().get(key).catch(() => null)
+  if (cached !== null) {
+    try { return JSON.parse(cached) } catch { return cached }
+  }
+
+  const filter = { name }
+  if (workspace_id) filter.workspace_id = workspace_id
+  const doc = await getDb().collection(COLLECTION).findOne(filter)
+  const value = doc ? doc.payload : (DEFAULTS[name] ?? null)
+
+  await getRedis().setex(key, 3600, JSON.stringify(value)).catch(() => {})
+  return value
+}
+
+export async function getAll(workspace_id) {
+  const result = { ...DEFAULTS }
+  const filter = workspace_id ? { workspace_id } : {}
+  const docs = await getDb().collection(COLLECTION).find(filter).toArray()
+  for (const doc of docs) result[doc.name] = doc.payload
+  return result
+}
+
+export async function set(name, payload, workspace_id) {
+  const filter = { name }
+  if (workspace_id) filter.workspace_id = workspace_id
+  await getDb().collection(COLLECTION).updateOne(
+    filter,
+    { $set: { name, workspace_id: workspace_id || null, payload, updated_at: new Date() } },
+    { upsert: true }
+  )
+  await getRedis().del(cacheKey(name, workspace_id)).catch(() => {})
+}
+
+export async function setMany(settings, workspace_id) {
+  for (const [name, payload] of Object.entries(settings)) {
+    if (!(name in DEFAULTS)) continue
+    let value = payload
+    if (name === 'week_starts_on') {
+      const normalized = normalizeWeekStartsOn(payload)
+      if (normalized !== undefined) value = normalized
+    }
+    await set(name, value, workspace_id)
+  }
+}
+
+export async function forgetAll(workspace_id) {
+  for (const name of Object.keys(DEFAULTS)) {
+    await getRedis().del(cacheKey(name, workspace_id)).catch(() => {})
+  }
+}
+
+
+================================================================================
+FILE: /home/sonofogre/Desktop/agent-market/apps/api/src/models/User.js
+================================================================================
+import { getDb } from '../lib/mongo.js'
+import bcrypt from 'bcryptjs'
+
+export const COLLECTION = 'users'
+
+export async function findById(id) {
+  const { ObjectId } = await import('mongodb')
+  return getDb().collection(COLLECTION).findOne({ _id: new ObjectId(id) })
+}
+
+export async function findByIds(ids) {
+  const { ObjectId } = await import('mongodb')
+  const objectIds = ids.map(id => { try { return new ObjectId(id) } catch { return null } }).filter(Boolean)
+  return getDb().collection(COLLECTION).find({ _id: { $in: objectIds } }).toArray()
+}
+
+export async function findByEmail(email) {
+  return getDb().collection(COLLECTION).findOne({ email: email.toLowerCase() })
+}
+
+export async function createUser({ name, email, password }) {
+  const hash = await bcrypt.hash(password, 12)
+  const doc = { name, email: email.toLowerCase(), password: hash, created_at: new Date(), updated_at: new Date() }
+  const result = await getDb().collection(COLLECTION).insertOne(doc)
+  return { ...doc, _id: result.insertedId }
+}
+
+export async function updateUser(id, fields) {
+  const { ObjectId } = await import('mongodb')
+  if (fields.password) fields.password = await bcrypt.hash(fields.password, 12)
+  fields.updated_at = new Date()
+  await getDb().collection(COLLECTION).updateOne({ _id: new ObjectId(id) }, { $set: fields })
+  return findById(id)
+}
+
+export async function verifyPassword(plaintext, hash) {
+  return bcrypt.compare(plaintext, hash)
+}
+
+export function sanitize(user) {
+  if (!user) return null
+  const { password, ...safe } = user
+  return { ...safe, id: safe._id?.toString() }
+}
+
+
+================================================================================
+FILE: /home/sonofogre/Desktop/agent-market/apps/api/src/models/Workspace.js
+================================================================================
+import { getDb } from '../lib/mongo.js'
+import { ObjectId } from 'mongodb'
+import { nanoid } from 'nanoid'
+
+export const COLLECTION = 'workspaces'
+
+export async function findById(id) {
+  return getDb().collection(COLLECTION).findOne({ _id: new ObjectId(id) })
+}
+
+export async function findByUserId(userId) {
+  return getDb().collection(COLLECTION).find({
+    'members.user_id': userId,
+    deleted_at: null,
+  }).sort({ created_at: 1 }).toArray()
+}
+
+export async function createWorkspace({ name, owner_id }) {
+  const doc = {
+    name,
+    owner_id,
+    members: [{ user_id: owner_id, role: 'owner', joined_at: new Date() }],
+    deleted_at: null,
+    created_at: new Date(),
+    updated_at: new Date(),
+  }
+  const result = await getDb().collection(COLLECTION).insertOne(doc)
+  return { ...doc, _id: result.insertedId }
+}
+
+export async function updateWorkspace(id, fields) {
+  fields.updated_at = new Date()
+  await getDb().collection(COLLECTION).updateOne({ _id: new ObjectId(id) }, { $set: fields })
+  return findById(id)
+}
+
+export async function addMember(workspaceId, { user_id, role = 'member' }) {
+  await getDb().collection(COLLECTION).updateOne(
+    { _id: new ObjectId(workspaceId) },
+    {
+      $push: { members: { user_id, role, joined_at: new Date() } },
+      $set:  { updated_at: new Date() },
+    }
+  )
+}
+
+export async function removeMember(workspaceId, userId) {
+  await getDb().collection(COLLECTION).updateOne(
+    { _id: new ObjectId(workspaceId) },
+    {
+      $pull: { members: { user_id: userId } },
+      $set:  { updated_at: new Date() },
+    }
+  )
+}
+
+export async function updateMemberRole(workspaceId, userId, role) {
+  await getDb().collection(COLLECTION).updateOne(
+    { _id: new ObjectId(workspaceId), 'members.user_id': userId },
+    { $set: { 'members.$.role': role, updated_at: new Date() } }
+  )
+}
+
+export function getMember(workspace, userId) {
+  return workspace?.members?.find(m => m.user_id === userId) || null
+}
+
+// ── Invite tokens ──────────────────────────────────────────────────────────
+
+export async function createInvite({ workspace_id, email, role = 'member', invited_by }) {
+  const token = nanoid(32)
+  const doc = {
+    token,
+    workspace_id,
+    email: email.toLowerCase(),
+    role,
+    invited_by,
+    used: false,
+    expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days
+    created_at: new Date(),
+  }
+  await getDb().collection('workspace_invites').insertOne(doc)
+  return doc
+}
+
+export async function findInviteByToken(token) {
+  return getDb().collection('workspace_invites').findOne({ token, used: false })
+}
+
+export async function markInviteUsed(token) {
+  await getDb().collection('workspace_invites').updateOne({ token }, { $set: { used: true } })
+}
+
+export async function listInvites(workspace_id) {
+  return getDb().collection('workspace_invites').find({
+    workspace_id,
+    used: false,
+    expires_at: { $gt: new Date() },
+  }).sort({ created_at: -1 }).toArray()
+}
+
+export async function deleteInvite(token, workspace_id) {
+  await getDb().collection('workspace_invites').deleteOne({ token, workspace_id })
+}
+

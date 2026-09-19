@@ -1,0 +1,1297 @@
+
+================================================================================
+FILE: /home/sonofogre/Desktop/agent-market/services/ai-worker/tasks/agent/plan_workflow.py
+================================================================================
+"""Celery: planner agent — generates validated workflow graphs."""
+
+from __future__ import annotations
+
+import json
+import logging
+from typing import Any
+
+from billiard.exceptions import SoftTimeLimitExceeded
+
+from celery_app import celery_app
+from db import get_redis
+from agents.planner import plan_workflow
+from lib import worker_api
+from lib.runtime.cancel import is_workflow_cancelled
+
+logger = logging.getLogger(__name__)
+
+
+# One planner LLM call per enqueue — never auto-retry (would re-bill the API).
+_PLAN_TASK_OPTS = dict(max_retries=0, acks_late=False)
+
+
+@celery_app.task(
+    name='tasks.agent.plan_workflow',
+    soft_time_limit=180,
+    time_limit=210,
+    **_PLAN_TASK_OPTS,
+)
+def plan_workflow_task(
+    workspace_id: str,
+    workflow_id: str,
+    user_message: str,
+    conversation_history: list[dict[str, str]] | None,
+    attached_media: list[dict[str, Any]] | None,
+    reply_key: str,
+) -> None:
+    r = get_redis()
+
+    def write(ok: bool, data: Any = None, error: str | None = None, status: int = 502) -> None:
+        body = json.dumps({'ok': ok, 'data': data, 'error': error, 'status': status}, default=str)
+        r.set(reply_key, body, ex=600)
+
+    try:
+        if is_workflow_cancelled(workflow_id):
+            if worker_api.configured():
+                worker_api.patch_agent_workflow(workflow_id, {
+                    'status': 'cancelled',
+                    'execution_errors': ['Stopped by user.'],
+                })
+                wf_doc = worker_api.get_agent_workflow(workflow_id)
+                worker_api.emit_event('workflow.cancelled', {
+                    'workflow_id': wf_doc.get('workflow_id') or workflow_id,
+                    'workflow_mongo_id': workflow_id,
+                    'workspace_id': workspace_id,
+                })
+            write(False, None, 'Stopped by user.', 499)
+            return
+
+        graph = plan_workflow(
+            workspace_id=workspace_id,
+            user_message=user_message,
+            conversation_history=conversation_history,
+            attached_media=attached_media or [],
+        )
+
+        if is_workflow_cancelled(workflow_id):
+            if worker_api.configured():
+                worker_api.patch_agent_workflow(workflow_id, {
+                    'status': 'cancelled',
+                    'execution_errors': ['Stopped by user.'],
+                })
+                wf_doc = worker_api.get_agent_workflow(workflow_id)
+                worker_api.emit_event('workflow.cancelled', {
+                    'workflow_id': wf_doc.get('workflow_id') or workflow_id,
+                    'workflow_mongo_id': workflow_id,
+                    'workspace_id': workspace_id,
+                })
+            write(False, None, 'Stopped by user.', 499)
+            return
+
+        if worker_api.configured():
+            wf_snap = worker_api.get_agent_workflow(workflow_id)
+            if (wf_snap.get('status') or '').lower() == 'cancelled':
+                write(False, None, 'Stopped by user.', 499)
+                return
+            from lib.planner.chat_only import is_chat_only_graph
+
+            chat_only = is_chat_only_graph(graph)
+            wf_status = (
+                'completed'
+                if chat_only
+                else ('planned' if not graph.get('requires_approval') else 'awaiting_approval')
+            )
+            worker_api.patch_agent_workflow(
+                workflow_id,
+                {
+                    'status': wf_status,
+                    'intent': graph.get('intent'),
+                    'summary': graph.get('summary'),
+                    'graph': graph,
+                    'approval_gates': graph.get('approval_gates') or [],
+                },
+            )
+            wf_doc = worker_api.get_agent_workflow(workflow_id)
+            if chat_only:
+                worker_api.emit_event('workflow.completed', {
+                    'workflow_id': wf_doc.get('workflow_id') or workflow_id,
+                    'workflow_mongo_id': workflow_id,
+                    'workspace_id': workspace_id,
+                    'chat_only': True,
+                })
+            else:
+                worker_api.emit_event('workflow.planned', {
+                    'workflow_id': wf_doc.get('workflow_id') or workflow_id,
+                    'workflow_mongo_id': workflow_id,
+                    'workspace_id': workspace_id,
+                    'requires_approval': graph.get('requires_approval'),
+                })
+
+        if graph.get('meta_setup_phase') == 'discovery' and not graph.get('requires_approval'):
+            from tasks.agent.execute_workflow import execute_workflow_task
+
+            logger.info('Auto-running Meta setup discovery workflow_id=%s', workflow_id)
+            try:
+                execute_workflow_task(workspace_id, workflow_id, reply_key=None, approved=True)
+                if worker_api.configured():
+                    wf_done = worker_api.get_agent_workflow(workflow_id)
+                    clarification = (wf_done.get('summary') or '').strip()
+                    if clarification:
+                        graph['assistant_message'] = clarification
+                        graph['summary'] = clarification
+            except Exception as exc:
+                logger.exception('Meta setup discovery auto-run failed workflow_id=%s', workflow_id)
+                graph['assistant_message'] = (
+                    (graph.get('assistant_message') or '').strip()
+                    + f'\n\nPage discovery failed: {exc}. Retry or connect a Facebook Page in Meta Business Settings.'
+                ).strip()
+
+        write(True, {
+            'workflow_id': workflow_id,
+            'graph': graph,
+            'assistant_message': graph.get('assistant_message'),
+            'requires_approval': graph.get('requires_approval'),
+        }, None, 200)
+    except ValueError as ve:
+        logger.info('plan_workflow validation: %s', ve)
+        if worker_api.configured():
+            worker_api.patch_agent_workflow(workflow_id, {
+                'status': 'failed',
+                'execution_errors': [str(ve)],
+            })
+        write(False, None, str(ve), 422)
+    except SoftTimeLimitExceeded:
+        msg = (
+            'Planner timed out before finishing. Try a shorter request, use the Ads campaign wizard, '
+            'or ask to create one campaign step at a time.'
+        )
+        logger.warning('plan_workflow soft timeout workflow_id=%s', workflow_id)
+        if worker_api.configured():
+            worker_api.patch_agent_workflow(workflow_id, {
+                'status': 'failed',
+                'execution_errors': [msg],
+            })
+        write(False, None, msg, 504)
+    except Exception as exc:
+        logger.exception('plan_workflow failed workflow_id=%s', workflow_id)
+        if worker_api.configured():
+            worker_api.patch_agent_workflow(workflow_id, {
+                'status': 'failed',
+                'execution_errors': [str(exc)],
+            })
+        write(False, None, str(exc), 502)
+
+
+================================================================================
+FILE: /home/sonofogre/Desktop/agent-market/services/ai-worker/tasks/agent/execute_workflow.py
+================================================================================
+"""Celery: workflow runtime execution."""
+
+from __future__ import annotations
+
+import json
+import logging
+from typing import Any
+
+from billiard.exceptions import SoftTimeLimitExceeded
+from celery_app import celery_app
+from db import get_redis
+from lib.runtime.cancel import is_workflow_cancelled
+from lib.runtime.executor import execute_workflow_steps, finalize_interrupted_steps
+
+logger = logging.getLogger(__name__)
+
+# Never auto-requeue a half-finished workflow (would re-bill image/video steps).
+_WORKFLOW_TASK_OPTS = dict(max_retries=0, acks_late=False)
+
+
+@celery_app.task(
+    name='tasks.agent.execute_workflow',
+    soft_time_limit=1800,
+    time_limit=1980,
+    **_WORKFLOW_TASK_OPTS,
+)
+def execute_workflow_task(
+    workspace_id: str,
+    workflow_id: str,
+    approved: bool = True,
+    reply_key: str | None = None,
+) -> None:
+    r = get_redis()
+
+    def write(ok: bool, data: Any = None, error: str | None = None, status: int = 502) -> None:
+        if not reply_key:
+            return
+        body = json.dumps({'ok': ok, 'data': data, 'error': error, 'status': status}, default=str)
+        r.set(reply_key, body, ex=600)
+
+    try:
+        from lib import worker_api
+
+        if not worker_api.configured():
+            raise RuntimeError('Worker API not configured')
+
+        wf = worker_api.get_agent_workflow(workflow_id)
+        graph = wf.get('graph') or {}
+        if not graph.get('steps') and graph.get('meta_compiled'):
+            from lib.planner.meta_campaign_spec import materialize_meta_compiled_graph
+
+            account_id = str(
+                graph.get('meta_account_id')
+                or wf.get('account_id')
+                or ''
+            ).strip()
+            graph = materialize_meta_compiled_graph(
+                graph,
+                account_id=account_id,
+                workspace_id=workspace_id,
+            )
+            worker_api.patch_agent_workflow(workflow_id, {
+                'graph': graph,
+                'intent': graph.get('intent'),
+                'summary': graph.get('summary'),
+                'approval_gates': graph.get('approval_gates') or [],
+            })
+
+        if not graph.get('steps') and graph.get('google_compiled'):
+            from lib.planner.google_campaign_spec import materialize_google_compiled_graph
+
+            account_id = str(
+                graph.get('google_account_id')
+                or wf.get('account_id')
+                or ''
+            ).strip()
+            graph = materialize_google_compiled_graph(
+                graph,
+                account_id=account_id,
+                workspace_id=workspace_id,
+            )
+            worker_api.patch_agent_workflow(workflow_id, {
+                'graph': graph,
+                'intent': graph.get('intent'),
+                'summary': graph.get('summary'),
+                'approval_gates': graph.get('approval_gates') or [],
+            })
+
+        if not graph.get('steps'):
+            write(False, None, 'Workflow has no executable steps', 400)
+            return
+
+        if is_workflow_cancelled(workflow_id):
+            worker_api.patch_agent_workflow(workflow_id, {
+                'status': 'cancelled',
+                'step_results': finalize_interrupted_steps(
+                    wf.get('step_results') or {},
+                    error='Stopped by user.',
+                ),
+                'execution_errors': ['Stopped by user.'],
+            })
+            worker_api.emit_event('workflow.cancelled', {
+                'workflow_id': wf.get('workflow_id') or workflow_id,
+                'workflow_mongo_id': workflow_id,
+                'workspace_id': workspace_id,
+            })
+            write(True, {
+                'workflow_id': workflow_id,
+                'status': 'cancelled',
+                'step_results': wf.get('step_results'),
+                'errors': ['Stopped by user.'],
+            }, None, 200)
+            return
+
+        worker_api.patch_agent_workflow(workflow_id, {'status': 'running'})
+        worker_api.emit_event('workflow.running', {
+            'workflow_id': wf.get('workflow_id') or workflow_id,
+            'workflow_mongo_id': workflow_id,
+            'workspace_id': workspace_id,
+        })
+
+        wf_public_id = wf.get('workflow_id') or workflow_id
+
+        def _workflow_stopped() -> bool:
+            if is_workflow_cancelled(workflow_id):
+                return True
+            snap = worker_api.get_agent_workflow(workflow_id)
+            return (snap.get('status') or '').lower() == 'cancelled'
+
+        def on_step_event(step_id: str, event: str, payload: dict) -> None:
+            if _workflow_stopped():
+                return
+            step_results = payload.pop('step_results', None)
+            worker_api.emit_event(event, {
+                'workflow_id': wf_public_id,
+                'workflow_mongo_id': workflow_id,
+                'workspace_id': workspace_id,
+                'step_id': step_id,
+                **payload,
+            })
+            if step_results is not None and not _workflow_stopped():
+                worker_api.patch_agent_workflow(workflow_id, {
+                    'status': 'running',
+                    'step_results': step_results,
+                })
+
+        outcome = execute_workflow_steps(
+            graph,
+            approved=approved,
+            workspace_id=workspace_id,
+            workflow_mongo_id=workflow_id,
+            on_step_event=on_step_event,
+            initial_step_results=wf.get('step_results'),
+        )
+
+        final_status = outcome['status']
+        if final_status == 'completed':
+            wf_status = 'completed'
+        elif final_status == 'cancelled':
+            wf_status = 'cancelled'
+        elif final_status == 'awaiting_approval':
+            wf_status = 'awaiting_approval'
+        else:
+            wf_status = 'failed'
+
+        final_step_results = outcome.get('step_results') or {}
+        if wf_status == 'failed':
+            final_step_results = finalize_interrupted_steps(final_step_results)
+        elif wf_status == 'cancelled':
+            final_step_results = finalize_interrupted_steps(
+                final_step_results,
+                error='Stopped by user.',
+            )
+
+        wf_snap = worker_api.get_agent_workflow(workflow_id)
+        if (wf_snap.get('status') or '').lower() == 'cancelled' and wf_status != 'cancelled':
+            wf_status = 'cancelled'
+            final_step_results = finalize_interrupted_steps(
+                wf_snap.get('step_results') or final_step_results,
+                error='Stopped by user.',
+            )
+
+        worker_api.patch_agent_workflow(workflow_id, {
+            'status': wf_status,
+            'step_results': final_step_results,
+            'execution_errors': outcome.get('errors') or [],
+        })
+
+        if wf_status == 'completed':
+            graph_for_persist = (worker_api.get_agent_workflow(workflow_id).get('graph') or graph)
+            from lib.ads_agent_persist import persist_agent_campaign_from_workflow
+
+            persist_agent_campaign_from_workflow(
+                workspace_id=workspace_id,
+                graph=graph_for_persist,
+                step_results=final_step_results,
+                account_id=str(
+                    graph_for_persist.get('google_account_id')
+                    or graph_for_persist.get('meta_account_id')
+                    or wf.get('account_id')
+                    or ''
+                ) or None,
+            )
+
+        graph = wf.get('graph') or {}
+        if graph.get('meta_setup_phase') == 'discovery' and wf_status == 'completed':
+            from lib.planner.meta_campaign_spec import meta_content_missing_lines
+            from lib.planner.meta_page_selection import (
+                build_meta_setup_clarification_message,
+                usable_pages,
+            )
+
+            pages_output = (final_step_results.get('step_2') or {}).get('output') or {}
+            pages = usable_pages(pages_output)
+            user_msg = str(wf.get('user_message') or '')
+            merged_msg = user_msg
+            clarification = build_meta_setup_clarification_message(
+                missing_lines=meta_content_missing_lines(
+                    {'attached_media': wf.get('attached_media') or []},
+                    merged_msg,
+                ),
+                pages=pages,
+                has_image=bool((wf.get('attached_media') or [])),
+            )
+            worker_api.patch_agent_workflow(workflow_id, {
+                'summary': clarification,
+            })
+
+        result_message: str | None = None
+        from lib.planner.result_narrator import (
+            apply_result_message,
+            narrate_workflow_result,
+            should_narrate_result,
+        )
+
+        live_graph = (worker_api.get_agent_workflow(workflow_id).get('graph') or graph)
+        if should_narrate_result(status=wf_status, graph=live_graph):
+            try:
+                result_message = narrate_workflow_result(
+                    workspace_id=workspace_id,
+                    user_message=str(wf.get('user_message') or ''),
+                    status=wf_status,
+                    graph=live_graph,
+                    step_results=final_step_results,
+                    errors=outcome.get('errors') or [],
+                )
+                patched_graph = apply_result_message(live_graph, result_message)
+                # Keep plan-time summary — putting the full narrator text in
+                # ``summary`` caused the same answer to appear under the plan card
+                # and again as a chat bubble.
+                worker_api.patch_agent_workflow(workflow_id, {
+                    'graph': patched_graph,
+                })
+            except Exception:
+                logger.exception(
+                    'result narration failed workflow_id=%s status=%s',
+                    workflow_id,
+                    wf_status,
+                )
+                result_message = None
+
+        event = 'workflow.completed' if wf_status == 'completed' else (
+            'workflow.cancelled' if wf_status == 'cancelled' else (
+                'workflow.failed' if wf_status == 'failed' else 'approval.required'
+            )
+        )
+        worker_api.emit_event(event, {
+            'workflow_id': wf.get('workflow_id') or workflow_id,
+            'workflow_mongo_id': workflow_id,
+            'workspace_id': workspace_id,
+            'status': wf_status,
+            **({'assistant_message': result_message} if result_message else {}),
+        })
+
+        write(True, {
+            'workflow_id': workflow_id,
+            'status': wf_status,
+            'step_results': outcome.get('step_results'),
+            'errors': outcome.get('errors'),
+            **({'assistant_message': result_message} if result_message else {}),
+        }, None, 200)
+    except SoftTimeLimitExceeded:
+        logger.warning('execute_workflow timed out workflow_id=%s', workflow_id)
+        try:
+            from lib import worker_api
+            if worker_api.configured():
+                wf_snap = worker_api.get_agent_workflow(workflow_id)
+                worker_api.patch_agent_workflow(workflow_id, {
+                    'status': 'failed',
+                    'step_results': finalize_interrupted_steps(wf_snap.get('step_results') or {}),
+                })
+                wf_fail = worker_api.get_agent_workflow(workflow_id)
+                worker_api.emit_event('workflow.failed', {
+                    'workflow_id': wf_fail.get('workflow_id') or workflow_id,
+                    'workflow_mongo_id': workflow_id,
+                    'workspace_id': workspace_id,
+                    'error': 'Workflow timed out',
+                })
+        except Exception:
+            pass
+        write(False, None, 'Workflow timed out', 504)
+        raise
+    except Exception as exc:
+        logger.exception('execute_workflow failed workflow_id=%s', workflow_id)
+        try:
+            from lib import worker_api
+            if worker_api.configured():
+                wf_snap = worker_api.get_agent_workflow(workflow_id)
+                worker_api.patch_agent_workflow(workflow_id, {
+                    'status': 'failed',
+                    'step_results': finalize_interrupted_steps(wf_snap.get('step_results') or {}),
+                })
+                wf_fail = worker_api.get_agent_workflow(workflow_id)
+                worker_api.emit_event('workflow.failed', {
+                    'workflow_id': wf_fail.get('workflow_id') or workflow_id,
+                    'workflow_mongo_id': workflow_id,
+                    'workspace_id': workspace_id,
+                    'error': str(exc),
+                })
+        except Exception:
+            pass
+        write(False, None, str(exc), 502)
+
+
+================================================================================
+FILE: /home/sonofogre/Desktop/agent-market/services/ai-worker/tasks/agent/run_registry_step.py
+================================================================================
+"""Celery task: execute one registry tool (observable, replayable step unit)."""
+
+from __future__ import annotations
+
+import logging
+from typing import Any
+
+from celery_app import celery_app
+from lib.dispatch.dispatcher import dispatch_tool
+
+logger = logging.getLogger(__name__)
+
+
+@celery_app.task(name='tasks.agent.run_registry_step', soft_time_limit=270, time_limit=300)
+def run_registry_step(tool_id: str, payload: dict | None = None) -> Any:
+    return dispatch_tool(tool_id, payload or {})
+
+
+================================================================================
+FILE: /home/sonofogre/Desktop/agent-market/services/ai-worker/tasks/bridge.py
+================================================================================
+"""
+Bridge: Node API LPUSHes JSON task envelopes (see apps/api/src/lib/celeryEnqueue.js).
+This task drains that list and dispatches via the real Celery app — avoids writing
+non-Kombu payloads onto the broker's native queue keys.
+"""
+
+import json
+import logging
+import os
+
+from celery_app import celery_app
+from db import get_redis
+
+logger = logging.getLogger(__name__)
+
+DEFAULT_BRIDGE_KEY = 'agentmarket:api_task_bridge'
+
+
+@celery_app.task(name='tasks.bridge_api_celery_queue')
+def bridge_api_celery_queue():
+    r = get_redis()
+    key = os.getenv('CELERY_REDIS_LIST', DEFAULT_BRIDGE_KEY)
+    for _ in range(100):
+        raw = r.rpop(key)
+        if not raw:
+            break
+        try:
+            msg = json.loads(raw)
+            name = msg.get('task')
+            if not name or name == 'tasks.bridge_api_celery_queue':
+                continue
+            args = msg.get('args') or []
+            kwargs = msg.get('kwargs') or {}
+            celery_app.send_task(name, args=args, kwargs=kwargs)
+            logger.debug('Bridged Celery task %s', name)
+        except Exception as exc:
+            logger.warning('bridge_api_celery_queue drop: %s raw=%s', exc, (raw or '')[:200])
+
+
+================================================================================
+FILE: /home/sonofogre/Desktop/agent-market/services/ai-worker/lib/runtime/executor.py
+================================================================================
+"""Workflow runtime — dispatches steps via registry dispatcher only (§15, §34)."""
+
+from __future__ import annotations
+
+import logging
+import re
+from typing import Any, Callable
+
+from lib.dispatch.dispatcher import dispatch_tool
+from lib.dispatch.registry import get_tool
+from lib.runtime.account_targets import enrich_create_draft_payload, enrich_schedule_publish_payload
+from lib.runtime.cancel import is_workflow_cancelled
+from lib.runtime.payload_resolve import _REF_RE, resolve_step_payload
+from lib.validation.meta_ads_workflow_rules import validate_meta_ads_step_execution
+
+logger = logging.getLogger(__name__)
+
+_INTERRUPTED = 'Step interrupted — worker stopped before completion.'
+_CANCELLED = 'Stopped by user.'
+_TRANSIENT_ERR = re.compile(
+    r'timeout|timed out|503|502|429|rate limit|temporarily unavailable',
+    re.I,
+)
+
+
+def _is_sanitized_media_value(val: Any) -> bool:
+    return isinstance(val, str) and (
+        val.startswith('[image generated')
+        or val.startswith('[video generated')
+    )
+
+
+def _step_output_unusable_on_resume(tool_id: str | None, output: Any) -> bool:
+    """Mongo may only store truncated media placeholders — re-run those steps."""
+    if not isinstance(output, dict):
+        return False
+    if tool_id == 'generate_image' and _is_sanitized_media_value(output.get('image')):
+        return True
+    if tool_id == 'generate_video' and _is_sanitized_media_value(output.get('video')):
+        return True
+    return False
+
+
+def _sanitize_step_output(tool_id: str, output: Any) -> Any:
+    """Keep workflow step_results small — omit multi-MB base64 blobs from MongoDB."""
+    if not isinstance(output, dict):
+        return output
+    if tool_id in ('generate_image', 'generate_video'):
+        out = dict(output)
+        for key in ('image', 'video'):
+            val = out.get(key)
+            if isinstance(val, str) and len(val) > 256:
+                out[key] = f'[{key} generated — {len(val)} chars omitted from workflow log]'
+        return out
+    return output
+
+
+def public_step_results(results: dict[str, Any]) -> dict[str, Any]:
+    """Strip large base64 blobs before persisting workflow step_results to MongoDB."""
+    out: dict[str, Any] = {}
+    for sid, row in (results or {}).items():
+        if not isinstance(row, dict):
+            out[sid] = row
+            continue
+        row_copy = dict(row)
+        tool_id = row_copy.get('tool_id') or ''
+        if row_copy.get('status') == 'completed' and tool_id:
+            row_copy['output'] = _sanitize_step_output(tool_id, row_copy.get('output'))
+        out[sid] = row_copy
+    return out
+
+
+def finalize_interrupted_steps(
+    results: dict[str, Any],
+    *,
+    error: str | None = None,
+) -> dict[str, Any]:
+    """Mark in-flight steps failed when the workflow stops (timeout, crash, reboot, user stop)."""
+    msg = error or _INTERRUPTED
+    out = dict(results or {})
+    for sid, row in list(out.items()):
+        if isinstance(row, dict) and row.get('status') == 'running':
+            out[sid] = {
+                **row,
+                'status': 'failed',
+                'error': row.get('error') or msg,
+            }
+    return out
+
+
+def _deps_satisfied(step: dict, completed: set[str]) -> bool:
+    return all(d in completed for d in (step.get('depends_on') or []))
+
+
+def _optional_skip_missing_media(tool_id: str, payload: dict[str, Any]) -> str | None:
+    """Skip optional media tools when upstream script/output did not produce a prompt."""
+    if tool_id == 'generate_image':
+        if not str(payload.get('prompt') or '').strip():
+            return 'No image prompt — upstream image script was skipped or unavailable'
+    if tool_id == 'generate_video':
+        vp = str(payload.get('video_prompt') or payload.get('prompt') or '').strip()
+        if not vp:
+            return 'No video prompt — upstream video script was skipped or unavailable'
+    return None
+
+
+_MEDIA_REF_KEYS = frozenset({
+    'image', 'image_data_url', 'video', 'video_prompt', 'image_prompt', 'prompt',
+})
+
+
+def _google_publish_blocked(results: dict[str, Any], step: dict[str, Any]) -> str | None:
+    """Block Google publish when google_get_account resolved no client customer."""
+    tool_id = str(step.get('tool_id') or '')
+    if not tool_id.startswith('google_publish_'):
+        return None
+    for dep in step.get('depends_on') or []:
+        row = results.get(dep) or {}
+        if row.get('tool_id') != 'google_get_account':
+            continue
+        output = row.get('output') or {}
+        if not isinstance(output, dict):
+            continue
+        reason = str(output.get('publish_block_reason') or '').strip()
+        if reason:
+            return reason
+        publish_cid = output.get('publish_customer_id')
+        if output.get('ok') and not publish_cid:
+            return (
+                'Google Ads account is not ready for campaign creation. '
+                'Reconnect a client (non-manager) account under Accounts.'
+            )
+    return None
+
+
+def _tool_output_error(out: Any) -> str | None:
+    """Ads and Meta tools often return {ok: false, error: ...} instead of raising."""
+    if not isinstance(out, dict):
+        return None
+    if out.get('ok') is False:
+        return str(out.get('error') or 'Tool returned ok: false')
+    return None
+
+
+def _step_result_usable(row: dict[str, Any]) -> bool:
+    """Completed steps with ok:false envelopes must be re-run, not resumed."""
+    if row.get('status') != 'completed':
+        return False
+    output = row.get('output')
+    if output is None:
+        return False
+    if _tool_output_error(output):
+        return False
+    tool_id = row.get('tool_id')
+    return not _step_output_unusable_on_resume(tool_id, output)
+
+
+def _dispatch_with_retry(tool_id: str, payload: dict[str, Any]) -> Any:
+    """Max one automatic retry per step on transient Meta/network errors (SPEC)."""
+    try:
+        return dispatch_tool(tool_id, payload)
+    except Exception as exc:
+        if tool_id.startswith('meta_') and _TRANSIENT_ERR.search(str(exc)):
+            logger.warning('Transient error on %s — retrying once: %s', tool_id, exc)
+            return dispatch_tool(tool_id, payload)
+        raise
+
+
+def _is_read_only_graph(workflow: dict[str, Any]) -> bool:
+    """True when every step is a non-mutating read (analytics / list / get)."""
+    steps = workflow.get('steps') if isinstance(workflow, dict) else None
+    if not isinstance(steps, list) or not steps:
+        return False
+    for step in steps:
+        if not isinstance(step, dict):
+            return False
+        tool_id = str(step.get('tool_id') or '').strip()
+        if not tool_id:
+            return False
+        tool = get_tool(tool_id) or {}
+        sec = str(tool.get('side_effect_class') or '')
+        if 'mutating' in sec:
+            return False
+        if sec in ('internal_ai',):
+            return False
+    return True
+
+
+def execute_workflow_steps(
+    workflow: dict[str, Any],
+    *,
+    approved: bool,
+    workspace_id: str | None = None,
+    workflow_mongo_id: str | None = None,
+    on_step_event: Callable[[str, str, dict], None] | None = None,
+    initial_step_results: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """
+    Execute steps in dependency order. Returns step results map.
+    Mutating tools are skipped unless approved=True.
+    Completed steps from ``initial_step_results`` are reused (no duplicate API spend).
+    """
+    steps = list(workflow.get('steps') or [])
+    approval_gates = set(workflow.get('approval_gates') or [])
+    results: dict[str, Any] = {}
+    completed: set[str] = set()
+    for sid, row in (initial_step_results or {}).items():
+        if not isinstance(row, dict):
+            continue
+        if row.get('status') == 'running':
+            # Worker died mid-step — do not resume as complete; re-run on retry.
+            continue
+        if _step_result_usable(row):
+            results[sid] = dict(row)
+            completed.add(sid)
+    errors: list[str] = []
+    context: dict[str, Any] = {'workspace_id': workspace_id}
+
+    def emit(step_id: str, event: str, payload: dict) -> None:
+        if on_step_event:
+            try:
+                on_step_event(step_id, event, {**payload, 'step_results': public_step_results(results)})
+            except Exception:
+                logger.exception('step event callback failed')
+
+    remaining = list(steps)
+    safety = len(remaining) + 2
+    while remaining and safety > 0:
+        if workflow_mongo_id and is_workflow_cancelled(workflow_mongo_id):
+            results = finalize_interrupted_steps(results, error=_CANCELLED)
+            errors.append(_CANCELLED)
+            return {
+                'status': 'cancelled',
+                'step_results': public_step_results(results),
+                'errors': errors,
+            }
+
+        safety -= 1
+        progressed = False
+        next_remaining = []
+        for step in remaining:
+            sid = step['step_id']
+            if not _deps_satisfied(step, completed):
+                next_remaining.append(step)
+                continue
+
+            if results.get(sid, {}).get('status') == 'completed':
+                progressed = True
+                continue
+
+            tool_id = step['tool_id']
+            tool = get_tool(tool_id)
+            if not tool:
+                errors.append(f'{sid}: unknown tool')
+                results[sid] = {'status': 'failed', 'error': 'unknown tool'}
+                emit(sid, 'step.failed', {'error': 'unknown tool'})
+                completed.add(sid)
+                progressed = True
+                continue
+
+            needs_approval = sid in approval_gates or tool.get('requires_approval_default')
+            side_effect = tool.get('side_effect_class') or 'internal'
+            is_mutating = side_effect == 'external_mutating' or 'mutating' in side_effect
+
+            if needs_approval and is_mutating and not approved:
+                results[sid] = {'status': 'skipped', 'reason': 'awaiting_approval'}
+                emit(sid, 'step.skipped', {'reason': 'awaiting_approval'})
+                completed.add(sid)
+                progressed = True
+                continue
+
+            results[sid] = {'status': 'running', 'tool_id': tool_id}
+            emit(sid, 'step.running', {'tool_id': tool_id})
+            optional_on_failure = bool(tool.get('optional_on_failure'))
+            try:
+                raw_payload = dict(step.get('payload') or {})
+                for key in _MEDIA_REF_KEYS:
+                    ref = raw_payload.get(key)
+                    if isinstance(ref, str):
+                        m = _REF_RE.match(ref.strip())
+                        if not m:
+                            continue
+                        upstream_id = m.group(1)
+                        upstream = results.get(upstream_id, {})
+                        if upstream.get('status') in ('failed', 'skipped'):
+                            upstream_tool = get_tool(upstream.get('tool_id') or '')
+                            if not (upstream_tool and upstream_tool.get('optional_on_failure')):
+                                raise ValueError(
+                                    f'Cannot resolve {ref} — upstream {upstream_id} failed'
+                                )
+                try:
+                    payload = resolve_step_payload(raw_payload, results, context)
+                except ValueError as ve:
+                    raise ve
+                if workspace_id and not payload.get('workspace_id'):
+                    payload['workspace_id'] = workspace_id
+                if tool_id.startswith(('google_', 'meta_')):
+                    from tools.ads._resolve import inherit_ads_account_context
+
+                    payload = inherit_ads_account_context(
+                        payload,
+                        workflow=workflow,
+                        steps=steps,
+                    )
+                if workspace_id and tool_id == 'create_draft_post':
+                    payload = enrich_create_draft_payload(payload, workspace_id)
+                if workspace_id and tool_id in ('schedule_post', 'publish_post'):
+                    payload = enrich_schedule_publish_payload(payload, workspace_id)
+                if tool_id.startswith('meta_'):
+                    validate_meta_ads_step_execution(
+                        tool_id,
+                        payload,
+                        workflow_steps=steps,
+                        step_id=sid,
+                        completed_step_results=results,
+                        intent=str(workflow.get('intent') or ''),
+                    )
+                publish_block = _google_publish_blocked(results, step)
+                if publish_block:
+                    raise ValueError(publish_block)
+                if optional_on_failure:
+                    skip_reason = _optional_skip_missing_media(tool_id, payload)
+                    if skip_reason:
+                        results[sid] = {
+                            'status': 'skipped',
+                            'reason': 'optional_step_failed',
+                            'error': skip_reason,
+                            'tool_id': tool_id,
+                        }
+                        emit(sid, 'step.skipped', {
+                            'reason': skip_reason,
+                            'tool_id': tool_id,
+                            'error': skip_reason,
+                        })
+                        completed.add(sid)
+                        progressed = True
+                        continue
+                out = _dispatch_with_retry(tool_id, payload)
+                tool_err = _tool_output_error(out)
+                if tool_err:
+                    raise ValueError(tool_err)
+                sanitized = _sanitize_step_output(tool_id, out)
+                results[sid] = {
+                    'status': 'completed',
+                    'output': sanitized,
+                    'tool_id': tool_id,
+                }
+                emit(sid, 'step.completed', {'tool_id': tool_id, 'output': sanitized})
+            except Exception as exc:
+                logger.exception('step %s failed', sid)
+                if optional_on_failure:
+                    results[sid] = {
+                        'status': 'skipped',
+                        'reason': 'optional_step_failed',
+                        'error': str(exc),
+                        'tool_id': tool_id,
+                    }
+                    emit(sid, 'step.skipped', {
+                        'reason': 'optional_step_failed',
+                        'error': str(exc),
+                        'tool_id': tool_id,
+                    })
+                else:
+                    errors.append(f'{sid}: {exc}')
+                    results[sid] = {'status': 'failed', 'error': str(exc), 'tool_id': tool_id}
+                    emit(sid, 'step.failed', {'error': str(exc)})
+
+            completed.add(sid)
+            progressed = True
+
+        remaining = next_remaining
+        if not progressed and remaining:
+            errors.append('deadlock: unsatisfied dependencies')
+            break
+
+    status = 'failed' if errors else 'completed'
+    # Multi-account analytics: one Meta account may OAuth-fail while another
+    # returns data — treat as completed so the UI does not look fully broken.
+    if errors and _is_read_only_graph(workflow):
+        any_ok = any(
+            isinstance(r, dict) and r.get('status') == 'completed'
+            for r in results.values()
+        )
+        if any_ok:
+            status = 'completed'
+    if not errors and any(
+        isinstance(r, dict)
+        and r.get('status') == 'skipped'
+        and r.get('reason') == 'awaiting_approval'
+        for r in results.values()
+    ):
+        status = 'awaiting_approval'
+
+    return {
+        'status': status,
+        'step_results': public_step_results(results),
+        'errors': errors,
+    }
+
+
+================================================================================
+FILE: /home/sonofogre/Desktop/agent-market/services/ai-worker/lib/planner/orchestrator.py
+================================================================================
+"""
+Orchestrating LLM — legacy soft workflow_id classifier.
+
+Not used on the live planner path (``agents.planner.plan_workflow``). Kept for
+tests / reference only. Do not re-wire into the planner without an explicit
+product decision.
+"""
+
+from __future__ import annotations
+
+import logging
+from dataclasses import dataclass
+from typing import Any, Literal
+
+from lib.planner.workflow_spec import WORKFLOW_REGISTRY, orchestrator_workflow_catalog
+
+logger = logging.getLogger(__name__)
+
+Confidence = Literal['high', 'low']
+
+
+@dataclass
+class WorkflowIntent:
+    workflow_id: str
+    confidence: Confidence
+    understood_summary: str = ''
+
+
+
+_VALID_WORKFLOW_IDS = frozenset(WORKFLOW_REGISTRY.keys()) | frozenset({
+    'google_ads_mutate',
+    'meta_ads_mutate',
+    'unknown',
+})
+
+
+def classify_workflow_intent_with_planner(
+    *,
+    workspace_id: str | None,
+    message: str,
+    conversation_history: list[dict[str, Any]] | None = None,
+) -> WorkflowIntent | None:
+    """Marketing Assistant classifies user intent to a workflow id."""
+    try:
+        from lib.ai_workspace_config import get_planner_config
+        from lib.llm import text as text_llm
+        from lib.llm.json_utils import parse_json_text
+
+        cfg = get_planner_config(workspace_id)
+    except Exception:
+        return None
+
+    lines: list[str] = []
+    for msg in conversation_history or []:
+        role = str(msg.get('role') or 'user')
+        content = str(msg.get('content') or '').strip()
+        if content:
+            lines.append(f'{role}: {content}')
+    current = (message or '').strip()
+    if current:
+        lines.append(f'user: {current}')
+    convo = '\n'.join(lines[-14:])
+
+    workflow_list = orchestrator_workflow_catalog()
+
+    llm_prompt = f"""You classify the user's intent for a marketing automation assistant.
+
+Available workflows:
+{workflow_list}
+
+Conversation:
+{convo}
+
+Return JSON only:
+{{
+  "workflow_id": "one of the ids above",
+  "confidence": "high" | "low",
+  "understood_summary": "one sentence"
+}}
+
+Use the most specific workflow (e.g. google_search_create, google_shopping_create, meta_leads_create).
+Use meta_campaign_create only when platform is Meta but objective is unclear.
+Use high confidence only when intent is clear."""
+
+    try:
+        raw = text_llm.complete(
+            cfg['provider'],
+            cfg['model'],
+            llm_prompt,
+            workspace_id=workspace_id,
+            temperature=0.1,
+            max_tokens=250,
+            api_model_id=cfg.get('api_model_id'),
+            feature_id='planner',
+            opcode='plan_workflow',
+            source='workflow_intent_classifier',
+            record_usage=True,
+        )
+        parsed = parse_json_text(raw, {})
+        if not isinstance(parsed, dict):
+            return None
+        wf = str(parsed.get('workflow_id') or '').strip()
+        conf = str(parsed.get('confidence') or 'low').strip().lower()
+        if wf not in _VALID_WORKFLOW_IDS:
+            return None
+        return WorkflowIntent(
+            workflow_id=wf,
+            confidence='high' if conf == 'high' else 'low',
+            understood_summary=str(parsed.get('understood_summary') or '').strip(),
+        )
+    except Exception as exc:
+        logger.warning('workflow_intent_classifier failed: %s', exc)
+        return None
+
+
+
+
+================================================================================
+FILE: /home/sonofogre/Desktop/agent-market/services/ai-worker/agents/planner.py
+================================================================================
+"""Planner agent — LLM workflow generation only (no execution)."""
+
+from __future__ import annotations
+
+import json
+import logging
+from typing import Any
+
+from lib.prompt_loader import load_prompt
+
+from lib.dispatch.registry import tool_catalog_for_planner
+from lib.ai_workspace_config import get_planner_config
+from lib.llm.json_utils import parse_json_text
+from lib.llm import text as text_llm
+from lib.memory.context import build_planner_context, format_context_block
+from lib.planner.ads_helpers import (
+    merge_conversation_attachments,
+    resolve_ads_planning_message,
+)
+from lib.planner.attached_media import (
+    format_attached_media_block,
+    reconcile_attached_media_steps,
+)
+from lib.planner.social_helpers import (
+    normalize_planner_payload,
+)
+from lib.validation.workflow_graph import validate_workflow_graph
+
+logger = logging.getLogger(__name__)
+
+
+def _load_system_prompt() -> str:
+    return load_prompt('planner/system.md')
+
+
+def _finalize_graph(
+    parsed: dict,
+    *,
+    user_message: str,
+    ctx: dict,
+    max_steps: int,
+    media: list[dict[str, str]],
+    raw_fallback: str = '',
+    conversation_history: list[dict[str, Any]] | None = None,
+) -> dict:
+    """Validate/reconcile the planner LLM graph — never replace it with heuristic workflows."""
+    _ = (user_message, conversation_history)
+    parsed = normalize_planner_payload(parsed)
+    if media:
+        parsed = reconcile_attached_media_steps(parsed, media)
+
+    if parsed.get('intent') == 'informational' and not parsed.get('steps'):
+        summary = (parsed.get('assistant_message') or parsed.get('summary') or raw_fallback[:500]).strip()
+        from lib.planner.chat_only import is_chat_only_graph
+
+        graph = {
+            'intent': 'informational',
+            'summary': summary,
+            'assistant_message': summary,
+            'steps': [],
+            'dependencies': [],
+            'parallel_groups': [],
+            'approval_gates': [],
+            'requires_approval': False,
+        }
+        if is_chat_only_graph(graph):
+            graph['chat_only'] = True
+        for key in (
+            'collection_phase',
+            'meta_setup_phase',
+            'google_setup_phase',
+            'meta_compiled',
+            'google_compiled',
+            'execute_plan',
+        ):
+            if parsed.get(key) is not None:
+                graph[key] = parsed[key]
+        return graph
+
+    if not parsed.get('steps'):
+        summary = (
+            (parsed.get('assistant_message') or parsed.get('summary') or raw_fallback[:500] or '').strip()
+            or 'I could not plan workflow steps for that message. Include the full request in one message.'
+        )
+        from lib.planner.chat_only import is_chat_only_graph
+
+        graph = {
+            'intent': 'informational',
+            'summary': summary,
+            'assistant_message': summary,
+            'steps': [],
+            'dependencies': [],
+            'parallel_groups': [],
+            'approval_gates': [],
+            'requires_approval': False,
+        }
+        if is_chat_only_graph(graph):
+            graph['chat_only'] = True
+        return graph
+
+    if media:
+        parsed = reconcile_attached_media_steps(parsed, media)
+    result = validate_workflow_graph(parsed, max_steps=max_steps)
+    for key in (
+        'meta_setup_phase',
+        'google_setup_phase',
+        'meta_compiled',
+        'google_compiled',
+        'collection_phase',
+        'execute_plan',
+    ):
+        if parsed.get(key) is not None:
+            result[key] = parsed[key]
+    return result
+
+
+def plan_workflow(
+    *,
+    workspace_id: str,
+    user_message: str,
+    conversation_history: list[dict[str, str]] | None = None,
+    attached_media: list[dict[str, str]] | None = None,
+) -> dict:
+    """
+    Run planner LLM and return validated workflow graph + metadata.
+    Raises ValueError on validation failure; RuntimeError on LLM failure.
+
+    Tool choice is guided by prompts + full catalog + workspace context only.
+    No keyword routes and no soft workflow_intent classifier.
+    """
+    planner_cfg = get_planner_config(workspace_id)
+    planner_provider = planner_cfg['provider']
+    planner_model = planner_cfg['model']
+    max_steps = int(planner_cfg.get('max_workflow_steps') or 10)
+
+    media = merge_conversation_attachments(attached_media, conversation_history)
+    # Merge short ads follow-ups into one planning prompt (context for the LLM only).
+    planning_message = resolve_ads_planning_message(user_message, conversation_history)
+    ctx = build_planner_context(workspace_id, planning_message, attached_media=media)
+    ctx['max_workflow_steps'] = max_steps
+    ctx['conversation_history'] = list(conversation_history or [])
+
+    logger.info('Planner start message_len=%s', len(user_message or ''))
+
+    catalog = tool_catalog_for_planner('general')
+    system = _load_system_prompt()
+
+    history_block = ''
+    if conversation_history:
+        lines = []
+        for m in conversation_history[-10:]:
+            role = m.get('role') or 'user'
+            content = (m.get('content') or '').strip()
+            if content:
+                lines.append(f'{role}: {content}')
+        if lines:
+            history_block = '\n\nCONVERSATION HISTORY:\n' + '\n'.join(lines)
+
+    attached_block = format_attached_media_block(media)
+
+    catalog_block = json.dumps(catalog, indent=2) if catalog else '[]'
+    user_block = (
+        f'{system}\n\n'
+        f'WORKSPACE LIMIT: Maximum workflow steps = {max_steps}. '
+        f'Never plan more than {max_steps} steps.\n\n'
+        f'TOOL CATALOG ({len(catalog)} tools — pick the smallest set that answers the user):\n'
+        f'{catalog_block}\n\n'
+        f'WORKSPACE CONTEXT:\n{format_context_block(ctx)}\n\n'
+        f'{attached_block}'
+        f'{history_block}\n\n'
+        f'USER REQUEST:\n{planning_message.strip()}\n\n'
+        'Respond with the workflow JSON object only.'
+    )
+
+    raw = text_llm.complete(
+        planner_provider,
+        planner_model,
+        user_block,
+        workspace_id=workspace_id,
+        temperature=0.35,
+        max_tokens=3072,
+        api_model_id=planner_cfg.get('api_model_id'),
+        feature_id='planner',
+        opcode='planner',
+        source='agent',
+        enable_reasoning=False,
+    )
+
+    parsed = parse_json_text(raw, {})
+    if not isinstance(parsed, dict):
+        raise ValueError('Planner did not return a JSON object')
+
+    return _finalize_graph(
+        parsed,
+        user_message=user_message,
+        ctx=ctx,
+        max_steps=max_steps,
+        media=media,
+        raw_fallback=raw,
+        conversation_history=conversation_history,
+    )
+

@@ -1,0 +1,4803 @@
+
+================================================================================
+FILE: /home/sonofogre/Desktop/agent-market/services/ai-worker/tasks/ads/campaign_content.py
+================================================================================
+"""Campaign marketing content + optimization tasks (Celery)."""
+
+from __future__ import annotations
+
+import json
+import logging
+from typing import Optional
+
+from celery_app import celery_app
+from lib import worker_api
+from lib.ads_marketing_content import (
+    generate_campaign_search_assets,
+    generate_landing_page_marketing_content,
+)
+
+from .._util import emit
+
+logger = logging.getLogger(__name__)
+
+
+def _write_reply(reply_key: Optional[str], body: dict) -> None:
+    if not reply_key:
+        return
+    from db import get_redis
+
+    ok = bool(body.get('ok', True))
+    r = get_redis()
+    r.set(
+        reply_key,
+        json.dumps(
+            {
+                'ok': ok,
+                'data': body if ok else None,
+                'error': body.get('error') if not ok else None,
+                'status': 422 if not ok else 200,
+            },
+            default=str,
+        ),
+        ex=300,
+    )
+
+
+def run_generate_campaign_assets(body: dict) -> dict:
+    """Sync entry for agent dispatcher — same logic as Celery task."""
+    campaign_id = str(body.get('campaign_id') or '').strip()
+    if not campaign_id:
+        raise ValueError('campaign_id is required')
+    if not worker_api.configured():
+        raise RuntimeError('WORKER_API_SECRET not set')
+
+    campaign_name = str(body.get('campaign_name') or body.get('name') or '').strip()
+    keywords = body.get('keywords')
+    workspace_id = body.get('workspace_id')
+
+    if not campaign_name or keywords is None:
+        snapshot = worker_api.get_ads_campaign_worker_snapshot(campaign_id)
+        if not snapshot:
+            raise ValueError(f'Campaign {campaign_id} not found')
+        campaign_name = campaign_name or str(snapshot.get('name') or '').strip()
+        if keywords is None:
+            keywords = snapshot.get('keywords') or []
+        workspace_id = workspace_id or snapshot.get('workspace_id')
+
+    if not campaign_name:
+        raise ValueError('campaign_name is required')
+
+    language = str(body.get('language') or 'en')
+    assets = generate_campaign_search_assets(
+        campaign_name=campaign_name,
+        keywords=keywords or [],
+        workspace_id=workspace_id,
+        language=language,
+    )
+    assets['ok'] = True
+    worker_api.patch_campaign_assets(campaign_id, assets)
+    try:
+        worker_api.emit_event(
+            'campaign.assets_generated',
+            {'campaignId': campaign_id, 'assets': assets},
+        )
+    except Exception:
+        emit('campaign.assets_generated', {'campaignId': campaign_id, 'assets': assets})
+    return assets
+
+
+@celery_app.task(name='tasks.generate_campaign_assets', bind=True, max_retries=0, acks_late=False)
+def generate_campaign_assets(
+    self,
+    campaign_id: str,
+    campaign_name: str,
+    keywords: list,
+    workspace_id: str | None = None,
+    language: str = 'en',
+    reply_key: Optional[str] = None,
+):
+    if not worker_api.configured() and reply_key:
+        _write_reply(reply_key, {'ok': False, 'error': 'WORKER_API_SECRET not set'})
+        return
+    try:
+        out = run_generate_campaign_assets({
+            'campaign_id': campaign_id,
+            'campaign_name': campaign_name,
+            'keywords': keywords,
+            'workspace_id': workspace_id,
+            'language': language,
+        })
+        if reply_key:
+            _write_reply(reply_key, out)
+            return None
+        logger.info(
+            'Assets generated for campaign %s (source=%s)',
+            campaign_id,
+            out.get('source'),
+        )
+        return out
+    except Exception as exc:
+        logger.error('generate_campaign_assets failed for %s: %s', campaign_id, exc)
+        if reply_key:
+            _write_reply(reply_key, {'ok': False, 'error': str(exc)})
+            return None
+        raise
+
+
+def run_optimize_campaign(campaign_id: str, options: dict | None = None) -> dict:
+    """Shared optimization — delegates to API adsOptimization.runCampaignOptimization."""
+    if not worker_api.configured():
+        raise RuntimeError('WORKER_API_SECRET not set')
+    return worker_api.run_campaign_optimization(campaign_id, options or {})
+
+
+@celery_app.task(name='tasks.optimize_campaign', bind=True, max_retries=2)
+def optimize_campaign(self, campaign_id: str, options: dict | None = None):
+    if not worker_api.configured():
+        logger.error('optimize_campaign: WORKER_API_SECRET not set')
+        return
+    try:
+        result = run_optimize_campaign(campaign_id, options)
+        suggestions = result.get('suggestions') or []
+        logger.info('Campaign %s optimized (%d suggestions)', campaign_id, len(suggestions))
+        return suggestions
+    except Exception as exc:
+        logger.error('optimize_campaign failed for %s: %s', campaign_id, exc)
+        raise self.retry(exc=exc, countdown=120)
+
+
+@celery_app.task(name='tasks.optimize_active_campaigns')
+def optimize_active_campaigns():
+    if not worker_api.configured():
+        logger.warning('[Beat] optimize_active_campaigns skipped — WORKER_API_SECRET not set')
+        return
+    try:
+        ids = worker_api.list_active_ads_campaign_ids()
+    except Exception as exc:
+        logger.exception('[Beat] list_active_ads_campaign_ids failed: %s', exc)
+        return
+    for cid in ids:
+        optimize_campaign.delay(cid)
+    logger.info('[Beat] Queued optimization for %d active campaign(s)', len(ids))
+
+
+@celery_app.task(name='tasks.generate_landing_page_content', bind=True, max_retries=2)
+def generate_landing_page_content(
+    self,
+    landing_page_id: str,
+    campaign_name: str,
+    workspace_id: str | None = None,
+    keywords: list | None = None,
+    language: str = 'en',
+    reply_key: Optional[str] = None,
+):
+    if not worker_api.configured() and reply_key:
+        _write_reply(reply_key, {'ok': False, 'error': 'WORKER_API_SECRET not set'})
+        return
+    try:
+        content = generate_landing_page_marketing_content(
+            campaign_name=campaign_name,
+            workspace_id=workspace_id,
+            keywords=keywords,
+            language=language,
+        )
+        content['ok'] = True
+        if worker_api.configured():
+            worker_api.patch_landing_page_content(
+                landing_page_id,
+                headline=content['headline'],
+                subheadline=content['subheadline'],
+                body=content['body'],
+                cta_text=content['cta_text'],
+            )
+            try:
+                worker_api.emit_event(
+                    'landing_page.content_generated',
+                    {'landingPageId': landing_page_id, 'source': content.get('source')},
+                )
+            except Exception:
+                emit('landing_page.content_generated', {'landingPageId': landing_page_id})
+        if reply_key:
+            _write_reply(reply_key, content)
+            return None
+        logger.info(
+            'Landing page content generated for %s (source=%s)',
+            landing_page_id,
+            content.get('source'),
+        )
+        return content
+    except Exception as exc:
+        logger.error('generate_landing_page_content failed for %s: %s', landing_page_id, exc)
+        if reply_key:
+            _write_reply(reply_key, {'ok': False, 'error': str(exc)})
+            return None
+        raise self.retry(exc=exc, countdown=120)
+
+
+@celery_app.task(name='tasks.ads.run_landing_page_workflow', bind=True, max_retries=2)
+def run_landing_page_workflow(self, body: dict):
+    """Agent tool: full landing page workflow via API internal route."""
+    if not worker_api.configured():
+        raise RuntimeError('WORKER_API_SECRET not set')
+    try:
+        return worker_api.run_landing_page_workflow(body or {})
+    except Exception as exc:
+        logger.error('run_landing_page_workflow failed: %s', exc)
+        raise self.retry(exc=exc, countdown=60)
+
+
+================================================================================
+FILE: /home/sonofogre/Desktop/agent-market/services/ai-worker/tasks/ads/execute_ads_tool.py
+================================================================================
+"""Celery entrypoint for ads tools — same execution path for UI, agents, workflows."""
+
+from __future__ import annotations
+
+import json
+import logging
+from typing import Any, Dict, Optional
+
+from celery_app import celery_app
+from db import get_redis
+from tools.ads._errors import ToolValidationError
+from tools.ads.registry import run_ads_tool
+
+logger = logging.getLogger(__name__)
+
+
+def run_execute_ads_tool(tool_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    try:
+        return run_ads_tool(tool_id, payload or {})
+    except ToolValidationError as exc:
+        return {'ok': False, 'error': str(exc)}
+    except Exception as exc:
+        logger.exception('[execute_ads_tool] tool_id=%s', tool_id)
+        return {'ok': False, 'error': str(exc)}
+
+
+@celery_app.task(name='tasks.ads.execute_ads_tool', soft_time_limit=180, time_limit=210)
+def execute_ads_tool(
+    tool_id: str,
+    payload: Dict[str, Any] | None = None,
+    reply_key: Optional[str] = None,
+) -> Dict[str, Any] | None:
+    out = run_execute_ads_tool(tool_id, payload or {})
+    if not reply_key:
+        return out
+
+    r = get_redis()
+    ok = bool(out.get('ok')) if isinstance(out, dict) and 'ok' in out else not (isinstance(out, dict) and out.get('error'))
+    status = 422 if not ok and isinstance(out, dict) and out.get('error') else 200
+    # Always attach full tool payload as ``data`` so failures can carry hints (e.g. ``accessible_accounts``).
+    body = json.dumps(
+        {
+            'ok': ok,
+            'data': out if isinstance(out, dict) else None,
+            'error': (out.get('error') if isinstance(out, dict) else None) if not ok else None,
+            'status': status if not ok else 200,
+        },
+        default=str,
+    )
+    r.set(reply_key, body, ex=300)
+    return None
+
+
+================================================================================
+FILE: /home/sonofogre/Desktop/agent-market/services/ai-worker/tasks/ads/fetch_facebook_pages.py
+================================================================================
+"""P2: Graph ``me/accounts`` for ads page picker — execution in worker (connector), API validates + enqueues."""
+
+from __future__ import annotations
+
+import json
+import logging
+
+from celery_app import celery_app
+from connectors import facebook as facebook_connector
+from db import get_redis
+from lib import worker_api
+
+logger = logging.getLogger(__name__)
+
+
+@celery_app.task(name='tasks.ads.fetch_facebook_pages', soft_time_limit=90, time_limit=120)
+def fetch_facebook_pages(account_id: str, workspace_id: str, reply_key: str) -> None:
+    r = get_redis()
+
+    def write(ok: bool, data=None, error: str | None = None, status: int = 502) -> None:
+        body = json.dumps({'ok': ok, 'data': data, 'error': error, 'status': status}, default=str)
+        r.set(reply_key, body, ex=300)
+
+    if not worker_api.configured():
+        logger.warning('[fetch_facebook_pages] worker_api not configured')
+        write(False, None, 'Worker API not configured', 503)
+        return
+
+    try:
+        ctx = worker_api.get_account_worker_context(str(account_id))
+    except Exception as exc:
+        logger.exception('[fetch_facebook_pages] worker-context account=%s', account_id)
+        write(False, None, str(exc), 502)
+        return
+
+    if not ctx:
+        write(False, None, 'Account not found', 404)
+        return
+
+    if str(ctx.get('workspace_id') or '') != str(workspace_id):
+        write(False, None, 'Forbidden', 403)
+        return
+
+    if not ctx.get('authorized'):
+        write(False, None, 'Account not authorized', 401)
+        return
+
+    token = (ctx.get('data') or {}).get('user_token') or (ctx.get('access_token') or {}).get('token')
+    if not token:
+        write(False, None, 'No user token on this account. Reconnect it.', 400)
+        return
+
+    try:
+        fb_cfg = worker_api.get_service_decrypted('facebook', str(workspace_id))
+    except Exception as exc:
+        logger.warning('[fetch_facebook_pages] service config: %s', exc)
+        fb_cfg = {}
+
+    api_version = (fb_cfg or {}).get('api_version') or 'v22.0'
+    out = facebook_connector.fetch_me_accounts(str(token), api_version=str(api_version), timeout=60.0)
+
+    if out.get('ok'):
+        write(True, {'pages': out.get('pages') or []}, None, 200)
+        return
+
+    status = int(out.get('http_status') or 502)
+    if status < 400 or status >= 600:
+        status = 502
+    write(False, None, str(out.get('error') or 'Graph request failed'), status)
+
+
+================================================================================
+FILE: /home/sonofogre/Desktop/agent-market/services/ai-worker/tasks/ads/fetch_meta_ad_accounts_bundle.py
+================================================================================
+"""P2: Meta ``me/adaccounts`` for workspace ad-account picker (facebook/instagram linked accounts)."""
+
+from __future__ import annotations
+
+import json
+import logging
+from typing import Dict, List
+
+from celery_app import celery_app
+from connectors import meta_ads as meta_ads_connector
+from db import get_redis
+from lib import worker_api
+
+logger = logging.getLogger(__name__)
+
+
+def _fallback_row(account_id: str, account_name: str) -> Dict[str, Any]:
+    return {
+        'account_id': str(account_id),
+        'account_name': str(account_name or ''),
+        'provider': 'facebook',
+        'ad_account_id': None,
+        'ad_account_name': None,
+        'needs_reconnect': False,
+    }
+
+
+@celery_app.task(name='tasks.ads.fetch_meta_ad_accounts_bundle', soft_time_limit=180, time_limit=210)
+def fetch_meta_ad_accounts_bundle(workspace_id: str, account_ids: List[str], reply_key: str) -> None:
+    r = get_redis()
+
+    def write(ok: bool, data=None, error: str | None = None, status: int = 502) -> None:
+        body = json.dumps({'ok': ok, 'data': data, 'error': error, 'status': status}, default=str)
+        r.set(reply_key, body, ex=300)
+
+    if not worker_api.configured():
+        logger.warning('[fetch_meta_ad_accounts_bundle] worker_api not configured')
+        write(False, None, 'Worker API not configured', 503)
+        return
+
+    ids = [str(x) for x in (account_ids or []) if x]
+    if not ids:
+        write(True, {'rows': []}, None, 200)
+        return
+
+    rows_out: List[Dict[str, Any]] = []
+    wid = str(workspace_id)
+
+    try:
+        fb_cfg = worker_api.get_service_decrypted('facebook', wid)
+    except Exception as exc:
+        logger.warning('[fetch_meta_ad_accounts_bundle] facebook config: %s', exc)
+        fb_cfg = {}
+
+    api_version = (fb_cfg or {}).get('api_version') or 'v22.0'
+
+    for aid in ids:
+        try:
+            ctx = worker_api.get_account_worker_context(aid)
+        except Exception as exc:
+            logger.exception('[fetch_meta_ad_accounts_bundle] context account=%s', aid)
+            rows_out.append(_fallback_row(aid, ''))
+            continue
+
+        if not ctx:
+            rows_out.append(_fallback_row(aid, ''))
+            continue
+
+        if str(ctx.get('workspace_id') or '') != wid:
+            continue
+
+        prov = str(ctx.get('provider') or '')
+        if prov not in ('facebook', 'instagram'):
+            continue
+
+        name = str(ctx.get('name') or '')
+        token = (ctx.get('data') or {}).get('user_token') or (ctx.get('access_token') or {}).get('token')
+        if not token:
+            continue
+
+        out = meta_ads_connector.fetch_me_adaccounts(str(token), api_version=str(api_version), timeout=120.0)
+        if not out.get('ok'):
+            rows_out.append(_fallback_row(aid, name))
+            continue
+
+        for ad in out.get('accounts') or []:
+            rows_out.append(
+                {
+                    'account_id': aid,
+                    'account_name': name,
+                    'provider': 'facebook',
+                    'ad_account_id': ad.get('id'),
+                    'ad_account_name': ad.get('name'),
+                    'currency': ad.get('currency'),
+                    'status_label': ad.get('status_label'),
+                    'needs_reconnect': False,
+                }
+            )
+
+    write(True, {'rows': rows_out}, None, 200)
+
+
+================================================================================
+FILE: /home/sonofogre/Desktop/agent-market/services/ai-worker/tasks/ads/_google_ads_config.py
+================================================================================
+"""Decrypt ``integrations`` row for Google Ads (merged with env like apps/api GoogleAdsProvider)."""
+
+import os
+from typing import Any, Dict
+
+from lib.integration_config import integration_configs_collection
+from ..imports._service_decrypt import decrypt_service_configuration
+
+
+def get_google_ads_service_configuration(db, workspace_id=None) -> Dict[str, Any]:
+    coll = integration_configs_collection(db)
+    q: Dict[str, Any] = {'name': 'google_ads'}
+    doc = None
+    if workspace_id is not None:
+        ws = str(workspace_id)
+        doc = coll.find_one({**q, 'workspace_id': ws})
+    if not doc:
+        doc = coll.find_one(q)
+    if not doc or not doc.get('configuration'):
+        return {}
+    return decrypt_service_configuration(doc['configuration'])
+
+
+def merge_google_ads_credentials(cfg: Dict[str, Any]) -> Dict[str, Any]:
+    out = dict(cfg)
+    out.setdefault('client_id', os.getenv('GOOGLE_ADS_CLIENT_ID'))
+    out.setdefault('client_secret', os.getenv('GOOGLE_ADS_CLIENT_SECRET'))
+    out.setdefault('developer_token', os.getenv('GOOGLE_ADS_DEVELOPER_TOKEN'))
+    return out
+
+
+================================================================================
+FILE: /home/sonofogre/Desktop/agent-market/services/ai-worker/tasks/ads/google_ads_reporting_read.py
+================================================================================
+"""P2: Google Ads reporting reads (GAQL) — ``/api/ads/google/*`` + ``POST /ads/google/query``."""
+
+from __future__ import annotations
+
+import json
+import logging
+from typing import Any, Dict
+
+from celery_app import celery_app
+from connectors import google_ads as google_ads_connector
+from db import get_redis
+from lib import worker_api
+from tools.ads._errors import ToolValidationError
+from tools.ads.registry import reporting_tool_id, run_ads_tool
+
+logger = logging.getLogger(__name__)
+
+GoogleAdsLibraryMissing = google_ads_connector.GoogleAdsLibraryMissing
+
+
+@celery_app.task(name='tasks.ads.google_ads_reporting_read', soft_time_limit=240, time_limit=270)
+def google_ads_reporting_read(
+    workspace_id: str,
+    account_id: str,
+    operation: str,
+    payload: Dict[str, Any],
+    reply_key: str,
+) -> None:
+    r = get_redis()
+
+    def write(ok: bool, data=None, error: str | None = None, status_code: int = 502) -> None:
+        body = json.dumps({'ok': ok, 'data': data, 'error': error, 'status': status_code}, default=str)
+        r.set(reply_key, body, ex=300)
+
+    if not worker_api.configured():
+        write(False, None, 'Worker API not configured', 503)
+        return
+
+    if not google_ads_connector.health_check():
+        write(False, None, 'google-ads library not installed in worker', 500)
+        return
+
+    try:
+        ctx = worker_api.get_account_worker_context(str(account_id))
+    except Exception as exc:
+        logger.exception('[google_ads_reporting_read] context account=%s', account_id)
+        write(False, None, str(exc), 502)
+        return
+
+    if not ctx:
+        write(False, None, 'Account not found', 404)
+        return
+
+    if str(ctx.get('workspace_id') or '') != str(workspace_id):
+        write(False, None, 'Forbidden', 403)
+        return
+
+    if str(ctx.get('provider') or '') != 'google_ads':
+        write(False, None, 'Not a Google Ads account', 422)
+        return
+
+    if not ctx.get('authorized'):
+        write(False, None, 'Account not authorized', 401)
+        return
+
+    tool_id = reporting_tool_id('google', operation)
+    if not tool_id:
+        write(False, None, f'Unknown Google reporting operation: {operation}', 400)
+        return
+
+    body = dict(payload or {})
+    body['account_id'] = str(account_id)
+    body['workspace_id'] = str(workspace_id)
+
+    try:
+        out = run_ads_tool(tool_id, body)
+    except ToolValidationError as exc:
+        write(False, None, str(exc), 422)
+        return
+    except GoogleAdsLibraryMissing as exc:
+        write(False, None, str(exc), 500)
+        return
+    except Exception as exc:
+        logger.exception('[google_ads_reporting_read] op=%s', operation)
+        write(False, None, str(exc), 502)
+        return
+
+    if not out.get('ok'):
+        write(False, None, out.get('error') or 'Reporting failed', 502)
+        return
+
+    data = {k: out[k] for k in ('response_type', 'payload') if k in out}
+    write(True, data, None, 200)
+
+
+================================================================================
+FILE: /home/sonofogre/Desktop/agent-market/services/ai-worker/tasks/ads/__init__.py
+================================================================================
+"""Ads execution tasks (Celery)."""
+
+from . import marketing_content  # noqa: F401
+from . import fetch_facebook_pages  # noqa: F401
+from . import fetch_meta_ad_accounts_bundle  # noqa: F401
+from . import execute_ads_tool  # noqa: F401
+from . import google_ads_reporting_read  # noqa: F401
+from . import meta_ads_reporting_read  # noqa: F401
+from . import on_demand_sync  # noqa: F401
+from . import publish_campaign  # noqa: F401
+from . import update_remote_campaign_status  # noqa: F401
+from . import campaign_content  # noqa: F401
+from . import workspace_ops  # noqa: F401
+
+
+================================================================================
+FILE: /home/sonofogre/Desktop/agent-market/services/ai-worker/tasks/ads/marketing_content.py
+================================================================================
+"""Celery tasks for ads marketing content (keywords, RSA assets, landing pages)."""
+
+from __future__ import annotations
+
+import json
+import logging
+from typing import Any, Dict, Optional
+
+from celery_app import celery_app
+from db import get_redis
+from lib.ads_marketing_content import (
+    generate_campaign_search_assets,
+    generate_landing_page_marketing_content,
+    suggest_keywords_for_topic,
+)
+
+logger = logging.getLogger(__name__)
+
+
+def _write_reply(reply_key: Optional[str], body: Dict[str, Any]) -> None:
+    if not reply_key:
+        return
+    ok = bool(body.get('ok', True))
+    status = 422 if not ok else 200
+    r = get_redis()
+    r.set(
+        reply_key,
+        json.dumps(
+            {
+                'ok': ok,
+                'data': body if ok else None,
+                'error': body.get('error') if not ok else None,
+                'status': status,
+            },
+            default=str,
+        ),
+        ex=300,
+    )
+
+
+@celery_app.task(name='tasks.ads.suggest_keywords', soft_time_limit=120, time_limit=150)
+def suggest_keywords(
+    topic: str,
+    country: str = 'US',
+    language: str = 'en',
+    workspace_id: str | None = None,
+    account_id: str | None = None,
+    page_url: str | None = None,
+    reply_key: Optional[str] = None,
+) -> Dict[str, Any] | None:
+    out = suggest_keywords_for_topic(
+        topic=topic,
+        country=country,
+        language=language,
+        workspace_id=workspace_id,
+        account_id=account_id,
+        page_url=page_url,
+    )
+    if reply_key:
+        _write_reply(reply_key, out)
+        return None
+    return out
+
+
+================================================================================
+FILE: /home/sonofogre/Desktop/agent-market/services/ai-worker/tasks/ads/meta_ads_reporting_read.py
+================================================================================
+"""P2: Meta Ads Graph reporting — ``/api/ads/meta/*`` read routes."""
+
+from __future__ import annotations
+
+import json
+import logging
+from typing import Any, Dict
+
+from celery_app import celery_app
+from db import get_redis
+from lib import worker_api
+from tools.ads._errors import ToolValidationError
+from tools.ads.registry import reporting_tool_id, run_ads_tool
+
+logger = logging.getLogger(__name__)
+
+
+@celery_app.task(name='tasks.ads.meta_ads_reporting_read', soft_time_limit=120, time_limit=150)
+def meta_ads_reporting_read(
+    workspace_id: str,
+    account_id: str,
+    operation: str,
+    payload: Dict[str, Any],
+    reply_key: str,
+) -> None:
+    r = get_redis()
+
+    def write(ok: bool, data=None, error: str | None = None, status_code: int = 502) -> None:
+        body = json.dumps({'ok': ok, 'data': data, 'error': error, 'status': status_code}, default=str)
+        r.set(reply_key, body, ex=300)
+
+    if not worker_api.configured():
+        write(False, None, 'Worker API not configured', 503)
+        return
+
+    try:
+        ctx = worker_api.get_account_worker_context(str(account_id))
+    except Exception as exc:
+        logger.exception('[meta_ads_reporting_read] context account=%s', account_id)
+        write(False, None, str(exc), 502)
+        return
+
+    if not ctx:
+        write(False, None, 'Account not found', 404)
+        return
+
+    if str(ctx.get('workspace_id') or '') != str(workspace_id):
+        write(False, None, 'Forbidden', 403)
+        return
+
+    prov = str(ctx.get('provider') or '')
+    if prov not in ('meta_ads', 'facebook'):
+        write(False, None, 'Not a Meta Ads account', 422)
+        return
+
+    if not ctx.get('authorized'):
+        write(False, None, 'Account not authorized', 401)
+        return
+
+    tool_id = reporting_tool_id('meta', operation)
+    if not tool_id:
+        write(False, None, f'Unknown meta reporting operation: {operation}', 400)
+        return
+
+    body = dict(payload or {})
+    body['account_id'] = str(account_id)
+    body['workspace_id'] = str(workspace_id)
+
+    try:
+        out = run_ads_tool(tool_id, body)
+    except ToolValidationError as exc:
+        msg = str(exc)
+        sc = 422 if 'required' in msg.lower() or 'invalid' in msg.lower() else 400
+        write(False, None, msg, sc)
+        return
+    except Exception as exc:
+        logger.exception('[meta_ads_reporting_read] op=%s', operation)
+        write(False, None, str(exc), 502)
+        return
+
+    if not out.get('ok'):
+        write(False, None, out.get('error') or 'Reporting failed', 502)
+        return
+
+    result = out.get('result')
+    if result is None and 'data' in out:
+        result = {'data': out.get('data') or [], 'paging': out.get('paging')}
+    write(True, {'result': result}, None, 200)
+
+
+================================================================================
+FILE: /home/sonofogre/Desktop/agent-market/services/ai-worker/tasks/ads/on_demand_sync.py
+================================================================================
+"""User-triggered workspace ads sync — connectors + API persist (same path as Beat)."""
+
+from __future__ import annotations
+
+import logging
+
+from celery_app import celery_app
+from lib import worker_api
+from tasks.ads.sync_workspace_execute import execute_workspace_ads_sync
+
+logger = logging.getLogger(__name__)
+
+
+@celery_app.task(name='tasks.ads.sync_workspace_on_demand')
+def sync_workspace_on_demand(workspace_id: str):
+    if not worker_api.configured():
+        logger.warning('[ads_sync_on_demand] WORKER_API_SECRET not set — skipped workspace=%s', workspace_id)
+        return
+    try:
+        stats = execute_workspace_ads_sync(str(workspace_id))
+        logger.info('[ads_sync_on_demand] workspace=%s stats=%s', workspace_id, stats)
+    except Exception as exc:
+        logger.exception('[ads_sync_on_demand] workspace=%s err=%s', workspace_id, exc)
+        raise
+
+
+================================================================================
+FILE: /home/sonofogre/Desktop/agent-market/services/ai-worker/tasks/ads/publish_campaign_native.py
+================================================================================
+"""
+Ads campaign publish orchestration: validation, persistence via **apps/api**.
+
+All platform mutations go through ``tools.ads.registry.run_ads_tool`` (same path as UI
+``execute_ads_tool`` and the AI agent). Connectors are only called from tools.
+"""
+
+from __future__ import annotations
+
+import logging
+from typing import Any, Dict
+
+from bson import ObjectId
+from bson.errors import InvalidId
+
+from connectors.google_ads.api import GoogleAdsException, GoogleAdsLibraryMissing
+from lib import worker_api
+from tools.ads.google.publish_payload import (
+    build_google_publish_payload,
+    excluded_geo_target_constant_ids,
+    geo_target_constant_ids,
+    negative_keywords,
+)
+from tools.ads.meta.publish_payload import build_meta_publish_payload
+from tools.ads.registry import run_ads_tool
+
+logger = logging.getLogger(__name__)
+
+GoogleAdsLibraryMissing = GoogleAdsLibraryMissing
+GoogleAdsException = GoogleAdsException
+
+
+class MetaPublishUnsupported(Exception):
+    """Handled like Node: publish_errors updated, task fails."""
+
+
+def _append_publish_error(campaign_id: str, message: str) -> None:
+    worker_api.append_campaign_publish_error(campaign_id, message)
+
+
+def _tool_error(out: Dict[str, Any], fallback: str) -> str:
+    return str(out.get('error') or fallback)
+
+
+def _publish_meta(campaign_id: str, c: Dict[str, Any], account: Dict[str, Any]) -> Dict[str, Any]:
+    if not c.get('account_id'):
+        raise ValueError('No account_id on campaign — link a Meta Ads connection')
+
+    payload = build_meta_publish_payload(c, account)
+    out = run_ads_tool('meta_publish_campaign', payload)
+    if not out.get('ok'):
+        raise ValueError(_tool_error(out, 'Meta publish failed'))
+    return out
+
+
+def _apply_google_post_publish(
+    c: Dict[str, Any],
+    platform_campaign_id: str,
+    platform_ad_set_id: str | None = None,
+) -> None:
+    """Geo, exclusions, negatives — reference criterion.py (after campaign exists)."""
+    account_id = str(c.get('account_id') or '')
+    if not account_id or not platform_campaign_id:
+        return
+
+    targeting = dict(c.get('targeting') or {})
+    base = {'account_id': account_id, 'platform_campaign_id': str(platform_campaign_id)}
+
+    geo_ids = geo_target_constant_ids(c)
+    if geo_ids:
+        try:
+            geo_out = run_ads_tool(
+                'google_create_geo_targeting',
+                {**base, 'geo_target_constant_ids': geo_ids},
+            )
+        except Exception as exc:
+            raise ValueError(f'google_create_geo_targeting: {exc}') from exc
+        if not geo_out.get('ok'):
+            raise ValueError(_tool_error(geo_out, 'google_create_geo_targeting failed'))
+
+    exclude_ids = excluded_geo_target_constant_ids(c)
+    if exclude_ids:
+        try:
+            ex_out = run_ads_tool(
+                'google_exclude_geo_targets',
+                {**base, 'geo_target_constant_ids': exclude_ids},
+            )
+        except Exception as exc:
+            raise ValueError(f'google_exclude_geo_targets: {exc}') from exc
+        if not ex_out.get('ok'):
+            raise ValueError(_tool_error(ex_out, 'google_exclude_geo_targets failed'))
+
+    pos_type = targeting.get('positive_geo_target_type')
+    neg_type = targeting.get('negative_geo_target_type')
+    if pos_type or neg_type:
+        gt_out = run_ads_tool(
+            'google_update_campaign_geo_target',
+            {
+                **base,
+                'positive_geo_target_type': pos_type,
+                'negative_geo_target_type': neg_type,
+            },
+        )
+        if not gt_out.get('ok'):
+            raise ValueError(_tool_error(gt_out, 'Google geo target type update failed'))
+
+    neg_kw = negative_keywords(c)
+    if neg_kw:
+        try:
+            nk_out = run_ads_tool(
+                'google_add_negative_keywords',
+                {**base, 'keywords': neg_kw},
+            )
+        except Exception as exc:
+            raise ValueError(f'google_add_negative_keywords: {exc}') from exc
+        if not nk_out.get('ok'):
+            raise ValueError(_tool_error(nk_out, 'google_add_negative_keywords failed'))
+
+    sitelinks = targeting.get('sitelinks') or []
+    if isinstance(sitelinks, list) and sitelinks:
+        try:
+            sl_out = run_ads_tool(
+                'google_create_sitelink_extensions',
+                {**base, 'sitelinks': sitelinks},
+            )
+        except Exception as exc:
+            raise ValueError(f'google_create_sitelink_extensions: {exc}') from exc
+        if not sl_out.get('ok'):
+            raise ValueError(_tool_error(sl_out, 'google_create_sitelink_extensions failed'))
+
+    callouts = targeting.get('callouts') or []
+    if isinstance(callouts, list) and callouts:
+        try:
+            co_out = run_ads_tool(
+                'google_create_callout_extensions',
+                {**base, 'callouts': callouts},
+            )
+        except Exception as exc:
+            raise ValueError(f'google_create_callout_extensions: {exc}') from exc
+        if not co_out.get('ok'):
+            raise ValueError(_tool_error(co_out, 'google_create_callout_extensions failed'))
+
+    schedules = targeting.get('ad_schedules') or []
+    if isinstance(schedules, list) and schedules:
+        try:
+            sch_out = run_ads_tool(
+                'google_create_ad_schedule',
+                {**base, 'schedules': schedules},
+            )
+        except Exception as exc:
+            raise ValueError(f'google_create_ad_schedule: {exc}') from exc
+        if not sch_out.get('ok'):
+            raise ValueError(_tool_error(sch_out, 'google_create_ad_schedule failed'))
+
+    bid_adj = targeting.get('bid_adjustments')
+    if isinstance(bid_adj, dict) and bid_adj:
+        try:
+            ba_out = run_ads_tool(
+                'google_set_bid_adjustments',
+                {**base, 'adjustments': bid_adj},
+            )
+        except Exception as exc:
+            raise ValueError(f'google_set_bid_adjustments: {exc}') from exc
+        if not ba_out.get('ok'):
+            raise ValueError(_tool_error(ba_out, 'google_set_bid_adjustments failed'))
+
+    audience = targeting.get('audience') or {}
+    ag_id = platform_ad_set_id or targeting.get('platform_ad_set_id')
+    if isinstance(audience, dict) and ag_id:
+        aud_id = audience.get('audience_id')
+        if not aud_id and audience.get('name'):
+            rules: Dict[str, Any] = {}
+            if audience.get('url_contains'):
+                rules['url_contains'] = audience['url_contains']
+            try:
+                ca_out = run_ads_tool(
+                    'google_create_custom_audience',
+                    {
+                        **base,
+                        'name': str(audience['name']),
+                        'audience_type': 'WEBSITE_VISITORS',
+                        'rules': rules or {'url_contains': '/'},
+                    },
+                )
+            except Exception as exc:
+                raise ValueError(f'google_create_custom_audience: {exc}') from exc
+            if not ca_out.get('ok'):
+                raise ValueError(_tool_error(ca_out, 'google_create_custom_audience failed'))
+            aud_id = ca_out.get('audience_id')
+        if aud_id:
+            at_payload: Dict[str, Any] = {
+                **base,
+                'platform_ad_set_id': str(ag_id),
+                'audience_id': str(aud_id),
+            }
+            if audience.get('bid_modifier') is not None:
+                at_payload['bid_modifier'] = audience['bid_modifier']
+            try:
+                at_out = run_ads_tool('google_add_audience_targeting', at_payload)
+            except Exception as exc:
+                raise ValueError(f'google_add_audience_targeting: {exc}') from exc
+            if not at_out.get('ok'):
+                raise ValueError(_tool_error(at_out, 'google_add_audience_targeting failed'))
+
+
+def _publish_google(campaign_id: str, c: Dict[str, Any], account: Dict[str, Any], bundle: Dict[str, Any]) -> Dict[str, Any]:
+    from connectors.google_ads.api import health_check
+
+    if not health_check():
+        raise GoogleAdsLibraryMissing()
+    if not c.get('account_id'):
+        raise ValueError('No account_id on campaign — link a Google Ads connection')
+
+    payload = build_google_publish_payload(c, account)
+    try:
+        out = run_ads_tool('google_create_campaign', payload)
+    except Exception as exc:
+        raise ValueError(f'google_create_campaign: {exc}') from exc
+    if not out.get('ok'):
+        raise ValueError(_tool_error(out, 'google_create_campaign failed'))
+
+    platform_campaign_id = out.get('platform_campaign_id')
+    platform_ad_set_id = out.get('platform_ad_set_id')
+    if platform_campaign_id:
+        _apply_google_post_publish(
+            c,
+            str(platform_campaign_id),
+            str(platform_ad_set_id) if platform_ad_set_id else None,
+        )
+
+    return out
+
+
+def run_native_publish_campaign(campaign_id: str) -> None:
+    if not worker_api.configured():
+        raise ValueError('WORKER_API_SECRET is not set — cannot publish via API')
+
+    try:
+        ObjectId(campaign_id)
+    except InvalidId:
+        raise ValueError(f'Campaign {campaign_id} not found') from None
+
+    try:
+        bundle = worker_api.get_campaign_publish_bundle(campaign_id)
+    except Exception:
+        raise ValueError(f'Campaign {campaign_id} not found') from None
+
+    c = bundle.get('campaign') or {}
+    account = bundle.get('account') or {}
+
+    if c.get('platform_campaign_id'):
+        raise ValueError('Campaign already published to the platform')
+
+    platform = (c.get('platform') or '').lower()
+    if not account or not account.get('authorized'):
+        msg = 'No authorized ad account linked to this campaign.'
+        _append_publish_error(campaign_id, msg)
+        raise ValueError(msg)
+
+    try:
+        if platform in ('meta', 'facebook', 'meta_ads'):
+            result = _publish_meta(campaign_id, c, account)
+        elif platform == 'google_ads':
+            result = _publish_google(campaign_id, c, account, bundle)
+        else:
+            msg = f'Unsupported ad platform for publish: {platform}'
+            _append_publish_error(campaign_id, msg)
+            raise ValueError(msg)
+    except GoogleAdsException as exc:  # type: ignore[misc]
+        parts = []
+        failure = getattr(exc, 'failure', None)
+        for err in getattr(failure, 'errors', []) or []:
+            parts.append(getattr(err, 'message', str(err)))
+        msg = parts[0] if parts else str(exc)
+        _append_publish_error(campaign_id, msg)
+        raise
+    except Exception as exc:
+        msg = str(exc)
+        _append_publish_error(campaign_id, msg)
+        if platform in ('meta', 'facebook', 'meta_ads') and 'not implemented' in msg.lower():
+            raise MetaPublishUnsupported(msg) from exc
+        raise
+
+    worker_api.patch_campaign_google_publish_result(
+        campaign_id,
+        str(result.get('platform_campaign_id') or result.get('id')),
+        str(result['platform_ad_set_id']) if result.get('platform_ad_set_id') else None,
+        str(result['platform_ad_id']) if result.get('platform_ad_id') else None,
+    )
+    logger.info(
+        '[publish_campaign_native] published campaign_id=%s platform=%s remote_id=%s',
+        campaign_id,
+        platform,
+        result.get('platform_campaign_id') or result.get('id'),
+    )
+
+
+================================================================================
+FILE: /home/sonofogre/Desktop/agent-market/services/ai-worker/tasks/ads/publish_campaign.py
+================================================================================
+"""
+Publish ads campaign: Python-only (native Google Ads when ``google-ads`` is installed).
+
+There is **no** Node worker fallback. Install ``google-ads`` in ai-worker or fix credentials.
+"""
+
+import logging
+
+from bson import ObjectId
+from bson.errors import InvalidId
+
+from celery_app import celery_app
+from lib import worker_api
+
+from .publish_campaign_native import GoogleAdsLibraryMissing, run_native_publish_campaign
+
+logger = logging.getLogger(__name__)
+
+
+def _mark_google_ads_lib_missing(campaign_id: str) -> None:
+    if not worker_api.configured():
+        logger.error('[publish_campaign] WORKER_API_SECRET not set — cannot record publish error for %s', campaign_id)
+        return
+    try:
+        ObjectId(campaign_id)
+    except InvalidId:
+        return
+    msg = 'Install the google-ads package in services/ai-worker (see requirements.txt). Node publish proxy removed.'
+    try:
+        worker_api.append_campaign_publish_error(campaign_id, msg)
+    except Exception as exc:
+        logger.error('[publish_campaign] append error failed: %s', exc)
+
+
+@celery_app.task(name='tasks.ads.publish_campaign')
+def publish_campaign(campaign_id: str):
+    try:
+        run_native_publish_campaign(campaign_id)
+    except GoogleAdsLibraryMissing:
+        logger.error('[publish_campaign] google-ads not installed campaign_id=%s', campaign_id)
+        _mark_google_ads_lib_missing(campaign_id)
+        raise RuntimeError(
+            'google-ads is not installed in the ai-worker environment. pip install -r requirements.txt',
+        ) from None
+
+
+================================================================================
+FILE: /home/sonofogre/Desktop/agent-market/services/ai-worker/tasks/ads/sync_workspace_execute.py
+================================================================================
+"""
+Workspace ads sync: fetch remote campaigns via **connectors**, persist via **apps/api** internal routes.
+
+Orchestration only — no platform HTTP in ``apps/api``.
+"""
+
+from __future__ import annotations
+
+import logging
+import os
+import re
+from typing import Any, Dict, List
+
+from connectors import google_ads as google_ads_connector
+from connectors import meta_ads as meta_ads_connector
+from lib import worker_api
+from tasks.ads._google_ads_config import merge_google_ads_credentials
+
+logger = logging.getLogger(__name__)
+
+
+def execute_workspace_ads_sync(workspace_id: str) -> Dict[str, Any]:
+    wid = str(workspace_id)
+    if not worker_api.configured():
+        logger.warning('[sync_workspace_ads] WORKER_API_SECRET not set — skipped workspace=%s', wid)
+        return {'ok': False, 'google': 0, 'meta': 0}
+
+    ctx = worker_api.get_ads_sync_workspace_context(wid)
+    google_rows: List[Dict[str, Any]] = []
+    meta_rows: List[Dict[str, Any]] = []
+
+    ga = ctx.get('google_account') or {}
+    if ga.get('authorized') and ga.get('provider') == 'google_ads' and google_ads_connector.health_check():
+        cust_id = (ga.get('data') or {}).get('customer_id')
+        refresh = (ga.get('access_token') or {}).get('refresh_token')
+        gsvc = merge_google_ads_credentials(dict(ctx.get('google_service') or {}))
+        dev, cid, csec = gsvc.get('developer_token'), gsvc.get('client_id'), gsvc.get('client_secret')
+        if cust_id and refresh and dev and cid and csec:
+            gcfg: Dict[str, Any] = {
+                'developer_token': dev,
+                'client_id': cid,
+                'client_secret': csec,
+                'refresh_token': refresh,
+                'use_proto_plus': True,
+            }
+            login_cid = (ga.get('data') or {}).get('login_customer_id') or os.getenv(
+                'GOOGLE_ADS_LOGIN_CUSTOMER_ID'
+            )
+            login_digits = re.sub(r'\D', '', str(login_cid or ''))
+            cust_digits = re.sub(r'\D', '', str(cust_id or ''))
+            if login_digits and login_digits != cust_digits:
+                gcfg['login_customer_id'] = login_digits
+            try:
+                google_rows = google_ads_connector.fetch_campaign_sync_rows(gcfg, str(cust_id))
+            except Exception as exc:
+                logger.exception('[sync_workspace_ads] google fetch failed workspace=%s: %s', wid, exc)
+
+    ma = ctx.get('meta_account') or {}
+    if ma.get('authorized') and ma.get('provider') in ('meta_ads', 'facebook'):
+        tok = (ma.get('access_token') or {}).get('token') or (ma.get('data') or {}).get('user_token')
+        act = (ma.get('data') or {}).get('ad_account_id')
+        if tok and act:
+            cfg = ctx.get('facebook_service') or {}
+            api_ver = str(cfg.get('api_version') or 'v22.0')
+            if not api_ver.startswith('v'):
+                api_ver = f'v{api_ver}'
+            try:
+                meta_rows = meta_ads_connector.fetch_campaigns_for_ad_account(
+                    str(tok),
+                    ad_account_id=str(act),
+                    api_version=api_ver,
+                )
+            except Exception as exc:
+                logger.exception('[sync_workspace_ads] meta fetch failed workspace=%s: %s', wid, exc)
+
+    try:
+        return worker_api.apply_ads_workspace_sync(wid, google_rows, meta_rows)
+    except Exception as exc:
+        logger.exception('[sync_workspace_ads] apply failed workspace=%s: %s', wid, exc)
+        raise
+
+
+================================================================================
+FILE: /home/sonofogre/Desktop/agent-market/services/ai-worker/tasks/ads/update_remote_campaign_status.py
+================================================================================
+"""P2: Google Ads remote campaign status (PATCH campaign body.status → platform)."""
+
+from __future__ import annotations
+
+import json
+import logging
+import os
+import re
+from typing import Any, Dict
+
+from celery_app import celery_app
+from connectors import google_ads as google_ads_connector
+from db import get_redis
+from lib import worker_api
+
+from ._google_ads_config import merge_google_ads_credentials
+
+logger = logging.getLogger(__name__)
+
+GoogleAdsException = google_ads_connector.GoogleAdsException
+GoogleAdsLibraryMissing = google_ads_connector.GoogleAdsLibraryMissing
+
+
+@celery_app.task(name='tasks.ads.update_remote_campaign_status', soft_time_limit=90, time_limit=120)
+def update_remote_campaign_status(
+    workspace_id: str,
+    account_id: str,
+    platform_campaign_id: str,
+    status: str,
+    reply_key: str,
+) -> None:
+    r = get_redis()
+
+    def write(ok: bool, data=None, error: str | None = None, status_code: int = 502) -> None:
+        body = json.dumps({'ok': ok, 'data': data, 'error': error, 'status': status_code}, default=str)
+        r.set(reply_key, body, ex=300)
+
+    if not worker_api.configured():
+        logger.warning('[update_remote_campaign_status] worker_api not configured')
+        write(False, None, 'Worker API not configured', 503)
+        return
+
+    if not google_ads_connector.health_check():
+        write(False, None, 'google-ads library not installed in worker', 500)
+        return
+
+    try:
+        ctx = worker_api.get_account_worker_context(str(account_id))
+    except Exception as exc:
+        logger.exception('[update_remote_campaign_status] context account=%s', account_id)
+        write(False, None, str(exc), 502)
+        return
+
+    if not ctx:
+        write(False, None, 'Account not found', 404)
+        return
+
+    if str(ctx.get('workspace_id') or '') != str(workspace_id):
+        write(False, None, 'Forbidden', 403)
+        return
+
+    if str(ctx.get('provider') or '') != 'google_ads':
+        write(False, None, 'Not a Google Ads account', 422)
+        return
+
+    if not ctx.get('authorized'):
+        write(False, None, 'Account not authorized', 401)
+        return
+
+    svc_row = merge_google_ads_credentials(dict(worker_api.get_service_decrypted('google_ads', str(workspace_id)) or {}))
+    refresh = (ctx.get('access_token') or {}).get('refresh_token')
+    dev = svc_row.get('developer_token')
+    client_id = svc_row.get('client_id')
+    client_secret = svc_row.get('client_secret')
+    if not refresh:
+        write(False, None, 'No refresh token — please reconnect Google Ads', 400)
+        return
+    if not dev or not client_id or not client_secret:
+        write(False, None, 'Google Ads API credentials not configured', 500)
+        return
+
+    raw_cid = (ctx.get('data') or {}).get('customer_id')
+    customer_id = google_ads_connector.digits_customer_id(raw_cid)
+    if not customer_id:
+        write(False, None, 'No Google Ads customer ID. Reconnect the Google Ads account.', 400)
+        return
+
+    gcfg: Dict[str, Any] = {
+        'developer_token': dev,
+        'client_id': client_id,
+        'client_secret': client_secret,
+        'refresh_token': refresh,
+        'use_proto_plus': True,
+    }
+    login_cid = (ctx.get('data') or {}).get('login_customer_id') or os.getenv('GOOGLE_ADS_LOGIN_CUSTOMER_ID')
+    login_digits = re.sub(r'\D', '', str(login_cid or ''))
+    if login_digits and login_digits != customer_id:
+        gcfg['login_customer_id'] = login_digits
+
+    try:
+        google_ads_connector.mutate_update_campaign_status(
+            gcfg,
+            customer_id,
+            str(platform_campaign_id),
+            str(status or ''),
+        )
+    except GoogleAdsLibraryMissing as exc:
+        write(False, None, str(exc), 500)
+        return
+    except GoogleAdsException as exc:  # type: ignore[misc]
+        parts = []
+        failure = getattr(exc, 'failure', None)
+        for err in getattr(failure, 'errors', []) or []:
+            parts.append(getattr(err, 'message', str(err)))
+        msg = parts[0] if parts else str(exc)
+        write(False, None, msg, 502)
+        return
+    except ValueError as exc:
+        write(False, None, str(exc), 400)
+        return
+    except Exception as exc:
+        logger.exception('[update_remote_campaign_status] mutate failed')
+        write(False, None, str(exc), 502)
+        return
+
+    write(True, {'updated': True}, None, 200)
+
+
+================================================================================
+FILE: /home/sonofogre/Desktop/agent-market/services/ai-worker/tasks/ads/workspace_ops.py
+================================================================================
+"""Workspace-level ads optimization — thin Celery wrappers over API internal routes."""
+
+from __future__ import annotations
+
+import logging
+
+from celery_app import celery_app
+from lib import worker_api
+
+logger = logging.getLogger(__name__)
+
+
+def _require_worker_api() -> None:
+    if not worker_api.configured():
+        raise RuntimeError('WORKER_API_SECRET not set')
+
+
+@celery_app.task(name='tasks.ads.run_budget_pacing', soft_time_limit=300, time_limit=360)
+def run_budget_pacing(body: dict | None = None):
+    _require_worker_api()
+    return worker_api.run_workspace_budget_pacing(body or {})
+
+
+@celery_app.task(name='tasks.ads.run_budget_reallocation', soft_time_limit=120, time_limit=180)
+def run_budget_reallocation(body: dict | None = None):
+    _require_worker_api()
+    return worker_api.run_workspace_budget_reallocation(body or {})
+
+
+@celery_app.task(name='tasks.ads.run_bid_optimization', soft_time_limit=300, time_limit=360)
+def run_bid_optimization(body: dict | None = None):
+    _require_worker_api()
+    return worker_api.run_workspace_bid_optimization(body or {})
+
+
+@celery_app.task(name='tasks.ads.run_quality_score_monitor', soft_time_limit=180, time_limit=240)
+def run_quality_score_monitor(body: dict | None = None):
+    _require_worker_api()
+    return worker_api.run_workspace_quality_score_monitor(body or {})
+
+
+@celery_app.task(name='tasks.ads.run_asset_ab_analysis', soft_time_limit=180, time_limit=240)
+def run_asset_ab_analysis(body: dict | None = None):
+    _require_worker_api()
+    return worker_api.run_workspace_asset_ab_analysis(body or {})
+
+
+def run_optimize_campaign_tool(body: dict) -> dict:
+    campaign_id = str(body.get('campaign_id') or '').strip()
+    if not campaign_id:
+        raise ValueError('campaign_id is required')
+    from tasks.ads.campaign_content import run_optimize_campaign
+
+    return run_optimize_campaign(campaign_id, body)
+
+
+================================================================================
+FILE: /home/sonofogre/Desktop/agent-market/services/ai-worker/tasks/agent/execute_workflow.py
+================================================================================
+"""Celery: workflow runtime execution."""
+
+from __future__ import annotations
+
+import json
+import logging
+from typing import Any
+
+from billiard.exceptions import SoftTimeLimitExceeded
+from celery_app import celery_app
+from db import get_redis
+from lib.runtime.cancel import is_workflow_cancelled
+from lib.runtime.executor import execute_workflow_steps, finalize_interrupted_steps
+
+logger = logging.getLogger(__name__)
+
+# Never auto-requeue a half-finished workflow (would re-bill image/video steps).
+_WORKFLOW_TASK_OPTS = dict(max_retries=0, acks_late=False)
+
+
+@celery_app.task(
+    name='tasks.agent.execute_workflow',
+    soft_time_limit=1800,
+    time_limit=1980,
+    **_WORKFLOW_TASK_OPTS,
+)
+def execute_workflow_task(
+    workspace_id: str,
+    workflow_id: str,
+    approved: bool = True,
+    reply_key: str | None = None,
+) -> None:
+    r = get_redis()
+
+    def write(ok: bool, data: Any = None, error: str | None = None, status: int = 502) -> None:
+        if not reply_key:
+            return
+        body = json.dumps({'ok': ok, 'data': data, 'error': error, 'status': status}, default=str)
+        r.set(reply_key, body, ex=600)
+
+    try:
+        from lib import worker_api
+
+        if not worker_api.configured():
+            raise RuntimeError('Worker API not configured')
+
+        wf = worker_api.get_agent_workflow(workflow_id)
+        graph = wf.get('graph') or {}
+        if not graph.get('steps') and graph.get('meta_compiled'):
+            from lib.planner.meta_campaign_spec import materialize_meta_compiled_graph
+
+            account_id = str(
+                graph.get('meta_account_id')
+                or wf.get('account_id')
+                or ''
+            ).strip()
+            graph = materialize_meta_compiled_graph(
+                graph,
+                account_id=account_id,
+                workspace_id=workspace_id,
+            )
+            worker_api.patch_agent_workflow(workflow_id, {
+                'graph': graph,
+                'intent': graph.get('intent'),
+                'summary': graph.get('summary'),
+                'approval_gates': graph.get('approval_gates') or [],
+            })
+
+        if not graph.get('steps') and graph.get('google_compiled'):
+            from lib.planner.google_campaign_spec import materialize_google_compiled_graph
+
+            account_id = str(
+                graph.get('google_account_id')
+                or wf.get('account_id')
+                or ''
+            ).strip()
+            graph = materialize_google_compiled_graph(
+                graph,
+                account_id=account_id,
+                workspace_id=workspace_id,
+            )
+            worker_api.patch_agent_workflow(workflow_id, {
+                'graph': graph,
+                'intent': graph.get('intent'),
+                'summary': graph.get('summary'),
+                'approval_gates': graph.get('approval_gates') or [],
+            })
+
+        if not graph.get('steps'):
+            write(False, None, 'Workflow has no executable steps', 400)
+            return
+
+        if is_workflow_cancelled(workflow_id):
+            worker_api.patch_agent_workflow(workflow_id, {
+                'status': 'cancelled',
+                'step_results': finalize_interrupted_steps(
+                    wf.get('step_results') or {},
+                    error='Stopped by user.',
+                ),
+                'execution_errors': ['Stopped by user.'],
+            })
+            worker_api.emit_event('workflow.cancelled', {
+                'workflow_id': wf.get('workflow_id') or workflow_id,
+                'workflow_mongo_id': workflow_id,
+                'workspace_id': workspace_id,
+            })
+            write(True, {
+                'workflow_id': workflow_id,
+                'status': 'cancelled',
+                'step_results': wf.get('step_results'),
+                'errors': ['Stopped by user.'],
+            }, None, 200)
+            return
+
+        worker_api.patch_agent_workflow(workflow_id, {'status': 'running'})
+        worker_api.emit_event('workflow.running', {
+            'workflow_id': wf.get('workflow_id') or workflow_id,
+            'workflow_mongo_id': workflow_id,
+            'workspace_id': workspace_id,
+        })
+
+        wf_public_id = wf.get('workflow_id') or workflow_id
+
+        def _workflow_stopped() -> bool:
+            if is_workflow_cancelled(workflow_id):
+                return True
+            snap = worker_api.get_agent_workflow(workflow_id)
+            return (snap.get('status') or '').lower() == 'cancelled'
+
+        def on_step_event(step_id: str, event: str, payload: dict) -> None:
+            if _workflow_stopped():
+                return
+            step_results = payload.pop('step_results', None)
+            worker_api.emit_event(event, {
+                'workflow_id': wf_public_id,
+                'workflow_mongo_id': workflow_id,
+                'workspace_id': workspace_id,
+                'step_id': step_id,
+                **payload,
+            })
+            if step_results is not None and not _workflow_stopped():
+                worker_api.patch_agent_workflow(workflow_id, {
+                    'status': 'running',
+                    'step_results': step_results,
+                })
+
+        outcome = execute_workflow_steps(
+            graph,
+            approved=approved,
+            workspace_id=workspace_id,
+            workflow_mongo_id=workflow_id,
+            on_step_event=on_step_event,
+            initial_step_results=wf.get('step_results'),
+        )
+
+        final_status = outcome['status']
+        if final_status == 'completed':
+            wf_status = 'completed'
+        elif final_status == 'cancelled':
+            wf_status = 'cancelled'
+        elif final_status == 'awaiting_approval':
+            wf_status = 'awaiting_approval'
+        else:
+            wf_status = 'failed'
+
+        final_step_results = outcome.get('step_results') or {}
+        if wf_status == 'failed':
+            final_step_results = finalize_interrupted_steps(final_step_results)
+        elif wf_status == 'cancelled':
+            final_step_results = finalize_interrupted_steps(
+                final_step_results,
+                error='Stopped by user.',
+            )
+
+        wf_snap = worker_api.get_agent_workflow(workflow_id)
+        if (wf_snap.get('status') or '').lower() == 'cancelled' and wf_status != 'cancelled':
+            wf_status = 'cancelled'
+            final_step_results = finalize_interrupted_steps(
+                wf_snap.get('step_results') or final_step_results,
+                error='Stopped by user.',
+            )
+
+        worker_api.patch_agent_workflow(workflow_id, {
+            'status': wf_status,
+            'step_results': final_step_results,
+            'execution_errors': outcome.get('errors') or [],
+        })
+
+        if wf_status == 'completed':
+            graph_for_persist = (worker_api.get_agent_workflow(workflow_id).get('graph') or graph)
+            from lib.ads_agent_persist import persist_agent_campaign_from_workflow
+
+            persist_agent_campaign_from_workflow(
+                workspace_id=workspace_id,
+                graph=graph_for_persist,
+                step_results=final_step_results,
+                account_id=str(
+                    graph_for_persist.get('google_account_id')
+                    or graph_for_persist.get('meta_account_id')
+                    or wf.get('account_id')
+                    or ''
+                ) or None,
+            )
+
+        graph = wf.get('graph') or {}
+        if graph.get('meta_setup_phase') == 'discovery' and wf_status == 'completed':
+            from lib.planner.meta_campaign_spec import meta_content_missing_lines
+            from lib.planner.meta_page_selection import (
+                build_meta_setup_clarification_message,
+                usable_pages,
+            )
+
+            pages_output = (final_step_results.get('step_2') or {}).get('output') or {}
+            pages = usable_pages(pages_output)
+            user_msg = str(wf.get('user_message') or '')
+            merged_msg = user_msg
+            clarification = build_meta_setup_clarification_message(
+                missing_lines=meta_content_missing_lines(
+                    {'attached_media': wf.get('attached_media') or []},
+                    merged_msg,
+                ),
+                pages=pages,
+                has_image=bool((wf.get('attached_media') or [])),
+            )
+            worker_api.patch_agent_workflow(workflow_id, {
+                'summary': clarification,
+            })
+
+        result_message: str | None = None
+        from lib.planner.result_narrator import (
+            apply_result_message,
+            narrate_workflow_result,
+            should_narrate_result,
+        )
+
+        live_graph = (worker_api.get_agent_workflow(workflow_id).get('graph') or graph)
+        if should_narrate_result(status=wf_status, graph=live_graph):
+            try:
+                result_message = narrate_workflow_result(
+                    workspace_id=workspace_id,
+                    user_message=str(wf.get('user_message') or ''),
+                    status=wf_status,
+                    graph=live_graph,
+                    step_results=final_step_results,
+                    errors=outcome.get('errors') or [],
+                )
+                patched_graph = apply_result_message(live_graph, result_message)
+                # Keep plan-time summary — putting the full narrator text in
+                # ``summary`` caused the same answer to appear under the plan card
+                # and again as a chat bubble.
+                worker_api.patch_agent_workflow(workflow_id, {
+                    'graph': patched_graph,
+                })
+            except Exception:
+                logger.exception(
+                    'result narration failed workflow_id=%s status=%s',
+                    workflow_id,
+                    wf_status,
+                )
+                result_message = None
+
+        event = 'workflow.completed' if wf_status == 'completed' else (
+            'workflow.cancelled' if wf_status == 'cancelled' else (
+                'workflow.failed' if wf_status == 'failed' else 'approval.required'
+            )
+        )
+        worker_api.emit_event(event, {
+            'workflow_id': wf.get('workflow_id') or workflow_id,
+            'workflow_mongo_id': workflow_id,
+            'workspace_id': workspace_id,
+            'status': wf_status,
+            **({'assistant_message': result_message} if result_message else {}),
+        })
+
+        write(True, {
+            'workflow_id': workflow_id,
+            'status': wf_status,
+            'step_results': outcome.get('step_results'),
+            'errors': outcome.get('errors'),
+            **({'assistant_message': result_message} if result_message else {}),
+        }, None, 200)
+    except SoftTimeLimitExceeded:
+        logger.warning('execute_workflow timed out workflow_id=%s', workflow_id)
+        try:
+            from lib import worker_api
+            if worker_api.configured():
+                wf_snap = worker_api.get_agent_workflow(workflow_id)
+                worker_api.patch_agent_workflow(workflow_id, {
+                    'status': 'failed',
+                    'step_results': finalize_interrupted_steps(wf_snap.get('step_results') or {}),
+                })
+                wf_fail = worker_api.get_agent_workflow(workflow_id)
+                worker_api.emit_event('workflow.failed', {
+                    'workflow_id': wf_fail.get('workflow_id') or workflow_id,
+                    'workflow_mongo_id': workflow_id,
+                    'workspace_id': workspace_id,
+                    'error': 'Workflow timed out',
+                })
+        except Exception:
+            pass
+        write(False, None, 'Workflow timed out', 504)
+        raise
+    except Exception as exc:
+        logger.exception('execute_workflow failed workflow_id=%s', workflow_id)
+        try:
+            from lib import worker_api
+            if worker_api.configured():
+                wf_snap = worker_api.get_agent_workflow(workflow_id)
+                worker_api.patch_agent_workflow(workflow_id, {
+                    'status': 'failed',
+                    'step_results': finalize_interrupted_steps(wf_snap.get('step_results') or {}),
+                })
+                wf_fail = worker_api.get_agent_workflow(workflow_id)
+                worker_api.emit_event('workflow.failed', {
+                    'workflow_id': wf_fail.get('workflow_id') or workflow_id,
+                    'workflow_mongo_id': workflow_id,
+                    'workspace_id': workspace_id,
+                    'error': str(exc),
+                })
+        except Exception:
+            pass
+        write(False, None, str(exc), 502)
+
+
+================================================================================
+FILE: /home/sonofogre/Desktop/agent-market/services/ai-worker/tasks/agent/__init__.py
+================================================================================
+from . import plan_workflow  # noqa: F401
+from . import execute_workflow  # noqa: F401
+from . import run_registry_step  # noqa: F401
+
+# Preload planner package in parent worker (prefork children inherit sys.modules).
+import agents.planner  # noqa: F401
+
+
+================================================================================
+FILE: /home/sonofogre/Desktop/agent-market/services/ai-worker/tasks/agent/plan_workflow.py
+================================================================================
+"""Celery: planner agent — generates validated workflow graphs."""
+
+from __future__ import annotations
+
+import json
+import logging
+from typing import Any
+
+from billiard.exceptions import SoftTimeLimitExceeded
+
+from celery_app import celery_app
+from db import get_redis
+from agents.planner import plan_workflow
+from lib import worker_api
+from lib.runtime.cancel import is_workflow_cancelled
+
+logger = logging.getLogger(__name__)
+
+
+# One planner LLM call per enqueue — never auto-retry (would re-bill the API).
+_PLAN_TASK_OPTS = dict(max_retries=0, acks_late=False)
+
+
+@celery_app.task(
+    name='tasks.agent.plan_workflow',
+    soft_time_limit=180,
+    time_limit=210,
+    **_PLAN_TASK_OPTS,
+)
+def plan_workflow_task(
+    workspace_id: str,
+    workflow_id: str,
+    user_message: str,
+    conversation_history: list[dict[str, str]] | None,
+    attached_media: list[dict[str, Any]] | None,
+    reply_key: str,
+) -> None:
+    r = get_redis()
+
+    def write(ok: bool, data: Any = None, error: str | None = None, status: int = 502) -> None:
+        body = json.dumps({'ok': ok, 'data': data, 'error': error, 'status': status}, default=str)
+        r.set(reply_key, body, ex=600)
+
+    try:
+        if is_workflow_cancelled(workflow_id):
+            if worker_api.configured():
+                worker_api.patch_agent_workflow(workflow_id, {
+                    'status': 'cancelled',
+                    'execution_errors': ['Stopped by user.'],
+                })
+                wf_doc = worker_api.get_agent_workflow(workflow_id)
+                worker_api.emit_event('workflow.cancelled', {
+                    'workflow_id': wf_doc.get('workflow_id') or workflow_id,
+                    'workflow_mongo_id': workflow_id,
+                    'workspace_id': workspace_id,
+                })
+            write(False, None, 'Stopped by user.', 499)
+            return
+
+        graph = plan_workflow(
+            workspace_id=workspace_id,
+            user_message=user_message,
+            conversation_history=conversation_history,
+            attached_media=attached_media or [],
+        )
+
+        if is_workflow_cancelled(workflow_id):
+            if worker_api.configured():
+                worker_api.patch_agent_workflow(workflow_id, {
+                    'status': 'cancelled',
+                    'execution_errors': ['Stopped by user.'],
+                })
+                wf_doc = worker_api.get_agent_workflow(workflow_id)
+                worker_api.emit_event('workflow.cancelled', {
+                    'workflow_id': wf_doc.get('workflow_id') or workflow_id,
+                    'workflow_mongo_id': workflow_id,
+                    'workspace_id': workspace_id,
+                })
+            write(False, None, 'Stopped by user.', 499)
+            return
+
+        if worker_api.configured():
+            wf_snap = worker_api.get_agent_workflow(workflow_id)
+            if (wf_snap.get('status') or '').lower() == 'cancelled':
+                write(False, None, 'Stopped by user.', 499)
+                return
+            from lib.planner.chat_only import is_chat_only_graph
+
+            chat_only = is_chat_only_graph(graph)
+            wf_status = (
+                'completed'
+                if chat_only
+                else ('planned' if not graph.get('requires_approval') else 'awaiting_approval')
+            )
+            worker_api.patch_agent_workflow(
+                workflow_id,
+                {
+                    'status': wf_status,
+                    'intent': graph.get('intent'),
+                    'summary': graph.get('summary'),
+                    'graph': graph,
+                    'approval_gates': graph.get('approval_gates') or [],
+                },
+            )
+            wf_doc = worker_api.get_agent_workflow(workflow_id)
+            if chat_only:
+                worker_api.emit_event('workflow.completed', {
+                    'workflow_id': wf_doc.get('workflow_id') or workflow_id,
+                    'workflow_mongo_id': workflow_id,
+                    'workspace_id': workspace_id,
+                    'chat_only': True,
+                })
+            else:
+                worker_api.emit_event('workflow.planned', {
+                    'workflow_id': wf_doc.get('workflow_id') or workflow_id,
+                    'workflow_mongo_id': workflow_id,
+                    'workspace_id': workspace_id,
+                    'requires_approval': graph.get('requires_approval'),
+                })
+
+        if graph.get('meta_setup_phase') == 'discovery' and not graph.get('requires_approval'):
+            from tasks.agent.execute_workflow import execute_workflow_task
+
+            logger.info('Auto-running Meta setup discovery workflow_id=%s', workflow_id)
+            try:
+                execute_workflow_task(workspace_id, workflow_id, reply_key=None, approved=True)
+                if worker_api.configured():
+                    wf_done = worker_api.get_agent_workflow(workflow_id)
+                    clarification = (wf_done.get('summary') or '').strip()
+                    if clarification:
+                        graph['assistant_message'] = clarification
+                        graph['summary'] = clarification
+            except Exception as exc:
+                logger.exception('Meta setup discovery auto-run failed workflow_id=%s', workflow_id)
+                graph['assistant_message'] = (
+                    (graph.get('assistant_message') or '').strip()
+                    + f'\n\nPage discovery failed: {exc}. Retry or connect a Facebook Page in Meta Business Settings.'
+                ).strip()
+
+        write(True, {
+            'workflow_id': workflow_id,
+            'graph': graph,
+            'assistant_message': graph.get('assistant_message'),
+            'requires_approval': graph.get('requires_approval'),
+        }, None, 200)
+    except ValueError as ve:
+        logger.info('plan_workflow validation: %s', ve)
+        if worker_api.configured():
+            worker_api.patch_agent_workflow(workflow_id, {
+                'status': 'failed',
+                'execution_errors': [str(ve)],
+            })
+        write(False, None, str(ve), 422)
+    except SoftTimeLimitExceeded:
+        msg = (
+            'Planner timed out before finishing. Try a shorter request, use the Ads campaign wizard, '
+            'or ask to create one campaign step at a time.'
+        )
+        logger.warning('plan_workflow soft timeout workflow_id=%s', workflow_id)
+        if worker_api.configured():
+            worker_api.patch_agent_workflow(workflow_id, {
+                'status': 'failed',
+                'execution_errors': [msg],
+            })
+        write(False, None, msg, 504)
+    except Exception as exc:
+        logger.exception('plan_workflow failed workflow_id=%s', workflow_id)
+        if worker_api.configured():
+            worker_api.patch_agent_workflow(workflow_id, {
+                'status': 'failed',
+                'execution_errors': [str(exc)],
+            })
+        write(False, None, str(exc), 502)
+
+
+================================================================================
+FILE: /home/sonofogre/Desktop/agent-market/services/ai-worker/tasks/agent/run_registry_step.py
+================================================================================
+"""Celery task: execute one registry tool (observable, replayable step unit)."""
+
+from __future__ import annotations
+
+import logging
+from typing import Any
+
+from celery_app import celery_app
+from lib.dispatch.dispatcher import dispatch_tool
+
+logger = logging.getLogger(__name__)
+
+
+@celery_app.task(name='tasks.agent.run_registry_step', soft_time_limit=270, time_limit=300)
+def run_registry_step(tool_id: str, payload: dict | None = None) -> Any:
+    return dispatch_tool(tool_id, payload or {})
+
+
+================================================================================
+FILE: /home/sonofogre/Desktop/agent-market/services/ai-worker/tasks/ai/gemini_sync.py
+================================================================================
+"""Celery entrypoint for Gemini — HTTP and prompts live in ``lib.llm.gemini``."""
+
+from __future__ import annotations
+
+import json
+import logging
+from typing import Any
+
+from billiard.exceptions import SoftTimeLimitExceeded
+from celery_app import celery_app
+from db import get_redis
+from lib.llm.router import dispatch as route_dispatch
+
+logger = logging.getLogger(__name__)
+
+# One provider API call per enqueue — never auto-retry expensive generation.
+_AI_TASK_OPTS = dict(max_retries=0, acks_late=False)
+
+
+def run_gemini_sync(opcode: str, payload: dict | None = None) -> dict[str, Any]:
+    """Shared Gemini execution — UI (Celery) and agent (dispatcher) use this."""
+    return route_dispatch(opcode, payload or {})
+
+
+@celery_app.task(
+    name='tasks.ai.gemini_sync',
+    soft_time_limit=600,
+    time_limit=660,
+    **_AI_TASK_OPTS,
+)
+def gemini_sync(opcode: str, payload: dict, reply_key: str) -> None:
+    r = get_redis()
+
+    def write(ok: bool, data: Any = None, error: str | None = None, status: int = 502) -> None:
+        body = json.dumps({'ok': ok, 'data': data, 'error': error, 'status': status}, default=str)
+        r.set(reply_key, body, ex=300)
+
+    try:
+        out = run_gemini_sync(opcode, payload)
+        write(True, out, None, 200)
+    except SoftTimeLimitExceeded:
+        logger.warning('gemini_sync timed out opcode=%s', opcode)
+        write(False, None, 'AI generation timed out', 504)
+        raise
+    except ValueError as ve:
+        msg = str(ve)
+        status = 422 if ('start_date' in msg or 'end_date' in msg) and ('Invalid' in msg or 'before' in msg) else 400
+        logger.info('gemini_sync validation: %s', ve)
+        write(False, None, msg, status)
+    except Exception as exc:
+        logger.exception('gemini_sync failed opcode=%s', opcode)
+        write(False, None, str(exc), 502)
+
+
+================================================================================
+FILE: /home/sonofogre/Desktop/agent-market/services/ai-worker/tasks/ai/__init__.py
+================================================================================
+from .gemini_sync import gemini_sync  # noqa: F401
+
+
+================================================================================
+FILE: /home/sonofogre/Desktop/agent-market/services/ai-worker/tasks/analytics/__init__.py
+================================================================================
+"""Metrics and analytics aggregation tasks."""
+
+from . import process_account_metrics  # noqa: F401
+from . import process_instagram_metrics  # noqa: F401
+from . import process_twitter_metrics  # noqa: F401
+
+
+================================================================================
+FILE: /home/sonofogre/Desktop/agent-market/services/ai-worker/tasks/analytics/process_account_metrics.py
+================================================================================
+"""Parity with apps/api/src/jobs/ProcessMetrics.js — generic provider metrics (no-op unless provider hooks exist)."""
+
+import logging
+
+from bson import ObjectId
+from bson.errors import InvalidId
+
+from celery_app import celery_app
+from lib import worker_api
+
+logger = logging.getLogger(__name__)
+
+
+@celery_app.task(name='tasks.analytics.process_account_metrics')
+def process_account_metrics(account_id: str):
+    try:
+        ObjectId(account_id)
+    except InvalidId:
+        logger.warning('[process_account_metrics] invalid account_id=%s', account_id)
+        return
+
+    if not worker_api.configured():
+        logger.warning('[process_account_metrics] WORKER_API_SECRET not set — skipped')
+        return
+
+    try:
+        account = worker_api.get_account_worker_context(account_id)
+    except Exception:
+        return
+
+    if not account or not account.get('authorized'):
+        return
+
+    provider = account.get('provider') or ''
+    logger.debug(
+        '[process_account_metrics] account=%s provider=%s (no provider metric hooks in codebase — noop)',
+        account_id,
+        provider,
+    )
+
+
+================================================================================
+FILE: /home/sonofogre/Desktop/agent-market/services/ai-worker/tasks/analytics/process_instagram_metrics.py
+================================================================================
+"""Aggregate ``imported_posts`` Instagram media metrics into ``metrics`` (likes, comments)."""
+
+import logging
+from collections import defaultdict
+
+from bson import ObjectId
+from bson.errors import InvalidId
+
+from celery_app import celery_app
+from lib import worker_api
+
+logger = logging.getLogger(__name__)
+
+
+@celery_app.task(name='tasks.analytics.process_instagram_metrics')
+def process_instagram_metrics(account_id: str):
+    try:
+        ObjectId(account_id)
+    except InvalidId:
+        logger.warning('Invalid account_id: %s', account_id)
+        return
+
+    if not worker_api.configured():
+        logger.warning('[process_instagram_metrics] WORKER_API_SECRET not set — skipped')
+        return
+
+    rows = worker_api.get_imported_posts_instagram_aggregate(account_id)
+    by_day: dict = defaultdict(lambda: {'likes': 0, 'comments': 0, 'views': 0})
+    for row in rows:
+        day = row.get('date')
+        if not day:
+            continue
+        by_day[day]['likes'] += int(row.get('likes') or 0)
+        by_day[day]['comments'] += int(row.get('comments') or 0)
+        by_day[day]['views'] += int(row.get('views') or 0)
+
+    items = []
+    for day, data in sorted(by_day.items()):
+        if not any(data.values()):
+            continue
+        items.append({
+            'account_id': account_id,
+            'date': day,
+            'data': data,
+            'merge': True,
+        })
+
+    if items:
+        worker_api.bulk_upsert_metrics(items)
+    logger.info('[process_instagram_metrics] account=%s days=%s', account_id, len(items))
+
+
+================================================================================
+FILE: /home/sonofogre/Desktop/agent-market/services/ai-worker/tasks/analytics/process_twitter_metrics.py
+================================================================================
+"""Parity with apps/api/src/jobs/ProcessTwitterMetrics.js — aggregate imported_posts into metrics (reads + writes via API)."""
+
+import logging
+
+from bson import ObjectId
+from bson.errors import InvalidId
+
+from celery_app import celery_app
+from lib import worker_api
+
+logger = logging.getLogger(__name__)
+
+
+@celery_app.task(name='tasks.analytics.process_twitter_metrics')
+def process_twitter_metrics(account_id: str):
+    try:
+        ObjectId(account_id)
+    except InvalidId:
+        logger.warning('Invalid account_id: %s', account_id)
+        return
+
+    if not worker_api.configured():
+        logger.warning('[process_twitter_metrics] WORKER_API_SECRET not set — skipped')
+        return
+
+    rows = worker_api.get_imported_posts_twitter_aggregate(account_id)
+    items = []
+    for row in rows:
+        day = row.get('date')
+        if not day:
+            continue
+        items.append(
+            {
+                'account_id': account_id,
+                'date': day,
+                'data': {
+                    'likes': row.get('likes') or 0,
+                    'replies': row.get('replies') or 0,
+                    'retweets': row.get('retweets') or 0,
+                    'impressions': row.get('impressions') or 0,
+                },
+            }
+        )
+    if items:
+        worker_api.bulk_upsert_metrics(items)
+    logger.info('[process_twitter_metrics] account=%s days=%s', account_id, len(rows))
+
+
+================================================================================
+FILE: /home/sonofogre/Desktop/agent-market/services/ai-worker/tasks/bridge.py
+================================================================================
+"""
+Bridge: Node API LPUSHes JSON task envelopes (see apps/api/src/lib/celeryEnqueue.js).
+This task drains that list and dispatches via the real Celery app — avoids writing
+non-Kombu payloads onto the broker's native queue keys.
+"""
+
+import json
+import logging
+import os
+
+from celery_app import celery_app
+from db import get_redis
+
+logger = logging.getLogger(__name__)
+
+DEFAULT_BRIDGE_KEY = 'agentmarket:api_task_bridge'
+
+
+@celery_app.task(name='tasks.bridge_api_celery_queue')
+def bridge_api_celery_queue():
+    r = get_redis()
+    key = os.getenv('CELERY_REDIS_LIST', DEFAULT_BRIDGE_KEY)
+    for _ in range(100):
+        raw = r.rpop(key)
+        if not raw:
+            break
+        try:
+            msg = json.loads(raw)
+            name = msg.get('task')
+            if not name or name == 'tasks.bridge_api_celery_queue':
+                continue
+            args = msg.get('args') or []
+            kwargs = msg.get('kwargs') or {}
+            celery_app.send_task(name, args=args, kwargs=kwargs)
+            logger.debug('Bridged Celery task %s', name)
+        except Exception as exc:
+            logger.warning('bridge_api_celery_queue drop: %s raw=%s', exc, (raw or '')[:200])
+
+
+================================================================================
+FILE: /home/sonofogre/Desktop/agent-market/services/ai-worker/tasks/imports/account_metrics_sync.py
+================================================================================
+"""Agent-path sync for import_account_metrics — live refresh + DB snapshot return.
+
+Celery ``tasks.imports.import_account`` stays fire-and-forget for the scheduler.
+"""
+
+from __future__ import annotations
+
+import logging
+from datetime import datetime, timedelta, timezone
+from typing import Any
+
+from bson import ObjectId
+from bson.errors import InvalidId
+
+from connectors import _ig_analytics as ig_analytics
+from connectors import facebook as facebook_connector
+from connectors import twitter as twitter_connector
+from db import get_redis
+from lib import worker_api
+
+logger = logging.getLogger(__name__)
+
+IG_PROVIDERS = frozenset({'instagram', 'instagram_login'})
+FB_INSIGHT_TYPES = {
+    'page_post_engagements': 1,
+    'page_posts_impressions': 2,
+}
+
+
+def _today() -> str:
+    return datetime.now(timezone.utc).date().isoformat()
+
+
+def _since_days(days: int) -> str:
+    return (datetime.now(timezone.utc) - timedelta(days=max(1, days))).date().isoformat()
+
+
+def _fb_cfg_for(account: dict) -> dict:
+    wid = account.get('workspace_id')
+    wid_str = str(wid) if wid is not None else None
+    try:
+        return dict(worker_api.get_service_decrypted('facebook', wid_str) or {})
+    except Exception:
+        return {}
+
+
+def _token(account: dict) -> str | None:
+    at = account.get('access_token') or {}
+    tok = at.get('token')
+    return str(tok) if tok else None
+
+
+def _sync_status(*, ok: bool, error: str | None = None, **extra: Any) -> dict[str, Any]:
+    out: dict[str, Any] = {'ok': bool(ok)}
+    if error:
+        out['error'] = str(error)
+    out.update(extra)
+    return out
+
+
+def sync_followers(account: dict, account_id: str) -> dict[str, Any]:
+    """Best-effort live follower fetch + audience upsert. Never raises."""
+    provider = str(account.get('provider') or '')
+    r = get_redis()
+
+    if provider == 'facebook':
+        rate_key = f'agentmarket:ratelimit:facebook:{account_id}'
+        if r.get(rate_key):
+            return _sync_status(ok=False, error='rate_limited', rate_limited=True)
+        token = _token(account)
+        pid = account.get('provider_id')
+        if not token or not pid:
+            return _sync_status(ok=False, error='missing_token_or_provider_id')
+        result = facebook_connector.fetch_page_follower_counts(token, str(pid), timeout=45.0)
+        if result.get('ok'):
+            data = result.get('data') or {}
+            total = data.get('followers_count')
+            if total is None:
+                total = data.get('fan_count') or 0
+            worker_api.upsert_audience(account_id, _today(), int(total))
+            return _sync_status(ok=True, followers_count=int(total))
+        if result.get('rate_limited'):
+            r.setex(rate_key, 3600, '1')
+            return _sync_status(ok=False, error='rate_limited', rate_limited=True)
+        if result.get('unauthorized'):
+            try:
+                worker_api.patch_account_deauthorized(account_id)
+            except Exception:
+                pass
+            return _sync_status(ok=False, error='unauthorized', unauthorized=True)
+        return _sync_status(ok=False, error=str(result.get('error') or 'facebook_followers_failed'))
+
+    if provider in IG_PROVIDERS:
+        rate_key = f'agentmarket:ratelimit:instagram:{account_id}'
+        if r.get(rate_key):
+            return _sync_status(ok=False, error='rate_limited', rate_limited=True)
+        token = _token(account)
+        pid = account.get('provider_id')
+        if not token or not pid:
+            return _sync_status(ok=False, error='missing_token_or_provider_id')
+        fb_cfg = _fb_cfg_for(account) if provider == 'instagram' else None
+        result = ig_analytics.fetch_user_followers_count(
+            token, str(pid), provider=provider, fb_cfg=fb_cfg, timeout=45.0,
+        )
+        if result.get('ok'):
+            total = int(result.get('followers_count') or 0)
+            worker_api.upsert_audience(account_id, _today(), total)
+            return _sync_status(ok=True, followers_count=total)
+        if result.get('rate_limited'):
+            r.setex(rate_key, 3600, '1')
+            return _sync_status(ok=False, error='rate_limited', rate_limited=True)
+        if result.get('unauthorized'):
+            try:
+                worker_api.patch_account_deauthorized(account_id)
+            except Exception:
+                pass
+            return _sync_status(ok=False, error='unauthorized', unauthorized=True)
+        if result.get('forbidden'):
+            return _sync_status(ok=False, error='forbidden')
+        return _sync_status(ok=False, error=str(result.get('error') or 'instagram_followers_failed'))
+
+    if provider == 'twitter':
+        rate_key = f'agentmarket:ratelimit:twitter:{account_id}'
+        if r.get(rate_key):
+            return _sync_status(ok=False, error='rate_limited', rate_limited=True)
+        at = account.get('access_token') or {}
+        token, secret = at.get('token'), at.get('secret')
+        if not token:
+            return _sync_status(ok=False, error='missing_token')
+        wid = account.get('workspace_id')
+        wid_str = str(wid) if wid is not None else None
+        try:
+            cfg = worker_api.get_service_decrypted('twitter', wid_str) or {}
+        except Exception:
+            cfg = {}
+        if not cfg.get('client_id') or not cfg.get('client_secret'):
+            return _sync_status(ok=False, error='missing_twitter_app_credentials')
+        read = twitter_connector.fetch_authenticated_user_followers(
+            str(cfg.get('client_id')),
+            str(cfg.get('client_secret')),
+            str(token),
+            str(secret or ''),
+        )
+        if read.ok:
+            total = int(read.followers_count)
+            worker_api.upsert_audience(account_id, _today(), total)
+            return _sync_status(ok=True, followers_count=total)
+        if read.rate_limited:
+            r.setex(rate_key, 900, '1')
+            return _sync_status(ok=False, error='rate_limited', rate_limited=True)
+        if read.unauthorized:
+            try:
+                worker_api.patch_account_deauthorized(account_id)
+            except Exception:
+                pass
+            return _sync_status(ok=False, error='unauthorized', unauthorized=True)
+        return _sync_status(ok=False, error='twitter_followers_failed')
+
+    return _sync_status(ok=False, error=f'unsupported_provider:{provider}')
+
+
+def sync_insights(account: dict, account_id: str, *, days: int = 30) -> dict[str, Any]:
+    """Best-effort insights/metrics refresh. Never raises."""
+    provider = str(account.get('provider') or '')
+    r = get_redis()
+    since = _since_days(days)
+    until = _today()
+
+    if provider == 'facebook':
+        rate_key = f'agentmarket:ratelimit:facebook:{account_id}'
+        if r.get(rate_key):
+            return _sync_status(ok=False, error='rate_limited', rate_limited=True)
+        token = _token(account)
+        pid = account.get('provider_id')
+        if not token or not pid:
+            return _sync_status(ok=False, error='missing_token_or_provider_id')
+        result = facebook_connector.fetch_page_insights_day_series(
+            token, str(pid), since=since, until=until, timeout=90.0,
+        )
+        if result.get('ok'):
+            insights = result.get('insights') or []
+            n = 0
+            for insight in insights:
+                name = insight.get('name')
+                itype = FB_INSIGHT_TYPES.get(name)
+                if not itype:
+                    continue
+                for item in insight.get('values') or []:
+                    end_time = item.get('end_time') or ''
+                    date = end_time.split('T')[0] if end_time else until
+                    val = item.get('value')
+                    if val is None:
+                        val = 0
+                    worker_api.upsert_facebook_insight(account_id, itype, val, date)
+                    n += 1
+            return _sync_status(ok=True, rows=n)
+        if result.get('rate_limited'):
+            r.setex(rate_key, 3600, '1')
+            return _sync_status(ok=False, error='rate_limited', rate_limited=True)
+        if result.get('unauthorized'):
+            try:
+                worker_api.patch_account_deauthorized(account_id)
+            except Exception:
+                pass
+            return _sync_status(ok=False, error='unauthorized', unauthorized=True)
+        return _sync_status(ok=False, error=str(result.get('error') or 'facebook_insights_failed'))
+
+    if provider in IG_PROVIDERS:
+        rate_key = f'agentmarket:ratelimit:instagram:insights:{account_id}'
+        if r.get(rate_key):
+            return _sync_status(ok=False, error='rate_limited', rate_limited=True)
+        token = _token(account)
+        pid = account.get('provider_id')
+        if not token or not pid:
+            return _sync_status(ok=False, error='missing_token_or_provider_id')
+        fb_cfg = _fb_cfg_for(account) if provider == 'instagram' else None
+        result = ig_analytics.fetch_account_insights_day_series(
+            token,
+            str(pid),
+            provider=provider,
+            since=since,
+            until=until,
+            fb_cfg=fb_cfg,
+        )
+        if result.get('ok'):
+            rows = result.get('rows') or []
+            items = []
+            for row in rows:
+                day = row.get('date')
+                if not day:
+                    continue
+                data = {k: v for k, v in row.items() if k != 'date'}
+                if data:
+                    items.append({'account_id': account_id, 'date': day, 'data': data, 'merge': True})
+            if items:
+                worker_api.bulk_upsert_metrics(items)
+            return _sync_status(ok=True, rows=len(items))
+        if result.get('rate_limited'):
+            r.setex(rate_key, 3600, '1')
+            return _sync_status(ok=False, error='rate_limited', rate_limited=True)
+        if result.get('unauthorized'):
+            try:
+                worker_api.patch_account_deauthorized(account_id)
+            except Exception:
+                pass
+            return _sync_status(ok=False, error='unauthorized', unauthorized=True)
+        if result.get('forbidden'):
+            return _sync_status(ok=False, error='missing_insights_scope')
+        return _sync_status(ok=False, error=str(result.get('error') or 'instagram_insights_failed'))
+
+    return _sync_status(ok=False, error='insights_not_supported', skipped=True)
+
+
+def _snapshot_has_data(snapshot: dict[str, Any] | None) -> bool:
+    if not snapshot:
+        return False
+    if snapshot.get('followers_count') is not None:
+        return True
+    totals = snapshot.get('metrics_totals') or {}
+    if any(v is not None and v != 0 for v in totals.values()):
+        return True
+    fb = snapshot.get('facebook_insight_totals') or {}
+    if any(v is not None and v != 0 for v in fb.values()):
+        return True
+    return False
+
+
+def run_import_account_metrics(body: dict[str, Any] | None = None) -> dict[str, Any]:
+    """
+    Agent entry: try live sync → always read DB snapshot → return answerable payload.
+    """
+    body = body or {}
+    account_id = str(body.get('account_id') or '').strip()
+    if not account_id:
+        raise ValueError('import_account_metrics requires account_id')
+    try:
+        ObjectId(account_id)
+    except InvalidId as exc:
+        raise ValueError('import_account_metrics requires a valid account_id') from exc
+
+    if not worker_api.configured():
+        return {
+            'ok': False,
+            'account_id': account_id,
+            'sync_ok': False,
+            'stale': False,
+            'error': 'WORKER_API_SECRET not configured',
+            'available_fields': [],
+        }
+
+    try:
+        account = worker_api.get_account_worker_context(account_id)
+    except Exception as exc:
+        return {
+            'ok': False,
+            'account_id': account_id,
+            'sync_ok': False,
+            'stale': False,
+            'error': f'account_not_found:{exc}',
+            'available_fields': [],
+        }
+
+    if not account:
+        return {
+            'ok': False,
+            'account_id': account_id,
+            'sync_ok': False,
+            'stale': False,
+            'error': 'account_not_found',
+            'available_fields': [],
+        }
+
+    provider = str(account.get('provider') or '')
+    name = account.get('name') or ''
+    username = account.get('username') or ''
+    sync_errors: list[str] = []
+    followers_sync = _sync_status(ok=False, error='not_attempted')
+    insights_sync = _sync_status(ok=False, error='not_attempted')
+
+    if account.get('authorized') is False:
+        sync_errors.append('account_unauthorized')
+    else:
+        try:
+            followers_sync = sync_followers(account, account_id)
+            if not followers_sync.get('ok') and followers_sync.get('error'):
+                sync_errors.append(f"followers:{followers_sync['error']}")
+        except Exception as exc:
+            logger.warning('[import_account_metrics] followers sync failed %s: %s', account_id, exc)
+            followers_sync = _sync_status(ok=False, error=str(exc))
+            sync_errors.append(f'followers:{exc}')
+
+        try:
+            insights_sync = sync_insights(account, account_id, days=30)
+            if (
+                not insights_sync.get('ok')
+                and not insights_sync.get('skipped')
+                and insights_sync.get('error')
+            ):
+                sync_errors.append(f"insights:{insights_sync['error']}")
+        except Exception as exc:
+            logger.warning('[import_account_metrics] insights sync failed %s: %s', account_id, exc)
+            insights_sync = _sync_status(ok=False, error=str(exc))
+            sync_errors.append(f'insights:{exc}')
+
+    sync_ok = bool(followers_sync.get('ok') or insights_sync.get('ok'))
+
+    snapshot: dict[str, Any] = {}
+    try:
+        snapshot = worker_api.get_account_metrics_snapshot(account_id, days=30) or {}
+    except Exception as exc:
+        logger.warning('[import_account_metrics] snapshot read failed %s: %s', account_id, exc)
+        sync_errors.append(f'snapshot:{exc}')
+
+    has_data = _snapshot_has_data(snapshot)
+    stale = bool(has_data and not sync_ok)
+
+    available: list[str] = []
+    followers_count = snapshot.get('followers_count')
+    if followers_count is None and followers_sync.get('ok'):
+        followers_count = followers_sync.get('followers_count')
+    if followers_count is not None:
+        available.append('followers_count')
+
+    metrics_totals = snapshot.get('metrics_totals') or {}
+    fb_totals = snapshot.get('facebook_insight_totals') or {}
+    for key, val in {**metrics_totals, **fb_totals}.items():
+        if val is not None:
+            available.append(str(key))
+
+    reconnect_hint = any(
+        'unauthorized' in e or e.endswith(':forbidden') or 'missing_insights_scope' in e
+        for e in sync_errors
+    )
+
+    return {
+        'ok': has_data or sync_ok,
+        'account_id': account_id,
+        'provider': provider,
+        'name': name,
+        'username': username,
+        'sync_ok': sync_ok,
+        'stale': stale,
+        'followers_count': followers_count,
+        'followers_as_of': snapshot.get('followers_as_of'),
+        'metrics_totals': metrics_totals,
+        'facebook_insight_totals': fb_totals,
+        'period_days': int(snapshot.get('period_days') or 30),
+        'available_fields': sorted(set(available)),
+        'sync': {
+            'followers': followers_sync,
+            'insights': insights_sync,
+        },
+        'sync_errors': sync_errors,
+        'reconnect_hint': reconnect_hint,
+    }
+
+
+================================================================================
+FILE: /home/sonofogre/Desktop/agent-market/services/ai-worker/tasks/imports/import_account.py
+================================================================================
+"""Import orchestration: fans out to provider-specific Celery tasks."""
+
+import logging
+
+from bson import ObjectId
+from bson.errors import InvalidId
+
+from celery_app import celery_app
+from lib import worker_api
+
+logger = logging.getLogger(__name__)
+
+
+@celery_app.task(name='tasks.imports.import_account')
+def import_account(account_id: str):
+    try:
+        ObjectId(account_id)
+    except InvalidId:
+        logger.warning('[import_account] invalid account_id=%s', account_id)
+        return
+
+    if not worker_api.configured():
+        logger.warning('[import_account] WORKER_API_SECRET not set — skipped')
+        return
+
+    try:
+        account = worker_api.get_account_worker_context(account_id)
+    except Exception as exc:
+        logger.warning('[import_account] no account %s: %s', account_id, exc)
+        return
+
+    if not account or not account.get('authorized'):
+        return
+
+    p = account.get('provider') or ''
+    if p == 'twitter':
+        celery_app.send_task('tasks.imports.import_twitter_followers', args=[account_id])
+        celery_app.send_task('tasks.imports.import_twitter_posts', args=[account_id])
+        celery_app.send_task('tasks.analytics.process_twitter_metrics', args=[account_id])
+        logger.info('[import_account] queued twitter import chain for %s', account_id)
+    elif p == 'facebook':
+        celery_app.send_task('tasks.imports.import_facebook_followers', args=[account_id])
+        celery_app.send_task('tasks.imports.import_facebook_insights', args=[account_id])
+        logger.info('[import_account] queued facebook import chain for %s', account_id)
+    elif p in ('instagram', 'instagram_login'):
+        celery_app.send_task('tasks.imports.import_instagram_followers', args=[account_id])
+        celery_app.send_task('tasks.imports.import_instagram_insights', args=[account_id])
+        celery_app.send_task('tasks.imports.import_instagram_media', args=[account_id])
+        logger.info('[import_account] queued instagram import chain for %s provider=%s', account_id, p)
+    else:
+        logger.debug('[import_account] no orchestration for provider=%s account=%s', p, account_id)
+
+
+================================================================================
+FILE: /home/sonofogre/Desktop/agent-market/services/ai-worker/tasks/imports/import_facebook_followers.py
+================================================================================
+"""Facebook follower counts — Graph via ``connectors.facebook``; persistence via apps/api."""
+
+import logging
+from datetime import datetime, timezone
+
+from bson import ObjectId
+from bson.errors import InvalidId
+
+from celery_app import celery_app
+from connectors import facebook as facebook_connector
+from db import get_redis
+from lib import worker_api
+
+logger = logging.getLogger(__name__)
+
+RATE_KEY_PREFIX = 'agentmarket:ratelimit:facebook:'
+
+
+@celery_app.task(name='tasks.imports.import_facebook_followers', bind=True, max_retries=3)
+def import_facebook_followers(self, account_id: str):
+    r = get_redis()
+    try:
+        ObjectId(account_id)
+    except InvalidId:
+        logger.warning('Invalid account_id: %s', account_id)
+        return
+
+    if not worker_api.configured():
+        logger.warning('[import_facebook_followers] WORKER_API_SECRET not set — skipped')
+        return
+
+    try:
+        account = worker_api.get_account_worker_context(account_id)
+    except Exception:
+        return
+
+    if not account or not account.get('authorized') or account.get('provider') != 'facebook':
+        return
+
+    rate_key = f'{RATE_KEY_PREFIX}{account_id}'
+    if r.get(rate_key):
+        return
+
+    token = (account.get('access_token') or {}).get('token')
+    if not token:
+        return
+
+    pid = account.get('provider_id')
+    if not pid:
+        return
+
+    result = facebook_connector.fetch_page_follower_counts(token, str(pid))
+    if result.get('ok'):
+        data = result.get('data') or {}
+        total = data.get('followers_count')
+        if total is None:
+            total = data.get('fan_count') or 0
+        today = datetime.now(timezone.utc).date().isoformat()
+        worker_api.upsert_audience(account_id, today, int(total))
+        logger.info('[import_facebook_followers] account=%s followers=%s', account_id, total)
+        return
+
+    if result.get('rate_limited'):
+        r.setex(rate_key, 3600, '1')
+        logger.warning('[import_facebook_followers] 429 %s', account_id)
+        return
+    if result.get('unauthorized'):
+        try:
+            worker_api.patch_account_deauthorized(account_id)
+        except Exception as exc:
+            logger.error('[import_facebook_followers] deauthorize failed: %s', exc)
+        logger.warning('[import_facebook_followers] unauthorized %s', account_id)
+        return
+
+    sc = int(result.get('status_code') or 0)
+    logger.error('[import_facebook_followers] account=%s status=%s', account_id, sc)
+    raise self.retry(exc=RuntimeError(result.get('error', 'Graph error')), countdown=300) from None
+
+
+================================================================================
+FILE: /home/sonofogre/Desktop/agent-market/services/ai-worker/tasks/imports/import_facebook_insights.py
+================================================================================
+"""Facebook page insights — Graph via ``connectors.facebook``; persistence via apps/api."""
+
+import logging
+from datetime import datetime, timezone, timedelta
+
+from bson import ObjectId
+from bson.errors import InvalidId
+
+from celery_app import celery_app
+from connectors import facebook as facebook_connector
+from db import get_redis
+from lib import worker_api
+
+logger = logging.getLogger(__name__)
+
+RATE_KEY_PREFIX = 'agentmarket:ratelimit:facebook:'
+
+METRIC_NAME_TO_TYPE = {
+    'page_post_engagements': 1,
+    'page_posts_impressions': 2,
+}
+
+
+@celery_app.task(name='tasks.imports.import_facebook_insights', bind=True, max_retries=3)
+def import_facebook_insights(self, account_id: str):
+    r = get_redis()
+    try:
+        ObjectId(account_id)
+    except InvalidId:
+        logger.warning('Invalid account_id: %s', account_id)
+        return
+
+    if not worker_api.configured():
+        logger.warning('[import_facebook_insights] WORKER_API_SECRET not set — skipped')
+        return
+
+    try:
+        account = worker_api.get_account_worker_context(account_id)
+    except Exception:
+        return
+
+    if not account or not account.get('authorized') or account.get('provider') != 'facebook':
+        return
+
+    rate_key = f'{RATE_KEY_PREFIX}{account_id}'
+    if r.get(rate_key):
+        return
+
+    token = (account.get('access_token') or {}).get('token')
+    if not token:
+        return
+
+    pid = account.get('provider_id')
+    if not pid:
+        return
+
+    since = (datetime.now(timezone.utc) - timedelta(days=90)).date().isoformat()
+    until = datetime.now(timezone.utc).date().isoformat()
+
+    result = facebook_connector.fetch_page_insights_day_series(
+        token,
+        str(pid),
+        since=since,
+        until=until,
+    )
+
+    if result.get('ok'):
+        insights = result.get('insights') or []
+        for insight in insights:
+            name = insight.get('name')
+            itype = METRIC_NAME_TO_TYPE.get(name)
+            if not itype:
+                continue
+            for item in insight.get('values') or []:
+                end_time = item.get('end_time') or ''
+                date = end_time.split('T')[0] if end_time else until
+                val = item.get('value')
+                if val is None:
+                    val = 0
+                worker_api.upsert_facebook_insight(account_id, itype, val, date)
+
+        logger.info('[import_facebook_insights] account=%s insight_types=%s', account_id, len(insights))
+        return
+
+    if result.get('rate_limited'):
+        r.setex(rate_key, 3600, '1')
+        logger.warning('[import_facebook_insights] 429 %s', account_id)
+        return
+    if result.get('unauthorized'):
+        try:
+            worker_api.patch_account_deauthorized(account_id)
+        except Exception as exc:
+            logger.error('[import_facebook_insights] deauthorize failed: %s', exc)
+        logger.warning('[import_facebook_insights] unauthorized %s', account_id)
+        return
+
+    sc = int(result.get('status_code') or 0)
+    logger.error('[import_facebook_insights] account=%s status=%s', account_id, sc)
+    raise self.retry(exc=RuntimeError(result.get('error', 'Graph error')), countdown=300) from None
+
+
+================================================================================
+FILE: /home/sonofogre/Desktop/agent-market/services/ai-worker/tasks/imports/import_instagram_followers.py
+================================================================================
+"""Instagram follower snapshots — Graph via ``connectors._ig_analytics``."""
+
+import logging
+from datetime import datetime, timezone
+
+from bson import ObjectId
+from bson.errors import InvalidId
+
+from celery_app import celery_app
+from connectors import _ig_analytics as ig_analytics
+from db import get_redis
+from lib import worker_api
+
+logger = logging.getLogger(__name__)
+
+RATE_KEY_PREFIX = 'agentmarket:ratelimit:instagram:'
+IG_PROVIDERS = frozenset({'instagram', 'instagram_login'})
+
+
+def _fb_cfg_for(account: dict) -> dict:
+    wid = account.get('workspace_id')
+    wid_str = str(wid) if wid is not None else None
+    try:
+        return dict(worker_api.get_service_decrypted('facebook', wid_str) or {})
+    except Exception:
+        return {}
+
+
+@celery_app.task(name='tasks.imports.import_instagram_followers', bind=True, max_retries=3)
+def import_instagram_followers(self, account_id: str):
+    r = get_redis()
+    try:
+        ObjectId(account_id)
+    except InvalidId:
+        logger.warning('Invalid account_id: %s', account_id)
+        return
+
+    if not worker_api.configured():
+        logger.warning('[import_instagram_followers] WORKER_API_SECRET not set — skipped')
+        return
+
+    try:
+        account = worker_api.get_account_worker_context(account_id)
+    except Exception:
+        return
+
+    provider = str(account.get('provider') or '')
+    if not account or not account.get('authorized') or provider not in IG_PROVIDERS:
+        return
+
+    rate_key = f'{RATE_KEY_PREFIX}{account_id}'
+    if r.get(rate_key):
+        return
+
+    token = (account.get('access_token') or {}).get('token')
+    if not token:
+        return
+
+    pid = account.get('provider_id')
+    if not pid:
+        return
+
+    fb_cfg = _fb_cfg_for(account) if provider == 'instagram' else None
+    result = ig_analytics.fetch_user_followers_count(
+        token,
+        str(pid),
+        provider=provider,
+        fb_cfg=fb_cfg,
+    )
+
+    if result.get('ok'):
+        total = int(result.get('followers_count') or 0)
+        today = datetime.now(timezone.utc).date().isoformat()
+        worker_api.upsert_audience(account_id, today, total)
+        logger.info('[import_instagram_followers] account=%s provider=%s followers=%s', account_id, provider, total)
+        return
+
+    if result.get('rate_limited'):
+        r.setex(rate_key, 3600, '1')
+        logger.warning('[import_instagram_followers] 429 %s', account_id)
+        return
+    if result.get('unauthorized'):
+        try:
+            worker_api.patch_account_deauthorized(account_id)
+        except Exception as exc:
+            logger.error('[import_instagram_followers] deauthorize failed: %s', exc)
+        logger.warning('[import_instagram_followers] unauthorized %s', account_id)
+        return
+
+    if result.get('forbidden'):
+        logger.warning(
+            '[import_instagram_followers] forbidden account=%s provider=%s (reconnect may be required)',
+            account_id,
+            provider,
+        )
+        return
+
+    logger.error('[import_instagram_followers] account=%s retryable', account_id)
+    raise self.retry(exc=RuntimeError(result.get('error', 'Graph error')), countdown=300) from None
+
+
+================================================================================
+FILE: /home/sonofogre/Desktop/agent-market/services/ai-worker/tasks/imports/import_instagram_insights.py
+================================================================================
+"""Instagram account insights (reach, views) — requires manage_insights scope."""
+
+import logging
+from datetime import datetime, timezone, timedelta
+
+from bson import ObjectId
+from bson.errors import InvalidId
+
+from celery_app import celery_app
+from connectors import _ig_analytics as ig_analytics
+from db import get_redis
+from lib import worker_api
+
+logger = logging.getLogger(__name__)
+
+RATE_KEY_PREFIX = 'agentmarket:ratelimit:instagram:insights:'
+IG_PROVIDERS = frozenset({'instagram', 'instagram_login'})
+
+
+def _fb_cfg_for(account: dict) -> dict:
+    wid = account.get('workspace_id')
+    wid_str = str(wid) if wid is not None else None
+    try:
+        return dict(worker_api.get_service_decrypted('facebook', wid_str) or {})
+    except Exception:
+        return {}
+
+
+def _merge_metric_rows(account_id: str, rows: list) -> None:
+    if not rows:
+        return
+    items = []
+    for row in rows:
+        day = row.get('date')
+        if not day:
+            continue
+        data = {k: v for k, v in row.items() if k != 'date'}
+        if not data:
+            continue
+        items.append({'account_id': account_id, 'date': day, 'data': data, 'merge': True})
+    if items:
+        worker_api.bulk_upsert_metrics(items)
+
+
+@celery_app.task(name='tasks.imports.import_instagram_insights', bind=True, max_retries=3)
+def import_instagram_insights(self, account_id: str):
+    r = get_redis()
+    try:
+        ObjectId(account_id)
+    except InvalidId:
+        logger.warning('Invalid account_id: %s', account_id)
+        return
+
+    if not worker_api.configured():
+        logger.warning('[import_instagram_insights] WORKER_API_SECRET not set — skipped')
+        return
+
+    try:
+        account = worker_api.get_account_worker_context(account_id)
+    except Exception:
+        return
+
+    provider = str(account.get('provider') or '')
+    if not account or not account.get('authorized') or provider not in IG_PROVIDERS:
+        return
+
+    rate_key = f'{RATE_KEY_PREFIX}{account_id}'
+    if r.get(rate_key):
+        return
+
+    token = (account.get('access_token') or {}).get('token')
+    pid = account.get('provider_id')
+    if not token or not pid:
+        return
+
+    since = (datetime.now(timezone.utc) - timedelta(days=90)).date().isoformat()
+    until = datetime.now(timezone.utc).date().isoformat()
+    fb_cfg = _fb_cfg_for(account) if provider == 'instagram' else None
+
+    result = ig_analytics.fetch_account_insights_day_series(
+        token,
+        str(pid),
+        provider=provider,
+        since=since,
+        until=until,
+        fb_cfg=fb_cfg,
+    )
+
+    if result.get('ok'):
+        rows = result.get('rows') or []
+        _merge_metric_rows(account_id, rows)
+        logger.info('[import_instagram_insights] account=%s days=%s', account_id, len(rows))
+        return
+
+    if result.get('rate_limited'):
+        r.setex(rate_key, 3600, '1')
+        logger.warning('[import_instagram_insights] 429 %s', account_id)
+        return
+    if result.get('unauthorized'):
+        try:
+            worker_api.patch_account_deauthorized(account_id)
+        except Exception as exc:
+            logger.error('[import_instagram_insights] deauthorize failed: %s', exc)
+        logger.warning('[import_instagram_insights] unauthorized %s', account_id)
+        return
+    if result.get('forbidden'):
+        logger.warning(
+            '[import_instagram_insights] missing insights scope account=%s — reconnect with instagram_business_manage_insights',
+            account_id,
+        )
+        return
+
+    logger.error('[import_instagram_insights] account=%s retryable', account_id)
+    raise self.retry(exc=RuntimeError(result.get('error', 'Graph error')), countdown=300) from None
+
+
+================================================================================
+FILE: /home/sonofogre/Desktop/agent-market/services/ai-worker/tasks/imports/import_instagram_media.py
+================================================================================
+"""Instagram media list + per-media insights into ``imported_posts``."""
+
+import logging
+from datetime import datetime, timezone
+
+from bson import ObjectId
+from bson.errors import InvalidId
+
+from celery_app import celery_app
+from connectors import _ig_analytics as ig_analytics
+from db import get_redis
+from lib import worker_api
+
+logger = logging.getLogger(__name__)
+
+RATE_KEY_PREFIX = 'agentmarket:ratelimit:instagram:media:'
+IG_PROVIDERS = frozenset({'instagram', 'instagram_login'})
+MAX_PAGES = 8
+
+
+def _fb_cfg_for(account: dict) -> dict:
+    wid = account.get('workspace_id')
+    wid_str = str(wid) if wid is not None else None
+    try:
+        return dict(worker_api.get_service_decrypted('facebook', wid_str) or {})
+    except Exception:
+        return {}
+
+
+def _media_metrics(media: dict, insights: dict) -> dict:
+    merged = {
+        'likes': int(media.get('like_count') or insights.get('likes') or 0),
+        'comments': int(media.get('comments_count') or insights.get('comments') or 0),
+        'reach': int(insights.get('reach') or 0),
+        'views': int(insights.get('views') or 0),
+    }
+    return merged
+
+
+@celery_app.task(name='tasks.imports.import_instagram_media', bind=True, max_retries=3)
+def import_instagram_media(self, account_id: str, after: str = '', page: int = 0):
+    r = get_redis()
+    try:
+        ObjectId(account_id)
+    except InvalidId:
+        logger.warning('Invalid account_id: %s', account_id)
+        return
+
+    if not worker_api.configured():
+        logger.warning('[import_instagram_media] WORKER_API_SECRET not set — skipped')
+        return
+
+    try:
+        account = worker_api.get_account_worker_context(account_id)
+    except Exception:
+        return
+
+    provider = str(account.get('provider') or '')
+    if not account or not account.get('authorized') or provider not in IG_PROVIDERS:
+        return
+
+    rate_key = f'{RATE_KEY_PREFIX}{account_id}'
+    if r.get(rate_key) and not after:
+        return
+
+    token = (account.get('access_token') or {}).get('token')
+    pid = account.get('provider_id')
+    if not token or not pid:
+        return
+
+    fb_cfg = _fb_cfg_for(account) if provider == 'instagram' else None
+    page_result = ig_analytics.fetch_user_media_page(
+        token,
+        str(pid),
+        provider=provider,
+        after=after,
+        fb_cfg=fb_cfg,
+    )
+
+    if not page_result.get('ok'):
+        if page_result.get('rate_limited'):
+            r.setex(rate_key, 3600, '1')
+            logger.warning('[import_instagram_media] 429 %s', account_id)
+            return
+        if page_result.get('unauthorized'):
+            try:
+                worker_api.patch_account_deauthorized(account_id)
+            except Exception as exc:
+                logger.error('[import_instagram_media] deauthorize failed: %s', exc)
+            return
+        if page_result.get('forbidden'):
+            logger.warning('[import_instagram_media] forbidden account=%s', account_id)
+            return
+        raise self.retry(exc=RuntimeError(page_result.get('error', 'Graph error')), countdown=300) from None
+
+    imported = 0
+    for media in page_result.get('media') or []:
+        mid = str(media.get('id') or '')
+        if not mid:
+            continue
+        ts = str(media.get('timestamp') or '')
+        created_at = ts.split('T')[0] if ts else datetime.now(timezone.utc).date().isoformat()
+        insight_result = ig_analytics.fetch_media_insights(
+            token,
+            mid,
+            provider=provider,
+            fb_cfg=fb_cfg,
+        )
+        insights = insight_result.get('metrics') or {} if insight_result.get('ok') else {}
+        metrics = _media_metrics(media, insights)
+        worker_api.upsert_imported_post(
+            account_id,
+            mid,
+            {
+                'text': media.get('caption') or '',
+                'created_at': created_at,
+                'media_type': media.get('media_type'),
+            },
+            metrics,
+        )
+        imported += 1
+
+    next_after = page_result.get('next_after') or ''
+    if next_after and page + 1 < MAX_PAGES:
+        celery_app.send_task(
+            'tasks.imports.import_instagram_media',
+            args=[account_id, next_after, page + 1],
+        )
+    else:
+        celery_app.send_task('tasks.analytics.process_instagram_metrics', args=[account_id])
+
+    logger.info('[import_instagram_media] account=%s imported=%s page=%s', account_id, imported, page)
+
+
+================================================================================
+FILE: /home/sonofogre/Desktop/agent-market/services/ai-worker/tasks/imports/import_twitter_followers.py
+================================================================================
+"""Twitter/X follower import — API via ``connectors.twitter``; persistence via apps/api."""
+
+import logging
+from datetime import datetime, timezone
+
+from bson import ObjectId
+from bson.errors import InvalidId
+
+from celery_app import celery_app
+from connectors import twitter as twitter_connector
+from db import get_redis
+from lib import worker_api
+
+logger = logging.getLogger(__name__)
+
+RATE_KEY_PREFIX = 'agentmarket:ratelimit:twitter:'
+
+
+@celery_app.task(name='tasks.imports.import_twitter_followers', bind=True, max_retries=3)
+def import_twitter_followers(self, account_id: str):
+    r = get_redis()
+    try:
+        ObjectId(account_id)
+    except InvalidId:
+        logger.warning('Invalid account_id: %s', account_id)
+        return
+
+    if not worker_api.configured():
+        logger.warning('[import_twitter_followers] WORKER_API_SECRET not set — skipped')
+        return
+
+    try:
+        account = worker_api.get_account_worker_context(account_id)
+    except Exception as exc:
+        logger.warning('[import_twitter_followers] no account %s: %s', account_id, exc)
+        return
+
+    if not account or not account.get('authorized'):
+        return
+
+    rate_key = f'{RATE_KEY_PREFIX}{account_id}'
+    if r.get(rate_key):
+        logger.info('[import_twitter_followers] rate limited, skip %s', account_id)
+        return
+
+    if account.get('provider') != 'twitter':
+        return
+
+    at = account.get('access_token') or {}
+    token, secret = at.get('token'), at.get('secret')
+    if not token:
+        return
+
+    wid = account.get('workspace_id')
+    wid_str = str(wid) if wid is not None else None
+    try:
+        cfg = worker_api.get_service_decrypted('twitter', wid_str)
+    except Exception:
+        cfg = {}
+    if not cfg.get('client_id') or not cfg.get('client_secret'):
+        logger.error('[import_twitter_followers] missing twitter service client_id/secret from API')
+        return
+
+    read = twitter_connector.fetch_authenticated_user_followers(
+        str(cfg.get('client_id')),
+        str(cfg.get('client_secret')),
+        str(token),
+        str(secret or ''),
+    )
+
+    if read.ok:
+        today = datetime.now(timezone.utc).date().isoformat()
+        worker_api.upsert_audience(account_id, today, int(read.followers_count))
+        logger.info('[import_twitter_followers] account=%s followers=%s', account_id, read.followers_count)
+        return
+
+    if read.rate_limited:
+        r.setex(rate_key, 900, '1')
+        logger.warning('[import_twitter_followers] 429 for %s', account_id)
+        return
+    if read.unauthorized:
+        try:
+            worker_api.patch_account_deauthorized(account_id)
+        except Exception as exc:
+            logger.error('[import_twitter_followers] deauthorize failed %s: %s', account_id, exc)
+        logger.warning('[import_twitter_followers] unauthorized %s', account_id)
+        return
+
+    logger.error('[import_twitter_followers] account=%s retryable', account_id)
+    raise self.retry(exc=RuntimeError('Twitter API error'), countdown=120) from None
+
+
+================================================================================
+FILE: /home/sonofogre/Desktop/agent-market/services/ai-worker/tasks/imports/import_twitter_posts.py
+================================================================================
+"""Twitter/X timeline import — API via ``connectors.twitter``; persistence via apps/api."""
+
+import logging
+from datetime import datetime, timezone
+
+from bson import ObjectId
+from bson.errors import InvalidId
+from dateutil.relativedelta import relativedelta
+
+from celery_app import celery_app
+from connectors import twitter as twitter_connector
+from db import get_redis
+from lib import worker_api
+
+logger = logging.getLogger(__name__)
+RATE_KEY_PREFIX = 'agentmarket:ratelimit:twitter:'
+
+
+@celery_app.task(name='tasks.imports.import_twitter_posts', bind=True, max_retries=3)
+def import_twitter_posts(self, account_id: str, pagination_token: str = ''):
+    r = get_redis()
+    try:
+        ObjectId(account_id)
+    except InvalidId:
+        logger.warning('Invalid account_id: %s', account_id)
+        return
+
+    if not worker_api.configured():
+        logger.warning('[import_twitter_posts] WORKER_API_SECRET not set — skipped')
+        return
+
+    try:
+        account = worker_api.get_account_worker_context(account_id)
+    except Exception:
+        logger.warning('[import_twitter_posts] no account %s', account_id)
+        return
+
+    if not account or not account.get('authorized'):
+        return
+
+    rate_key = f'{RATE_KEY_PREFIX}{account_id}'
+    if r.get(rate_key):
+        return
+
+    if account.get('provider') != 'twitter':
+        return
+
+    wid = account.get('workspace_id')
+    wid_str = str(wid) if wid is not None else None
+    try:
+        cfg = worker_api.get_service_decrypted('twitter', wid_str)
+    except Exception:
+        cfg = {}
+    tier = (cfg.get('tier') or 'free')
+    if tier == 'free':
+        return
+
+    at = account.get('access_token') or {}
+    token, secret = at.get('token'), at.get('secret')
+    if not token:
+        return
+
+    client_id = cfg.get('client_id')
+    client_secret = cfg.get('client_secret')
+    if not client_id or not client_secret:
+        logger.error('[import_twitter_posts] missing twitter service client_id/secret')
+        return
+
+    provider_id = account.get('provider_id')
+    if not provider_id:
+        return
+
+    since = datetime.now(timezone.utc) - relativedelta(months=3)
+
+    page = twitter_connector.fetch_user_timeline_page(
+        str(client_id),
+        str(client_secret),
+        str(token),
+        str(secret or ''),
+        str(provider_id),
+        since,
+        pagination_token=pagination_token or '',
+    )
+
+    if page.ok:
+        for row in page.tweets:
+            tid = row['id']
+            worker_api.upsert_imported_post(
+                account_id,
+                tid,
+                {'text': row['text'], 'created_at': row['created_at']},
+                {
+                    'likes': row['likes'],
+                    'replies': row['replies'],
+                    'retweets': row['retweets'],
+                    'impressions': row['impressions'],
+                },
+            )
+
+        if page.next_token:
+            celery_app.send_task(
+                'tasks.imports.import_twitter_posts',
+                args=[account_id, page.next_token],
+            )
+            logger.info('[import_twitter_posts] queued next page account=%s', account_id)
+
+        logger.info('[import_twitter_posts] account=%s tweets=%s', account_id, len(page.tweets))
+        return
+
+    if page.rate_limited:
+        r.setex(rate_key, 900, '1')
+        logger.warning('[import_twitter_posts] 429 for %s', account_id)
+        return
+    if page.unauthorized:
+        try:
+            worker_api.patch_account_deauthorized(account_id)
+        except Exception as exc:
+            logger.error('[import_twitter_posts] deauthorize failed %s: %s', account_id, exc)
+        logger.warning('[import_twitter_posts] unauthorized %s', account_id)
+        return
+
+    logger.error('[import_twitter_posts] account=%s err=retryable', account_id)
+    raise self.retry(exc=RuntimeError('Twitter API error'), countdown=120) from None
+
+
+================================================================================
+FILE: /home/sonofogre/Desktop/agent-market/services/ai-worker/tasks/imports/__init__.py
+================================================================================
+# Register Celery tasks in this package (side-effect imports).
+from . import import_account  # noqa: F401
+from . import import_facebook_followers  # noqa: F401
+from . import import_facebook_insights  # noqa: F401
+from . import import_instagram_followers  # noqa: F401
+from . import import_instagram_insights  # noqa: F401
+from . import import_instagram_media  # noqa: F401
+from . import import_twitter_followers  # noqa: F401
+from . import import_twitter_posts  # noqa: F401
+
+
+================================================================================
+FILE: /home/sonofogre/Desktop/agent-market/services/ai-worker/tasks/imports/_service_decrypt.py
+================================================================================
+"""Decrypt API `integrations.configuration` blobs (AES-256-CBC), matching apps/api/src/models/Integration.js."""
+
+import json
+import os
+from typing import Any, Dict
+
+from Crypto.Cipher import AES
+from Crypto.Util.Padding import unpad
+
+
+def decrypt_service_configuration(text: str) -> Dict[str, Any]:
+    if not text or ':' not in text:
+        return {}
+    app_key = (os.getenv('APP_KEY') or 'agentmarket-default-key-32bytes!!')[:32]
+    key = app_key.encode('utf-8')
+    if len(key) < 32:
+        key = key.ljust(32, b'\0')
+    try:
+        iv_hex, enc_hex = text.split(':', 1)
+        iv = bytes.fromhex(iv_hex)
+        enc = bytes.fromhex(enc_hex)
+        cipher = AES.new(key, AES.MODE_CBC, iv)
+        raw = unpad(cipher.decrypt(enc), AES.block_size)
+        return json.loads(raw.decode('utf-8'))
+    except Exception:
+        return {}
+
+
+================================================================================
+FILE: /home/sonofogre/Desktop/agent-market/services/ai-worker/tasks/imports/_twitter_config.py
+================================================================================
+"""Shared Twitter app credentials from Mongo `services` (matches API Service model)."""
+
+from lib.integration_config import integration_configs_collection
+from ._service_decrypt import decrypt_service_configuration
+
+
+def get_twitter_service_configuration(db) -> dict:
+    doc = integration_configs_collection(db).find_one({'name': 'twitter'})
+    if not doc or not doc.get('configuration'):
+        return {}
+    return decrypt_service_configuration(doc['configuration'])
+
+
+================================================================================
+FILE: /home/sonofogre/Desktop/agent-market/services/ai-worker/tasks/__init__.py
+================================================================================
+# Import side effects: register Celery tasks on the shared Celery app.
+# Legacy implementations keep stable Celery task names (tasks.*) for beat/API compatibility.
+# Domain packages (social/, ads/, imports/, analytics/) are scaffolding for migrated Node jobs.
+from . import agent  # noqa: F401
+from . import ai  # noqa: F401
+from . import scheduler_ads_sync  # noqa: F401
+from . import scheduler_beat  # noqa: F401
+from . import analytics  # noqa: F401
+from . import bridge  # noqa: F401
+from . import imports  # noqa: F401
+from . import social  # noqa: F401
+from . import ads  # noqa: F401
+from . import seo  # noqa: F401
+
+
+================================================================================
+FILE: /home/sonofogre/Desktop/agent-market/services/ai-worker/tasks/README.md
+================================================================================
+# Celery tasks — ONBOARDING §3 mapping
+
+The onboarding tree lists flat `tasks/social.py` and `tasks/ads.py` for **discoverability by domain**.  
+The running codebase uses packages (scalable) plus legacy modules (stable Celery names for Beat/API).
+
+Use this map when reading the docs or adding tasks — **do not duplicate** flat files (Python cannot import both `tasks/social.py` and `tasks/social/`).
+
+## Social (`tasks/social.py` in ONBOARDING)
+
+| ONBOARDING intent | Celery name | Implementation |
+|-------------------|-------------|----------------|
+| Draft AI post | `tasks.social.create_draft_post` | `tasks/social/create_draft_post.py` |
+| Publish scheduled | `tasks.scheduler.tick_due_posts` | `tasks/scheduler_beat.py` → `tasks.social.publish_post` |
+| Publish post | `tasks.social.publish_post` | `tasks/social/publish_post.py` |
+| Schedule post | `tasks.social.schedule_post` | `tasks/social/schedule_post.py` |
+
+## Ads (`tasks/ads.py` in ONBOARDING)
+
+| ONBOARDING intent | Celery name | Implementation |
+|-------------------|-------------|----------------|
+| Keyword research | `tasks.ads.execute_ads_tool` | `tasks/ads/execute_ads_tool.py` |
+| Generate assets | `tasks.generate_campaign_assets` | `tasks/ads/campaign_content.py` → `lib/ads_marketing_content.py` |
+| Landing page copy | `tasks.generate_landing_page_content` | `tasks/ads/campaign_content.py` |
+| LP workflow | `tasks.ads.run_landing_page_workflow` | `tasks/ads/campaign_content.py` → API service |
+| Optimize campaign | `tasks.optimize_campaign` | `tasks/ads/campaign_content.py` → `adsOptimization.runCampaignOptimization` |
+| Budget pacing / bid / QS / A/B | `tasks.ads.run_*` | `tasks/ads/workspace_ops.py` → API internal routes |
+| Publish campaign | `tasks.ads.publish_campaign` | `tasks/ads/publish_campaign.py` |
+| Platform sync | `tasks.ads.sync_workspace_on_demand` | `tasks/ads/on_demand_sync.py` |
+
+## Prompts
+
+Task modules should **not** embed long LLM strings. Use `prompts/` + `lib/prompt_loader.py` (see `prompts/README.md`).
+
+## Adding a task
+
+1. Pick domain package (`tasks/social/`, `tasks/ads/`, …) or extend `_legacy_*` only if Beat/API already references a `tasks.*` name.
+2. Register via `@celery_app.task(name='tasks....')` on the shared app.
+3. Import the module from the package `__init__.py` or `tasks/__init__.py`.
+
+
+================================================================================
+FILE: /home/sonofogre/Desktop/agent-market/services/ai-worker/tasks/scheduler_ads_sync.py
+================================================================================
+"""
+Daily Google Ads + Meta campaign upsert — connectors fetch, API persists (internal routes).
+"""
+
+from __future__ import annotations
+
+import logging
+
+from celery_app import celery_app
+from lib import worker_api
+from tasks.ads.sync_workspace_execute import execute_workspace_ads_sync
+
+logger = logging.getLogger(__name__)
+
+
+@celery_app.task(name='tasks.scheduler.ads_platform_sync_daily')
+def ads_platform_sync_daily():
+    if not worker_api.configured():
+        logger.warning('[ads_sync] WORKER_API_SECRET not set — skipped')
+        return
+    try:
+        plan = worker_api.get_ads_sync_job_plan()
+    except Exception as exc:
+        logger.exception('[ads_sync] job plan failed: %s', exc)
+        return
+
+    total_g = total_m = 0
+    for ws in plan.get('workspaces') or []:
+        wid = ws.get('workspace_id')
+        if not wid:
+            continue
+        try:
+            stats = execute_workspace_ads_sync(str(wid))
+            total_g += int(stats.get('google') or 0)
+            total_m += int(stats.get('meta') or 0)
+        except Exception as exc:
+            logger.error('[ads_sync] workspace=%s err=%s', wid, exc)
+
+    logger.info(
+        '[ads_sync] daily complete google_rows=%s meta_rows=%s workspaces=%s',
+        total_g,
+        total_m,
+        len(plan.get('workspaces') or []),
+    )
+
+
+================================================================================
+FILE: /home/sonofogre/Desktop/agent-market/services/ai-worker/tasks/scheduler_beat.py
+================================================================================
+"""
+Cron-equivalent work moved from ``apps/api/src/queue/scheduler.js`` (Node) to Celery Beat.
+
+Single execution engine: only ``send_task`` / ``delay`` — no Node BLPOP consumers.
+"""
+
+from __future__ import annotations
+
+import logging
+import os
+from datetime import datetime, timezone
+from pathlib import Path
+
+from celery_app import celery_app
+from db import get_redis
+from lib import worker_api
+
+logger = logging.getLogger(__name__)
+
+
+@celery_app.task(name='tasks.scheduler.tick_due_posts')
+def tick_due_posts():
+    if not worker_api.configured():
+        logger.warning('[scheduler] WORKER_API_SECRET not set — tick_due_posts skipped')
+        return
+    try:
+        ids = worker_api.claim_due_posts()
+    except Exception as exc:
+        logger.exception('[scheduler] claim_due_posts failed: %s', exc)
+        return
+    for pid in ids:
+        celery_app.send_task('tasks.social.publish_post', args=[pid])
+    if ids:
+        logger.info('[scheduler] tick_due_posts queued %d post(s)', len(ids))
+
+
+@celery_app.task(name='tasks.scheduler.tick_due_campaigns')
+def tick_due_campaigns():
+    if not worker_api.configured():
+        logger.warning('[scheduler] WORKER_API_SECRET not set — tick_due_campaigns skipped')
+        return
+    try:
+        ids = worker_api.claim_due_campaigns()
+    except Exception as exc:
+        logger.exception('[scheduler] claim_due_campaigns failed: %s', exc)
+        return
+    for cid in ids:
+        celery_app.send_task('tasks.ads.publish_campaign', args=[cid])
+    if ids:
+        logger.info('[scheduler] tick_due_campaigns queued %d campaign(s)', len(ids))
+
+
+@celery_app.task(name='tasks.scheduler.hourly_import_followers')
+def hourly_import_followers():
+    if not worker_api.configured():
+        logger.warning('[scheduler] hourly_import_followers skipped — WORKER_API_SECRET not set')
+        return
+    for row in worker_api.list_accounts_authorized():
+        p = row.get('provider') or ''
+        aid = row['id']
+        if p == 'twitter':
+            celery_app.send_task('tasks.imports.import_twitter_followers', args=[aid])
+        elif p == 'facebook':
+            celery_app.send_task('tasks.imports.import_facebook_followers', args=[aid])
+        elif p in ('instagram', 'instagram_login'):
+            celery_app.send_task('tasks.imports.import_instagram_followers', args=[aid])
+
+
+@celery_app.task(name='tasks.scheduler.six_hourly_twitter_posts')
+def six_hourly_twitter_posts():
+    if not worker_api.configured():
+        logger.warning('[scheduler] six_hourly_twitter_posts skipped — WORKER_API_SECRET not set')
+        return
+    for row in worker_api.list_accounts_authorized('twitter'):
+        celery_app.send_task('tasks.imports.import_twitter_posts', args=[row['id']])
+
+
+@celery_app.task(name='tasks.scheduler.daily_metrics_midnight_utc')
+def daily_metrics_midnight_utc():
+    if not worker_api.configured():
+        logger.warning('[scheduler] daily_metrics_midnight_utc skipped — WORKER_API_SECRET not set')
+        return
+    for row in worker_api.list_accounts_authorized():
+        aid = row['id']
+        p = row.get('provider') or ''
+        if p == 'twitter':
+            celery_app.send_task('tasks.analytics.process_twitter_metrics', args=[aid])
+        elif p == 'facebook':
+            celery_app.send_task('tasks.imports.import_facebook_followers', args=[aid])
+            celery_app.send_task('tasks.imports.import_facebook_insights', args=[aid])
+        elif p in ('instagram', 'instagram_login'):
+            celery_app.send_task('tasks.imports.import_instagram_followers', args=[aid])
+            celery_app.send_task('tasks.imports.import_instagram_insights', args=[aid])
+            celery_app.send_task('tasks.imports.import_instagram_media', args=[aid])
+
+
+@celery_app.task(name='tasks.scheduler.daily_delete_old_imports')
+def daily_delete_old_imports():
+    if not worker_api.configured():
+        logger.warning('[scheduler] daily_delete_old_imports skipped — WORKER_API_SECRET not set')
+        return
+    try:
+        stats = worker_api.prune_old_imports()
+        logger.info(
+            '[scheduler] delete-old-data removed imported_posts=%s facebook_insights=%s',
+            stats.get('imported_posts'),
+            stats.get('facebook_insights'),
+        )
+    except Exception as exc:
+        logger.exception('[scheduler] prune_old_imports failed: %s', exc)
+
+
+@celery_app.task(name='tasks.scheduler.hourly_budget_alerts')
+def hourly_budget_alerts():
+    if not worker_api.configured():
+        logger.warning('[scheduler] hourly_budget_alerts skipped — WORKER_API_SECRET not set')
+        return
+    r = get_redis()
+    try:
+        data = worker_api.get_budget_alert_campaigns()
+    except Exception as exc:
+        logger.exception('[scheduler] budget-alert-campaigns failed: %s', exc)
+        return
+    campaigns = data.get('campaigns') or []
+    thresholds = [80, 90, 100]
+    for c in campaigns:
+        cid = c.get('_id') or c.get('id')
+        if not cid:
+            continue
+        budget = ((c.get('budget') or {}).get('amount')) or 0
+        if not budget:
+            continue
+        spend = ((c.get('metrics') or {}).get('spend')) or 0
+        pct = int((spend / budget) * 100) if budget else 0
+        for th in thresholds:
+            if pct < th:
+                continue
+            key = f'budget_alert:{cid}:{th}'
+            if r.get(key):
+                continue
+            r.setex(key, 86400, '1')
+            try:
+                worker_api.emit_event(
+                    'budget_alert',
+                    {
+                        'campaign_id': str(cid),
+                        'campaign_name': c.get('name'),
+                        'percent': th,
+                        'spend': spend,
+                        'budget': budget,
+                        'workspace_id': c.get('workspace_id'),
+                    },
+                )
+            except Exception as exc:
+                logger.warning('[scheduler] budget_alert emit_event failed: %s', exc)
+            logger.info('[scheduler] budget alert %s%% campaign=%s', th, c.get('name'))
+
+
+@celery_app.task(name='tasks.scheduler.hourly_budget_pacing')
+def hourly_budget_pacing():
+    """KPI pacing snapshots + optional local pause for overspending campaigns."""
+    if not worker_api.configured():
+        logger.warning('[scheduler] hourly_budget_pacing skipped — WORKER_API_SECRET not set')
+        return
+    auto_pause = os.getenv('ADS_PACING_AUTO_PAUSE', '').lower() in ('1', 'true', 'yes')
+    try:
+        out = worker_api.run_hourly_budget_pacing(auto_pause_overspend=auto_pause)
+        logger.info(
+            '[scheduler] hourly_budget_pacing workspaces=%s',
+            out.get('workspaces'),
+        )
+    except Exception as exc:
+        logger.exception('[scheduler] hourly_budget_pacing failed: %s', exc)
+
+
+@celery_app.task(name='tasks.scheduler.hourly_bid_optimization')
+def hourly_bid_optimization():
+    """CPA/ROAS bid analysis; optional auto-apply for high-priority bid decreases."""
+    if not worker_api.configured():
+        logger.warning('[scheduler] hourly_bid_optimization skipped — WORKER_API_SECRET not set')
+        return
+    auto_apply = os.getenv('ADS_BID_AUTO_APPLY', '').lower() in ('1', 'true', 'yes')
+    try:
+        out = worker_api.run_hourly_bid_optimization(auto_apply=auto_apply)
+        logger.info(
+            '[scheduler] hourly_bid_optimization workspaces=%s',
+            out.get('workspaces'),
+        )
+    except Exception as exc:
+        logger.exception('[scheduler] hourly_bid_optimization failed: %s', exc)
+
+
+@celery_app.task(name='tasks.scheduler.daily_negative_keyword_review')
+def daily_negative_keyword_review():
+    if not worker_api.configured():
+        logger.warning('[scheduler] daily_negative_keyword_review skipped — WORKER_API_SECRET not set')
+        return
+    try:
+        out = worker_api.run_daily_negative_keyword_review()
+        logger.info(
+            '[scheduler] daily_negative_keyword_review reviewed=%s',
+            out.get('reviewed'),
+        )
+    except Exception as exc:
+        logger.exception('[scheduler] daily_negative_keyword_review failed: %s', exc)
+
+
+@celery_app.task(name='tasks.scheduler.daily_prune_upload_tmp')
+def daily_prune_upload_tmp():
+    base = Path(os.getenv('STORAGE_LOCAL_PATH', os.path.join(os.getcwd(), 'uploads')))
+    tmp = base / '.tmp'
+    if not tmp.is_dir():
+        return
+    cutoff = datetime.now(timezone.utc).timestamp() * 1000 - 86400000
+    for fp in tmp.iterdir():
+        try:
+            st = fp.stat()
+            if st.st_mtime * 1000 < cutoff:
+                fp.unlink(missing_ok=True)
+        except OSError as exc:
+            logger.debug('[scheduler] prune skip %s: %s', fp, exc)
+
+
+@celery_app.task(name='tasks.scheduler.tick_comment_sync')
+def tick_comment_sync():
+    if not worker_api.configured():
+        logger.warning('[scheduler] tick_comment_sync skipped — WORKER_API_SECRET not set')
+        return
+    try:
+        ids = worker_api.list_comment_sync_post_ids()
+    except Exception as exc:
+        logger.exception('[scheduler] list_comment_sync_post_ids failed: %s', exc)
+        return
+    for pid in ids:
+        celery_app.send_task('tasks.social.sync_post_comments', args=[pid])
+    if ids:
+        logger.info('[scheduler] tick_comment_sync queued %d post(s)', len(ids))
+
+
+@celery_app.task(name='tasks.scheduler.weekly_report_monday_8utc')
+def weekly_report_monday_8utc():
+    if not worker_api.configured():
+        logger.warning('[scheduler] weekly_report_monday_8utc skipped — WORKER_API_SECRET not set')
+        return
+    try:
+        snap = worker_api.get_weekly_report_snapshot()
+    except Exception as exc:
+        logger.exception('[scheduler] weekly-report-snapshot failed: %s', exc)
+        return
+
+    for block in snap.get('reports') or []:
+        wid = block.get('workspace_id')
+        stats = block.get('stats') or {}
+        emails = block.get('emails') or []
+        week_label = block.get('week_label') or snap.get('week_label') or ''
+        wname = block.get('workspace_name') or 'Your Workspace'
+        if not emails:
+            continue
+        try:
+            addr_list = [str(e).strip() for e in emails if e and '@' in str(e)]
+            if not addr_list:
+                continue
+            out = worker_api.send_weekly_report_mail(
+                emails=addr_list,
+                workspace_name=str(wname),
+                week_label=str(week_label),
+                stats=stats,
+            )
+            if out.get('skipped'):
+                logger.warning('[scheduler] weekly report mail skipped (MAIL_* not configured) workspace=%s', wid)
+            else:
+                logger.info('[scheduler] weekly report mail sent workspace=%s recipients=%d', wid, len(addr_list))
+        except Exception as exc:
+            logger.error('[scheduler] weekly_report workspace=%s err=%s', wid, exc)
+
+
+================================================================================
+FILE: /home/sonofogre/Desktop/agent-market/services/ai-worker/tasks/seo/audit_landing_pages.py
+================================================================================
+"""SEO landing page audit — agent + API parity."""
+
+from __future__ import annotations
+
+from typing import Any
+
+from celery_app import celery_app
+from lib import worker_api
+
+
+def run_audit_seo_landing_pages(body: dict[str, Any] | None = None) -> dict[str, Any]:
+    payload = dict(body or {})
+    if not worker_api.configured():
+        raise RuntimeError('WORKER_API_SECRET not set')
+    return worker_api.audit_seo_landing_pages(payload)
+
+
+@celery_app.task(name='tasks.seo.audit_landing_pages')
+def audit_landing_pages(payload: dict | None = None) -> dict[str, Any]:
+    return run_audit_seo_landing_pages(payload or {})
+
+
+================================================================================
+FILE: /home/sonofogre/Desktop/agent-market/services/ai-worker/tasks/seo/check_workspace_ranks.py
+================================================================================
+"""SEO rank checks for workspace targets — agent + API parity."""
+
+from __future__ import annotations
+
+from typing import Any
+
+from celery_app import celery_app
+from lib import worker_api
+
+
+@celery_app.task(name='tasks.seo.check_workspace_ranks')
+def check_workspace_ranks(payload: dict | None = None) -> dict[str, Any]:
+    body = dict(payload or {})
+    if not worker_api.configured():
+        raise RuntimeError('WORKER_API_SECRET not set')
+    return worker_api.check_seo_keyword_ranks(body)
+
+
+def run_check_workspace_ranks(body: dict[str, Any] | None = None) -> dict[str, Any]:
+    return check_workspace_ranks(body or {})
+
+
+================================================================================
+FILE: /home/sonofogre/Desktop/agent-market/services/ai-worker/tasks/seo/cluster_keywords.py
+================================================================================
+"""SEO keyword clustering — agent + API parity via internal worker routes."""
+
+from __future__ import annotations
+
+from typing import Any
+
+from celery_app import celery_app
+from lib import worker_api
+
+
+def run_cluster_seo_keywords(body: dict[str, Any] | None = None) -> dict[str, Any]:
+    payload = dict(body or {})
+    if not worker_api.configured():
+        raise RuntimeError('WORKER_API_SECRET not set')
+    return worker_api.cluster_seo_keywords(payload)
+
+
+@celery_app.task(name='tasks.seo.cluster_keywords')
+def cluster_keywords(payload: dict | None = None) -> dict[str, Any]:
+    return run_cluster_seo_keywords(payload or {})
+
+
+================================================================================
+FILE: /home/sonofogre/Desktop/agent-market/services/ai-worker/tasks/seo/__init__.py
+================================================================================
+from .rank_check import check_keyword_ranks  # noqa: F401
+from .cluster_keywords import cluster_keywords, run_cluster_seo_keywords  # noqa: F401
+from .check_workspace_ranks import check_workspace_ranks, run_check_workspace_ranks  # noqa: F401
+from .audit_landing_pages import audit_landing_pages, run_audit_seo_landing_pages  # noqa: F401
+
+__all__ = [
+    'check_keyword_ranks',
+    'cluster_keywords',
+    'run_cluster_seo_keywords',
+    'check_workspace_ranks',
+    'run_check_workspace_ranks',
+    'audit_landing_pages',
+    'run_audit_seo_landing_pages',
+]
+
+
+================================================================================
+FILE: /home/sonofogre/Desktop/agent-market/services/ai-worker/tasks/seo/rank_check.py
+================================================================================
+"""SEO rank checks — worker execution only."""
+
+from __future__ import annotations
+
+import logging
+from typing import Any
+
+from celery_app import celery_app
+from lib.seo_serp import check_keyword_batch
+
+logger = logging.getLogger(__name__)
+
+
+@celery_app.task(name='tasks.seo.check_keyword_ranks')
+def check_keyword_ranks(payload: dict | None = None) -> dict[str, Any]:
+    body = payload or {}
+    keywords = body.get('keywords') or []
+    results = check_keyword_batch(keywords)
+    return {'ok': True, 'results': results, 'count': len(results)}
+
+
+================================================================================
+FILE: /home/sonofogre/Desktop/agent-market/services/ai-worker/tasks/social/analyze_post_comment.py
+================================================================================
+"""Run LLM analysis for a synced comment (auto-analyze or manual re-queue)."""
+
+from __future__ import annotations
+
+import logging
+
+from celery_app import celery_app
+from lib import worker_api
+
+logger = logging.getLogger(__name__)
+
+
+@celery_app.task(name='tasks.social.analyze_post_comment')
+def analyze_post_comment(comment_uuid: str):
+    if not worker_api.configured():
+        logger.warning('[analyze_post_comment] WORKER_API_SECRET not set — skipped uuid=%s', comment_uuid)
+        return
+    try:
+        worker_api.analyze_post_comment(comment_uuid)
+    except Exception as exc:
+        logger.exception('[analyze_post_comment] failed uuid=%s: %s', comment_uuid, exc)
+
+
+================================================================================
+FILE: /home/sonofogre/Desktop/agent-market/services/ai-worker/tasks/social/create_draft_post.py
+================================================================================
+"""
+Create a draft or scheduled post — registry implementation (Rules/PROJECT_PATTERN).
+
+Persistence runs in API (services/postCreate.js) via worker internal route.
+UI and agent both resolve to this task through the dispatcher / API enqueue.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+from typing import Any
+
+from celery_app import celery_app
+from db import get_redis
+from lib import worker_api
+
+logger = logging.getLogger(__name__)
+
+
+def run_create_draft_post(payload: dict[str, Any]) -> dict[str, Any]:
+    if not worker_api.configured():
+        raise RuntimeError('WORKER_API_SECRET / INTERNAL_API_URL not configured')
+    if not payload.get('workspace_id'):
+        raise ValueError('workspace_id is required')
+    return worker_api.create_post(payload)
+
+
+@celery_app.task(name='tasks.social.create_draft_post', soft_time_limit=120, time_limit=150)
+def create_draft_post(payload: dict, reply_key: str | None = None) -> dict[str, Any] | None:
+    r = get_redis()
+
+    def write(ok: bool, data: Any = None, error: str | None = None, status: int = 502) -> None:
+        if not reply_key:
+            return
+        body = json.dumps({'ok': ok, 'data': data, 'error': error, 'status': status}, default=str)
+        r.set(reply_key, body, ex=300)
+
+    try:
+        out = run_create_draft_post(payload or {})
+        write(True, out, None, 200)
+        return out
+    except ValueError as ve:
+        logger.info('create_draft_post validation: %s', ve)
+        write(False, None, str(ve), 422)
+        raise
+    except Exception as exc:
+        logger.exception('create_draft_post failed')
+        write(False, None, str(exc), 502)
+        raise
+
+
+================================================================================
+FILE: /home/sonofogre/Desktop/agent-market/services/ai-worker/tasks/social/__init__.py
+================================================================================
+"""Social execution tasks (Celery)."""
+
+from . import publish_post  # noqa: F401
+from . import create_draft_post  # noqa: F401
+from . import schedule_post  # noqa: F401
+from . import refresh_account_profile  # noqa: F401
+from . import sync_post_comments  # noqa: F401
+from . import analyze_post_comment  # noqa: F401
+from . import reply_to_comment  # noqa: F401
+
+
+================================================================================
+FILE: /home/sonofogre/Desktop/agent-market/services/ai-worker/tasks/social/_linkedin_config.py
+================================================================================
+"""LinkedIn app credentials from Mongo ``integrations`` (matches API Integration model)."""
+
+from lib.integration_config import integration_configs_collection
+from ..imports._service_decrypt import decrypt_service_configuration
+
+
+def get_linkedin_service_configuration(db, workspace_id=None) -> dict:
+    coll = integration_configs_collection(db)
+    q = {'name': 'linkedin'}
+    doc = None
+    if workspace_id:
+        doc = coll.find_one({**q, 'workspace_id': workspace_id})
+    if not doc:
+        doc = coll.find_one(q)
+    if not doc or not doc.get('configuration'):
+        return {}
+    return decrypt_service_configuration(doc['configuration'])
+
+
+================================================================================
+FILE: /home/sonofogre/Desktop/agent-market/services/ai-worker/tasks/social/publish_native.py
+================================================================================
+"""
+Native publish path for ``posts`` collection.
+
+Orchestration only: loads bundle via **apps/api**, routes per provider, persists via ``worker_api``.
+Provider I/O lives under ``connectors/`` (Twitter, LinkedIn, Facebook Page, Instagram, Instagram Login, TikTok).
+"""
+
+from __future__ import annotations
+
+import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime, timezone
+from typing import Any, Dict, List
+
+from bson import ObjectId
+from bson.errors import InvalidId
+
+from celery_app import celery_app
+from connectors import facebook as facebook_connector
+from connectors import instagram as instagram_connector
+from connectors import instagram_login as instagram_login_connector
+from connectors import linkedin as linkedin_connector
+from connectors import tiktok as tiktok_connector
+from connectors import twitter as twitter_connector
+from connectors._social_content import account_id_str, resolve_version
+from connectors.social_types import SocialPublishOutcome
+from db import get_redis
+from lib import worker_api
+
+logger = logging.getLogger(__name__)
+
+
+def _emit_account_deauthorized(account_id: str) -> None:
+    try:
+        worker_api.emit_event('account_unauthorized', {'account_id': str(account_id)})
+    except Exception as exc:
+        logger.warning('[publish_native] emit_event account_unauthorized failed: %s', exc)
+
+
+PostStatus_PUBLISHED = 2
+PostStatus_FAILED = 3
+ScheduleStatus_PROCESSED = 2
+
+
+_SUPPORTED_PROVIDERS = frozenset(
+    {
+        'twitter',
+        'linkedin',
+        'facebook',
+        'facebook_page',
+        'instagram',
+        'instagram_login',
+        'tiktok',
+    }
+)
+
+
+class NodeFallback(Exception):
+    """Mixed or unsupported providers — caller should mark failed."""
+
+
+def _apply_linkedin_outcome(
+    r,
+    post_id: str,
+    account_id: str,
+    outcome: SocialPublishOutcome,
+) -> str:
+    assert isinstance(outcome, SocialPublishOutcome)
+    if outcome.ok:
+        worker_api.upsert_post_account(
+            post_id,
+            account_id,
+            provider_post_id=outcome.provider_post_id or '',
+            data=outcome.upsert_data or {},
+            errors=[],
+        )
+        return account_id
+    if outcome.account_deauthorized:
+        worker_api.patch_account_deauthorized(account_id)
+        _emit_account_deauthorized(account_id)
+    if outcome.rate_limit_seconds is not None:
+        raise ValueError(outcome.error or f'Rate limited — retry in {outcome.rate_limit_seconds}s')
+    raise RuntimeError(outcome.error or 'LinkedIn publish failed')
+
+
+def _apply_twitter_outcome(r, post_id: str, account_id: str, outcome: SocialPublishOutcome) -> str:
+    assert isinstance(outcome, SocialPublishOutcome)
+    if outcome.ok:
+        worker_api.upsert_post_account(
+            post_id,
+            account_id,
+            provider_post_id=outcome.provider_post_id or '',
+            data=outcome.upsert_data or {},
+            errors=[],
+        )
+        return account_id
+    if outcome.account_deauthorized:
+        worker_api.patch_account_deauthorized(account_id)
+        _emit_account_deauthorized(account_id)
+    if outcome.rate_limit_seconds is not None:
+        raise ValueError(outcome.error or f'Rate limited — retry in {outcome.rate_limit_seconds}s')
+    raise RuntimeError(outcome.error or 'Twitter publish failed')
+
+
+def _publish_one(
+    r,
+    post: dict,
+    account_id: str,
+    accounts: List[dict],
+    tw_cfg: dict,
+    li_cfg: dict,
+    fb_cfg: dict,
+) -> str:
+    account = next((a for a in accounts if account_id_str(a) == account_id), None)
+    if not account:
+        raise ValueError('Account not found')
+    if not account.get('authorized'):
+        raise ValueError('Account not authorized')
+
+    version = resolve_version(post, account_id)
+    if not version:
+        raise ValueError('No content version found')
+
+    provider = account.get('provider')
+    post_id = str(post.get('_id') or post.get('id'))
+
+    if provider == 'twitter':
+        outcome = twitter_connector.publish_post(
+            r=r,
+            post=post,
+            account=account,
+            version=version,
+            tw_cfg=tw_cfg,
+        )
+        return _apply_twitter_outcome(r, post_id, account_id, outcome)
+
+    if provider == 'linkedin':
+        outcome = linkedin_connector.publish_post(
+            r=r,
+            post=post,
+            account=account,
+            version=version,
+            _li_cfg=li_cfg,
+        )
+        return _apply_linkedin_outcome(r, post_id, account_id, outcome)
+
+    if provider in ('facebook', 'facebook_page'):
+        outcome = facebook_connector.publish_post(account=account, version=version, fb_cfg=fb_cfg)
+        return _apply_twitter_outcome(r, post_id, account_id, outcome)
+
+    if provider == 'instagram':
+        outcome = instagram_connector.publish_post(account=account, version=version, fb_cfg=fb_cfg)
+        return _apply_twitter_outcome(r, post_id, account_id, outcome)
+
+    if provider == 'instagram_login':
+        outcome = instagram_login_connector.publish_post(account=account, version=version, _fb_cfg=fb_cfg)
+        return _apply_twitter_outcome(r, post_id, account_id, outcome)
+
+    if provider == 'tiktok':
+        outcome = tiktok_connector.publish_post(account=account, version=version, _cfg={})
+        return _apply_twitter_outcome(r, post_id, account_id, outcome)
+
+    raise NodeFallback()
+
+
+def run_native_publish_post(post_id: str) -> None:
+    if not worker_api.configured():
+        logger.error('[publish_native] WORKER_API_SECRET not set — cannot load publish bundle from API')
+        return
+
+    r = get_redis()
+    try:
+        oid = ObjectId(post_id)
+    except InvalidId:
+        logger.error('[publish_native] invalid post_id=%s', post_id)
+        return
+
+    try:
+        bundle = worker_api.get_publish_bundle(post_id)
+    except Exception as exc:
+        if type(exc).__name__ == 'HTTPStatusError':
+            logger.error('[publish_native] bundle HTTP error post_id=%s: %s', post_id, exc)
+            return
+        logger.exception('[publish_native] bundle failed post_id=%s: %s', post_id, exc)
+        return
+
+    post = bundle.get('post') or {}
+    accounts = bundle.get('accounts') or []
+    tw_cfg = bundle.get('twitter_service') or {}
+    li_cfg = bundle.get('linkedin_service') or {}
+    fb_cfg = bundle.get('facebook_service') or {}
+
+    if not post:
+        logger.error('[publish_native] empty post in bundle %s', post_id)
+        return
+
+    account_ids = [str(x) for x in (post.get('account_ids') or [])]
+    if not account_ids:
+        now = datetime.now(timezone.utc).isoformat()
+        worker_api.patch_post(
+            str(oid),
+            {'status': PostStatus_FAILED, 'schedule_status': ScheduleStatus_PROCESSED, 'updated_at': now},
+        )
+        return
+
+    for aid in account_ids:
+        acc = next((a for a in accounts if account_id_str(a) == aid), None)
+        if not acc:
+            raise NodeFallback()
+        p = acc.get('provider')
+        if p not in _SUPPORTED_PROVIDERS:
+            raise NodeFallback()
+
+    published: List[str] = []
+    errors: List[Dict[str, Any]] = []
+
+    try:
+        with ThreadPoolExecutor(max_workers=min(8, len(account_ids))) as ex:
+            futs = {
+                ex.submit(_publish_one, r, post, aid, accounts, tw_cfg, li_cfg, fb_cfg): aid
+                for aid in account_ids
+            }
+            for fut in as_completed(futs):
+                aid = futs[fut]
+                try:
+                    published.append(fut.result())
+                except NodeFallback:
+                    raise
+                except Exception as exc:
+                    em = str(exc)
+                    logger.error('[publish_native] account=%s err=%s', aid, em)
+                    pid = str(post.get('_id') or post.get('id'))
+                    worker_api.upsert_post_account(pid, aid, provider_post_id=None, data={}, errors=[em])
+                    errors.append({'account_id': aid, 'error': em})
+    except NodeFallback:
+        raise
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    all_failed = len(published) == 0 and len(errors) > 0
+    fields: Dict[str, Any] = {
+        'status': PostStatus_FAILED if all_failed else PostStatus_PUBLISHED,
+        'schedule_status': ScheduleStatus_PROCESSED,
+        'updated_at': now_iso,
+    }
+    if not all_failed:
+        fields['published_at'] = now_iso
+    worker_api.patch_post(str(oid), fields)
+
+    pid = str(post.get('_id') or post.get('id'))
+    try:
+        worker_api.emit_event(
+            'post.published' if not all_failed else 'post.failed',
+            {'post_id': pid, 'published': published, 'errors': errors},
+        )
+    except Exception as exc:
+        logger.warning('[publish_native] emit_event failed: %s', exc)
+
+    if not all_failed and published:
+        try:
+            celery_app.send_task('tasks.social.sync_post_comments', args=[pid])
+        except Exception as exc:
+            logger.warning('[publish_native] comment sync enqueue failed: %s', exc)
+
+    logger.info('[publish_native] post=%s published=%s errors=%s', post_id, len(published), len(errors))
+
+
+================================================================================
+FILE: /home/sonofogre/Desktop/agent-market/services/ai-worker/tasks/social/publish_post.py
+================================================================================
+"""
+Publish post: Celery task calls providers; **all Mongo updates go through apps/api** (``lib.worker_api``).
+"""
+
+import logging
+
+from bson import ObjectId
+from bson.errors import InvalidId
+
+from celery_app import celery_app
+from lib import worker_api
+
+from .publish_native import NodeFallback, run_native_publish_post
+
+logger = logging.getLogger(__name__)
+
+PostStatus_FAILED = 3
+ScheduleStatus_PROCESSED = 2
+
+
+def _mark_post_unsupported(post_id: str, message: str) -> None:
+    if not worker_api.configured():
+        logger.error('[publish_post] WORKER_API_SECRET not set — cannot mark failure for %s', post_id)
+        return
+    try:
+        ObjectId(post_id)
+    except InvalidId:
+        logger.error('[publish_post] invalid post_id for failure mark: %s', post_id)
+        return
+    from datetime import datetime, timezone
+
+    now = datetime.now(timezone.utc).isoformat()
+    try:
+        worker_api.patch_post(
+            post_id,
+            {'status': PostStatus_FAILED, 'schedule_status': ScheduleStatus_PROCESSED, 'updated_at': now},
+        )
+    except Exception as exc:
+        logger.error('[publish_post] patch_post failed: %s', exc)
+        return
+    try:
+        worker_api.emit_event('post.failed', {'post_id': post_id, 'error': message})
+    except Exception as exc:
+        logger.warning('[publish_post] emit_event failed: %s', exc)
+
+
+@celery_app.task(name='tasks.social.publish_post')
+def publish_post(post_id: str):
+    try:
+        run_native_publish_post(post_id)
+    except NodeFallback:
+        logger.warning('[publish_post] NodeFallback post_id=%s — marking failed (no Node proxy)', post_id)
+        _mark_post_unsupported(
+            post_id,
+            'Publishing is not implemented for one or more selected accounts (unsupported provider or mixed batch). '
+            'Supported in worker: Twitter, LinkedIn (text/image/video), Facebook Page, Instagram, Instagram Login, TikTok.',
+        )
+
+
+================================================================================
+FILE: /home/sonofogre/Desktop/agent-market/services/ai-worker/tasks/social/refresh_account_profile.py
+================================================================================
+"""P2: refresh linked account profile (Graph / APIs) — replaces ``PUT /api/accounts/:id`` in-process ``getAccount``."""
+
+from __future__ import annotations
+
+import json
+import logging
+from typing import Any, Dict
+
+from celery_app import celery_app
+from connectors import account_profile
+from db import get_redis
+from lib import worker_api
+
+from ..ads._google_ads_config import merge_google_ads_credentials
+
+logger = logging.getLogger(__name__)
+
+
+@celery_app.task(name='tasks.social.refresh_account_profile', soft_time_limit=90, time_limit=120)
+def refresh_account_profile(account_id: str, workspace_id: str, reply_key: str) -> None:
+    r = get_redis()
+
+    def write(ok: bool, data=None, error: str | None = None, status: int = 502) -> None:
+        body = json.dumps({'ok': ok, 'data': data, 'error': error, 'status': status}, default=str)
+        r.set(reply_key, body, ex=300)
+
+    if not worker_api.configured():
+        write(False, None, 'Worker API not configured', 503)
+        return
+
+    try:
+        ctx = worker_api.get_account_worker_context(str(account_id))
+    except Exception as exc:
+        logger.exception('[refresh_account_profile] context account=%s', account_id)
+        write(False, None, str(exc), 502)
+        return
+
+    if not ctx:
+        write(False, None, 'Account not found', 404)
+        return
+
+    if str(ctx.get('workspace_id') or '') != str(workspace_id):
+        write(False, None, 'Forbidden', 403)
+        return
+
+    wid = str(workspace_id)
+    try:
+        configs: Dict[str, Dict[str, Any]] = {
+            'twitter': dict(worker_api.get_service_decrypted('twitter', wid) or {}),
+            'linkedin': dict(worker_api.get_service_decrypted('linkedin', wid) or {}),
+            'facebook': dict(worker_api.get_service_decrypted('facebook', wid) or {}),
+            'tiktok': dict(worker_api.get_service_decrypted('tiktok', wid) or {}),
+            'google_ads': merge_google_ads_credentials(dict(worker_api.get_service_decrypted('google_ads', wid) or {})),
+            'instagram_login': dict(worker_api.get_service_decrypted('instagram_login', wid) or {}),
+        }
+    except Exception as exc:
+        logger.warning('[refresh_account_profile] service configs: %s', exc)
+        configs = {}
+
+    out = account_profile.fetch_profile_snapshot(ctx, configs)
+    if not out.get('ok'):
+        write(False, None, str(out.get('error') or 'Profile refresh failed'), 502)
+        return
+
+    body = {
+        'name': out.get('name'),
+        'username': out.get('username'),
+        'media': out.get('media') or {},
+        'data': out.get('data') or {},
+    }
+    write(True, body, None, 200)
+
+
+================================================================================
+FILE: /home/sonofogre/Desktop/agent-market/services/ai-worker/tasks/social/reply_to_comment.py
+================================================================================
+"""Post a reply to a synced comment on the originating platform."""
+
+from __future__ import annotations
+
+import logging
+
+from celery_app import celery_app
+from connectors import _social_comments
+from lib import worker_api
+
+logger = logging.getLogger(__name__)
+
+
+@celery_app.task(name='tasks.social.reply_to_comment')
+def reply_to_comment(comment_uuid: str):
+    if not worker_api.configured():
+        logger.warning('[reply_to_comment] WORKER_API_SECRET not set — skipped uuid=%s', comment_uuid)
+        return
+
+    try:
+        ctx = worker_api.get_post_comment_worker_context(comment_uuid)
+    except Exception as exc:
+        logger.exception('[reply_to_comment] context failed uuid=%s: %s', comment_uuid, exc)
+        return
+
+    record = ctx.get('comment') or {}
+    account = ctx.get('account') or {}
+    fb_cfg = ctx.get('facebook_service') or {}
+    tw_cfg = ctx.get('twitter_service') or {}
+    li_cfg = ctx.get('linkedin_service') or {}
+    reply = record.get('reply') or {}
+    text = str(reply.get('text') or '').strip()
+    provider = str(ctx.get('provider') or record.get('provider') or account.get('provider') or '')
+    provider_comment_id = str(record.get('provider_comment_id') or '')
+
+    if not text:
+        worker_api.apply_post_comment_reply_result(comment_uuid, {
+            'ok': False,
+            'error': 'Reply text missing',
+        })
+        return
+    if not provider_comment_id or not account:
+        worker_api.apply_post_comment_reply_result(comment_uuid, {
+            'ok': False,
+            'error': 'Missing account or provider_comment_id',
+        })
+        return
+
+    result = _social_comments.reply_to_comment(
+        provider=provider,
+        provider_comment_id=provider_comment_id,
+        message=text,
+        account=account,
+        fb_cfg=fb_cfg,
+        tw_cfg=tw_cfg,
+        li_cfg=li_cfg,
+    )
+
+    if result.get('oauth_invalid'):
+        account_id = str(record.get('account_id') or account.get('_id') or account.get('id') or '')
+        if account_id:
+            try:
+                worker_api.patch_account_deauthorized(account_id)
+            except Exception as exc:
+                logger.warning('[reply_to_comment] deauthorize failed account=%s: %s', account_id, exc)
+
+    worker_api.apply_post_comment_reply_result(comment_uuid, {
+        'ok': bool(result.get('ok')),
+        'provider_reply_id': result.get('provider_reply_id'),
+        'error': result.get('error'),
+    })
+
+
+================================================================================
+FILE: /home/sonofogre/Desktop/agent-market/services/ai-worker/tasks/social/schedule_post.py
+================================================================================
+"""
+Schedule an existing draft post — registry implementation (Rules/PROJECT_PATTERN).
+
+Persistence runs in API (schedulePostForWorkspace) via worker internal route.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+from typing import Any
+
+from celery_app import celery_app
+from db import get_redis
+from lib import worker_api
+
+logger = logging.getLogger(__name__)
+
+
+def run_schedule_post(payload: dict[str, Any]) -> dict[str, Any]:
+    if not worker_api.configured():
+        raise RuntimeError('WORKER_API_SECRET / INTERNAL_API_URL not configured')
+    post_id = str(payload.get('post_id') or '').strip()
+    if not post_id:
+        raise ValueError('post_id is required')
+    if not payload.get('workspace_id'):
+        raise ValueError('workspace_id is required')
+    if not payload.get('scheduled_at') and not payload.get('schedule_in_minutes'):
+        raise ValueError('scheduled_at or schedule_in_minutes is required')
+    return worker_api.schedule_post(payload)
+
+
+@celery_app.task(name='tasks.social.schedule_post', soft_time_limit=120, time_limit=150)
+def schedule_post(payload: dict, reply_key: str | None = None) -> dict[str, Any] | None:
+    r = get_redis()
+
+    def write(ok: bool, data: Any = None, error: str | None = None, status: int = 502) -> None:
+        if not reply_key:
+            return
+        body = json.dumps({'ok': ok, 'data': data, 'error': error, 'status': status}, default=str)
+        r.set(reply_key, body, ex=300)
+
+    try:
+        out = run_schedule_post(payload or {})
+        write(True, out, None, 200)
+        return out
+    except ValueError as ve:
+        logger.info('schedule_post validation: %s', ve)
+        write(False, None, str(ve), 422)
+        raise
+    except Exception as exc:
+        logger.exception('schedule_post failed')
+        write(False, None, str(exc), 502)
+        raise
+
+
+================================================================================
+FILE: /home/sonofogre/Desktop/agent-market/services/ai-worker/tasks/social/sync_post_comments.py
+================================================================================
+"""Sync comments from connected platforms into post_comments via API."""
+
+from __future__ import annotations
+
+import logging
+
+from celery_app import celery_app
+from connectors import _social_comments
+from lib import worker_api
+
+logger = logging.getLogger(__name__)
+
+
+def _deauthorize_if_needed(result: dict, account_id: str, provider: str = '') -> None:
+    if not result.get('oauth_invalid') or not account_id:
+        return
+    if result.get('ig_comments_unavailable'):
+        return
+    try:
+        worker_api.patch_account_deauthorized(account_id)
+    except Exception as exc:
+        logger.warning('[sync_post_comments] deauthorize failed account=%s provider=%s: %s', account_id, provider, exc)
+
+
+@celery_app.task(name='tasks.social.sync_post_comments')
+def sync_post_comments(post_id: str):
+    if not worker_api.configured():
+        logger.warning('[sync_post_comments] WORKER_API_SECRET not set — skipped post_id=%s', post_id)
+        return
+
+    try:
+        bundle = worker_api.get_comment_sync_bundle(post_id)
+    except Exception as exc:
+        logger.exception('[sync_post_comments] bundle failed post_id=%s: %s', post_id, exc)
+        return
+
+    post = bundle.get('post') or {}
+    workspace_id = post.get('workspace_id')
+    post_id_str = str(post.get('_id') or post.get('id') or post_id)
+    post_context = bundle.get('post_context') or ''
+    fb_cfg = bundle.get('facebook_service') or {}
+    tw_cfg = bundle.get('twitter_service') or {}
+    li_cfg = bundle.get('linkedin_service') or {}
+    targets = bundle.get('targets') or []
+
+    if not workspace_id or not targets:
+        logger.info('[sync_post_comments] no comment-sync targets post_id=%s', post_id_str)
+        return
+
+    synced = 0
+    for target in targets:
+        account = target.get('account') or {}
+        provider = str(target.get('provider') or account.get('provider') or '')
+        provider_post_id = str(target.get('provider_post_id') or '')
+        account_id = str(target.get('account_id') or account.get('_id') or account.get('id') or '')
+        if not provider_post_id or not account_id:
+            continue
+
+        result = _social_comments.fetch_comments(
+            provider=provider,
+            provider_post_id=provider_post_id,
+            account=account,
+            fb_cfg=fb_cfg,
+            tw_cfg=tw_cfg,
+            li_cfg=li_cfg,
+        )
+        if not result.get('ok'):
+            _deauthorize_if_needed(result, account_id, provider)
+            logger.warning(
+                '[sync_post_comments] fetch failed post=%s account=%s provider=%s: %s',
+                post_id_str,
+                account_id,
+                provider,
+                result.get('error'),
+            )
+            continue
+
+        for row in result.get('comments') or []:
+            try:
+                worker_api.upsert_post_comment({
+                    'workspace_id': str(workspace_id),
+                    'post_id': post_id_str,
+                    'account_id': account_id,
+                    'provider': provider,
+                    'provider_post_id': provider_post_id,
+                    'provider_comment_id': row.get('provider_comment_id'),
+                    'comment': row.get('comment'),
+                    'author': row.get('author'),
+                    'platform_created_at': row.get('platform_created_at'),
+                    'post_context': post_context,
+                    'reply_supported': True,
+                })
+                synced += 1
+            except Exception as exc:
+                logger.warning('[sync_post_comments] upsert failed: %s', exc)
+
+    if synced:
+        logger.info('[sync_post_comments] post_id=%s synced=%d', post_id_str, synced)
+
+
+================================================================================
+FILE: /home/sonofogre/Desktop/agent-market/services/ai-worker/tasks/_util.py
+================================================================================
+import json
+import logging
+import os
+
+from db import get_redis
+
+logger = logging.getLogger(__name__)
+EVENTS_CHANNEL = os.getenv('EVENTS_CHANNEL', 'agent_market:events')
+
+
+def emit(event: str, payload: dict):
+    try:
+        get_redis().publish(EVENTS_CHANNEL, json.dumps({'event': event, **payload}))
+    except Exception as exc:
+        logger.warning('Failed to emit event %s: %s', event, exc)
+

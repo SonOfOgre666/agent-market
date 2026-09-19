@@ -1,0 +1,42 @@
+{
+  "branches": {
+    "search": {
+      "label": "Search",
+      "publish_tool": "google_publish_search_campaign",
+      "required_from_user": ["budget", "end_date", "final_url", "geo"],
+      "derivable": ["keywords", "headlines", "descriptions", "keyword_match_type"],
+      "conditional": ["business_context"]
+    },
+    "display": {
+      "label": "Display",
+      "publish_tool": "google_publish_display_campaign",
+      "required": ["budget", "end_date", "final_url", "geo", "marketing_images"]
+    },
+    "video": {
+      "label": "Video",
+      "publish_tool": "google_publish_video_campaign",
+      "required": ["budget", "end_date", "final_url", "geo", "youtube_video", "logo"]
+    },
+    "shopping": {
+      "label": "Shopping",
+      "publish_tool": "google_publish_shopping_campaign",
+      "required": ["budget", "end_date", "geo"]
+    },
+    "performance_max": {
+      "label": "Performance Max",
+      "publish_tool": "google_publish_performance_max_campaign",
+      "required": ["budget", "end_date", "final_url", "geo", "logo", "marketing_images"]
+    },
+    "app": {
+      "label": "App",
+      "publish_tool": "google_publish_app_campaign",
+      "required": ["budget", "end_date", "geo", "app_id"]
+    },
+    "local": {
+      "label": "Local (→ PMax)",
+      "publish_tool": "google_publish_local_campaign",
+      "routes_to": "performance_max",
+      "required": ["budget", "end_date", "final_url", "geo", "logo", "marketing_images"]
+    }
+  }
+}

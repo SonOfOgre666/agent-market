@@ -1,0 +1,1431 @@
+
+================================================================================
+FILE: /home/sonofogre/Desktop/agent-market/services/ai-worker/registry/tools.json
+================================================================================
+{
+  "version": "1",
+  "tools": [
+    {
+      "tool_id": "generate_social_post",
+      "description": "Generate a social media post caption, hashtags, and metadata using AI. Same as POST /api/ai/generate-post → tasks.ai.gemini_sync.",
+      "task": "tasks.ai.gemini_sync",
+      "opcode": "generate_post",
+      "risk_tier": "low",
+      "side_effect_class": "internal_ai",
+      "requires_approval_default": false
+    },
+    {
+      "tool_id": "analyze_social_comment",
+      "description": "Analyze a social comment (sentiment, topics, urgency) and propose on-brand reply options. Same as POST /api/social/comments/analyze.",
+      "task": "tasks.ai.gemini_sync",
+      "opcode": "analyze_comment",
+      "risk_tier": "low",
+      "side_effect_class": "internal_ai",
+      "requires_approval_default": false
+    },
+    {
+      "tool_id": "generate_video_script",
+      "description": "Generate a video script and video_prompt from generate_social_post output.",
+      "task": "tasks.ai.gemini_sync",
+      "opcode": "generate_video_script",
+      "risk_tier": "low",
+      "side_effect_class": "internal_ai",
+      "requires_approval_default": false,
+      "optional_on_failure": true
+    },
+    {
+      "tool_id": "generate_image_script",
+      "description": "Generate an image_prompt from generate_social_post output (post image or video thumbnail).",
+      "task": "tasks.ai.gemini_sync",
+      "opcode": "generate_image_script",
+      "risk_tier": "low",
+      "side_effect_class": "internal_ai",
+      "requires_approval_default": false,
+      "optional_on_failure": true
+    },
+    {
+      "tool_id": "generate_image",
+      "description": "Generate a marketing image from a text prompt. Same as POST /api/ai/generate-image → tasks.ai.gemini_sync.",
+      "task": "tasks.ai.gemini_sync",
+      "opcode": "generate_image",
+      "risk_tier": "low",
+      "side_effect_class": "internal_ai",
+      "requires_approval_default": false,
+      "optional_on_failure": true
+    },
+    {
+      "tool_id": "generate_video",
+      "description": "Generate a short marketing video (OpenAI Sora or Gemini Veo per workspace AI settings).",
+      "task": "tasks.ai.gemini_sync",
+      "opcode": "generate_video",
+      "risk_tier": "low",
+      "side_effect_class": "internal_ai",
+      "requires_approval_default": false,
+      "optional_on_failure": true
+    },
+    {
+      "tool_id": "create_draft_post",
+      "description": "Save caption with image (image post) or video + optional thumbnail (video post). Same as POST /api/posts → tasks.social.create_draft_post.",
+      "task": "tasks.social.create_draft_post",
+      "risk_tier": "low",
+      "side_effect_class": "internal_mutating",
+      "requires_approval_default": false
+    },
+    {
+      "tool_id": "schedule_post",
+      "description": "Schedule an existing draft post and attach target page(s). Same as POST /api/posts/:id/schedule → tasks.social.schedule_post. Requires account_ids (or platform to auto-pick a connected page).",
+      "task": "tasks.social.schedule_post",
+      "risk_tier": "low",
+      "side_effect_class": "internal_mutating",
+      "requires_approval_default": false
+    },
+    {
+      "tool_id": "publish_post",
+      "description": "Publish an existing draft or scheduled post immediately. Same as POST /api/posts/:id/publish → tasks.social.publish_post. Requires account_ids (or platform to auto-pick a connected page).",
+      "task": "tasks.social.publish_post",
+      "risk_tier": "medium",
+      "side_effect_class": "external_mutating",
+      "requires_approval_default": true
+    },
+    {
+      "tool_id": "publish_campaign",
+      "description": "Publish a Mongo ads_campaigns draft (Meta: meta_publish_campaign; Google: google_create_campaign). Requires campaign_id only.",
+      "task": "tasks.ads.publish_campaign",
+      "risk_tier": "high",
+      "side_effect_class": "external_mutating",
+      "requires_approval_default": true
+    },
+    {
+      "tool_id": "import_account_metrics",
+      "description": "Refresh and return social account metrics for one connected account (Facebook, Instagram, or Twitter). Syncs followers/insights into the DB when possible and returns followers_count, recent metrics/insights totals, name, and username for answering Q&A (how many followers, what data do we have, engagement). Requires account_id from social_accounts. Prefer this over ads report tools for organic social page/account questions.",
+      "task": "tasks.imports.import_account",
+      "risk_tier": "low",
+      "side_effect_class": "external_read",
+      "requires_approval_default": false
+    },
+    {
+      "tool_id": "meta_get_ad_accounts",
+      "description": "List Meta ad accounts (Graph GET /{user_id}/adaccounts). Requires account_id; optional user_id (default me), limit. Returns accounts (picker rows) and data (full rows with amount_spent/balance normalized from cents).",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "meta_get_ad_accounts",
+      "risk_tier": "low",
+      "side_effect_class": "external_read",
+      "requires_approval_default": false
+    },
+    {
+      "tool_id": "meta_get_account",
+      "description": "Get Meta ad account details (Graph GET /act_*). Requires account_id + ad_account_id; optional fields. Includes DSA flags for EU business_country_code.",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "meta_get_account",
+      "risk_tier": "low",
+      "side_effect_class": "external_read",
+      "requires_approval_default": false
+    },
+    {
+      "tool_id": "meta_search_ads_library",
+      "description": "Search Meta Ads Library (Graph GET /ads_archive). Requires account_id, search_terms, ad_reached_countries (array or comma-separated). Optional ad_type, limit, fields. Disabled when META_ADS_DISABLE_ADS_LIBRARY is set.",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "meta_search_ads_library",
+      "risk_tier": "low",
+      "side_effect_class": "external_read",
+      "requires_approval_default": false
+    },
+    {
+      "tool_id": "meta_list_campaigns",
+      "description": "List campaigns for a Meta ad account (Graph GET /act_*/campaigns). Requires account_id + ad_account_id; optional status_filter (effective_status), objective_filter (string or list), limit, after cursor.",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "meta_list_campaigns",
+      "risk_tier": "low",
+      "side_effect_class": "external_read",
+      "requires_approval_default": false
+    },
+    {
+      "tool_id": "meta_get_campaign",
+      "description": "Get one Meta campaign by Graph id (fields: budget, bid_strategy, special_ad_categories, etc.). Requires campaign_id.",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "meta_get_campaign",
+      "risk_tier": "low",
+      "side_effect_class": "external_read",
+      "requires_approval_default": false
+    },
+    {
+      "tool_id": "meta_list_adsets",
+      "description": "List Meta ad sets for a campaign (campaign_id) or ad account (ad_account_id). Same Graph call as reference get_adsets. Used by agents, POST /ads/tools/execute, and GET /ads/meta/ad-sets.",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "meta_list_adsets",
+      "risk_tier": "low",
+      "side_effect_class": "external_read",
+      "requires_approval_default": false
+    },
+    {
+      "tool_id": "meta_get_adset",
+      "description": "Get one Meta ad set by Graph id (budgets, targeting, bid fields, frequency_control_specs, etc.). Requires adset_id.",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "meta_get_adset",
+      "risk_tier": "low",
+      "side_effect_class": "external_read",
+      "requires_approval_default": false
+    },
+    {
+      "tool_id": "meta_update_campaign",
+      "description": "Update an existing Meta campaign (name, status, budgets, bid_strategy, objective, special_ad_categories, use_adset_level_budgets). Requires campaign_id.",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "meta_update_campaign",
+      "risk_tier": "high",
+      "side_effect_class": "external_mutating",
+      "requires_approval_default": true
+    },
+    {
+      "tool_id": "meta_update_adset",
+      "description": "Update an existing Meta ad set (name, status, budgets, bid_strategy, bid_amount, bid_constraints, targeting, frequency caps, DSA fields, etc.). Requires adset_id.",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "meta_update_adset",
+      "risk_tier": "high",
+      "side_effect_class": "external_mutating",
+      "requires_approval_default": true
+    },
+    {
+      "tool_id": "meta_create_campaign",
+      "description": "Create a paused Meta campaign (ODAX objective OUTCOME_*). ABO: use use_adset_level_budgets and set budget on ad set. Requires account_id, name, objective.",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "meta_create_campaign",
+      "risk_tier": "high",
+      "side_effect_class": "external_mutating",
+      "requires_approval_default": true
+    },
+    {
+      "tool_id": "meta_create_adset",
+      "description": "Create a paused Meta ad set. Requires platform campaign_id, objective (or campaign_objective), optimization_goal, billing_event, daily budget. Optional: bid_amount, bid_constraints, promoted_object, frequency_control_specs, use_resolve_targeting (default true for wizard targeting). For OUTCOME_TRAFFIC + website ads set destination_type WEBSITE (auto when link_url present).",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "meta_create_adset",
+      "risk_tier": "high",
+      "side_effect_class": "external_mutating",
+      "requires_approval_default": true
+    },
+    {
+      "tool_id": "meta_publish_campaign",
+      "description": "Full Meta publish chain: campaign → ad set → creative → ad. Payload: account_id, name, objective, budget, targeting (adset_name, optimization_goal, billing_event), creatives (page_id, link_url). Same as publish_campaign task for Mongo drafts.",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "meta_publish_campaign",
+      "risk_tier": "high",
+      "side_effect_class": "external_mutating",
+      "requires_approval_default": true
+    },
+    {
+      "tool_id": "google_get_ad_accounts",
+      "description": "List Google Ads customer accounts accessible with connected credentials. Requires account_id (resolved to google_ads_client_config).",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "google_get_ad_accounts",
+      "risk_tier": "low",
+      "side_effect_class": "external_read",
+      "requires_approval_default": false
+    },
+    {
+      "tool_id": "google_get_account",
+      "description": "Get Google Ads customer profile (timezone, currency, status). Requires account_id. Use before campaign create to confirm customer context (meta_get_account parity).",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "google_get_account",
+      "risk_tier": "low",
+      "side_effect_class": "external_read",
+      "requires_approval_default": false
+    },
+    {
+      "tool_id": "google_get_campaign",
+      "description": "Get one Google Ads campaign by platform_campaign_id. Requires account_id, platform_campaign_id.",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "google_get_campaign",
+      "risk_tier": "low",
+      "side_effect_class": "external_read",
+      "requires_approval_default": false
+    },
+    {
+      "tool_id": "google_list_ad_groups",
+      "description": "List Google ad groups; optional platform_campaign_id filter. Requires account_id (meta_list_adsets parity).",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "google_list_ad_groups",
+      "risk_tier": "low",
+      "side_effect_class": "external_read",
+      "requires_approval_default": false
+    },
+    {
+      "tool_id": "google_publish_campaign",
+      "description": "Full Google publish chain routed by type (search|display|video|shopping|performance_max|app|local). Same payload as google_create_campaign.",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "google_publish_campaign",
+      "risk_tier": "high",
+      "side_effect_class": "external_mutating",
+      "requires_approval_default": true
+    },
+    {
+      "tool_id": "google_publish_search_campaign",
+      "description": "Full Search publish: budget → campaign → ad group → keywords → RSA (+ geo when provided).",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "google_publish_search_campaign",
+      "risk_tier": "high",
+      "side_effect_class": "external_mutating",
+      "requires_approval_default": true
+    },
+    {
+      "tool_id": "google_publish_display_campaign",
+      "description": "Full Display publish: budget → campaign → ad group → responsive display ad (+ geo).",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "google_publish_display_campaign",
+      "risk_tier": "high",
+      "side_effect_class": "external_mutating",
+      "requires_approval_default": true
+    },
+    {
+      "tool_id": "google_publish_video_campaign",
+      "description": "Full Video publish: budget → campaign → ad group → YouTube video ad (+ geo).",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "google_publish_video_campaign",
+      "risk_tier": "high",
+      "side_effect_class": "external_mutating",
+      "requires_approval_default": true
+    },
+    {
+      "tool_id": "google_publish_shopping_campaign",
+      "description": "Full Shopping publish: budget → campaign → ad group → all-products listing group. Requires merchant_id.",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "google_publish_shopping_campaign",
+      "risk_tier": "high",
+      "side_effect_class": "external_mutating",
+      "requires_approval_default": true
+    },
+    {
+      "tool_id": "google_publish_performance_max_campaign",
+      "description": "Full Performance Max publish: budget → campaign → asset group → linked assets (+ geo).",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "google_publish_performance_max_campaign",
+      "risk_tier": "high",
+      "side_effect_class": "external_mutating",
+      "requires_approval_default": true
+    },
+    {
+      "tool_id": "google_publish_app_campaign",
+      "description": "Full App publish: budget → MULTI_CHANNEL app campaign → ad group → app ad (+ geo). Requires app_id.",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "google_publish_app_campaign",
+      "risk_tier": "high",
+      "side_effect_class": "external_mutating",
+      "requires_approval_default": true
+    },
+    {
+      "tool_id": "google_publish_local_campaign",
+      "description": "Full Local publish: budget → local campaign → ad group → local ad (+ geo).",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "google_publish_local_campaign",
+      "risk_tier": "high",
+      "side_effect_class": "external_mutating",
+      "requires_approval_default": true
+    },
+    {
+      "tool_id": "google_search_geo_locations",
+      "description": "Search geo target constants by name (Morocco, United States, etc.). Returns geo_target_constant_id list.",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "google_search_geo_locations",
+      "risk_tier": "low",
+      "side_effect_class": "external_read",
+      "requires_approval_default": false
+    },
+    {
+      "tool_id": "google_resolve_geo_targeting",
+      "description": "Resolve natural-language include/exclude geo intent to Google geo_target_constant IDs.",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "google_resolve_geo_targeting",
+      "risk_tier": "low",
+      "side_effect_class": "external_read",
+      "requires_approval_default": false
+    },
+    {
+      "tool_id": "google_generate_keyword_ideas",
+      "description": "Expand seed keywords and/or landing page URL via Google Keyword Plan ideas (search volume, competition). Requires geo_target_constant_ids.",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "google_generate_keyword_ideas",
+      "risk_tier": "low",
+      "side_effect_class": "external_read",
+      "requires_approval_default": false
+    },
+    {
+      "tool_id": "google_generate_search_keywords",
+      "description": "LLM seed keywords + Google Keyword Planner expansion + validation for Search campaigns. Requires prompt/topic; optional account_id + geo for Planner metrics.",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "google_generate_search_keywords",
+      "risk_tier": "low",
+      "side_effect_class": "internal_ai",
+      "requires_approval_default": false
+    },
+    {
+      "tool_id": "google_generate_rsa_copy",
+      "description": "LLM-generated Google RSA headlines and descriptions from campaign context.",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "google_generate_rsa_copy",
+      "risk_tier": "low",
+      "side_effect_class": "internal_ai",
+      "requires_approval_default": false
+    },
+    {
+      "tool_id": "google_suggest_keywords",
+      "description": "Keyword ideas with optional search volume (LLM + Keyword Planner). Same as POST /api/ads/keywords/suggest.",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "google_suggest_keywords",
+      "risk_tier": "low",
+      "side_effect_class": "internal_ai",
+      "requires_approval_default": false
+    },
+    {
+      "tool_id": "google_assess_promotion_context",
+      "description": "LLM: determine if the user's offer is clear enough to auto-generate Search keywords and ad copy.",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "google_assess_promotion_context",
+      "risk_tier": "low",
+      "side_effect_class": "internal_ai",
+      "requires_approval_default": false
+    },
+    {
+      "tool_id": "google_generate_search_marketing_bundle",
+      "description": "One-shot Search marketing: keywords + RSA headlines/descriptions (LLM + Planner).",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "google_generate_search_marketing_bundle",
+      "risk_tier": "low",
+      "side_effect_class": "internal_ai",
+      "requires_approval_default": false
+    },
+    {
+      "tool_id": "google_add_language_targeting",
+      "description": "Add language targeting to a campaign. languages or language_ids required.",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "google_add_language_targeting",
+      "risk_tier": "medium",
+      "side_effect_class": "external_mutating",
+      "requires_approval_default": true
+    },
+    {
+      "tool_id": "google_list_merchant_centers",
+      "description": "List linked Merchant Center accounts (Shopping / retail PMax).",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "google_list_merchant_centers",
+      "risk_tier": "low",
+      "side_effect_class": "external_read",
+      "requires_approval_default": false
+    },
+    {
+      "tool_id": "google_pause_campaign",
+      "description": "Pause a Google Ads campaign (reference pause_campaign). Requires account_id, platform_campaign_id.",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "google_pause_campaign",
+      "risk_tier": "medium",
+      "side_effect_class": "external_mutating",
+      "requires_approval_default": true
+    },
+    {
+      "tool_id": "google_resume_campaign",
+      "description": "Resume a paused Google Ads campaign (reference resume_campaign).",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "google_resume_campaign",
+      "risk_tier": "medium",
+      "side_effect_class": "external_mutating",
+      "requires_approval_default": true
+    },
+    {
+      "tool_id": "google_delete_campaign",
+      "description": "Permanently remove a Google Ads campaign (reference delete_campaign).",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "google_delete_campaign",
+      "risk_tier": "high",
+      "side_effect_class": "external_mutating",
+      "requires_approval_default": true
+    },
+    {
+      "tool_id": "google_copy_campaign",
+      "description": "Copy a campaign with a new name and budget (reference copy_campaign).",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "google_copy_campaign",
+      "risk_tier": "high",
+      "side_effect_class": "external_mutating",
+      "requires_approval_default": true
+    },
+    {
+      "tool_id": "google_list_budgets",
+      "description": "List campaign budgets (reference list_budgets).",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "google_list_budgets",
+      "risk_tier": "low",
+      "side_effect_class": "external_read",
+      "requires_approval_default": false
+    },
+    {
+      "tool_id": "google_update_budget",
+      "description": "Update budget amount or name (reference update_budget).",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "google_update_budget",
+      "risk_tier": "high",
+      "side_effect_class": "external_mutating",
+      "requires_approval_default": true
+    },
+    {
+      "tool_id": "google_create_sitelink_extensions",
+      "description": "Create sitelink extensions on a campaign. sitelinks: [{text, url, description1?, description2?}].",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "google_create_sitelink_extensions",
+      "risk_tier": "medium",
+      "side_effect_class": "external_mutating",
+      "requires_approval_default": true
+    },
+    {
+      "tool_id": "google_create_callout_extensions",
+      "description": "Create callout extensions on a campaign. callouts: string[].",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "google_create_callout_extensions",
+      "risk_tier": "medium",
+      "side_effect_class": "external_mutating",
+      "requires_approval_default": true
+    },
+    {
+      "tool_id": "google_create_campaign",
+      "description": "Full Google publish chain routed by payload type (search|display|video|shopping|performance_max|app|local). Requires account_id, name, type.",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "google_create_campaign",
+      "risk_tier": "high",
+      "side_effect_class": "external_mutating",
+      "requires_approval_default": true
+    },
+    {
+      "tool_id": "google_list_campaigns",
+      "description": "List Google Ads campaigns for the connected customer (sync read). Requires account_id.",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "google_list_campaigns",
+      "risk_tier": "low",
+      "side_effect_class": "external_read",
+      "requires_approval_default": false
+    },
+    {
+      "tool_id": "google_create_budget",
+      "description": "Create a Google Ads campaign budget (reference create_campaign_budget). Requires account_id, name, amount_micros or daily_budget.",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "google_create_budget",
+      "risk_tier": "high",
+      "side_effect_class": "external_mutating",
+      "requires_approval_default": true
+    },
+    {
+      "tool_id": "google_create_search_campaign",
+      "description": "Create a Google Search campaign with TargetSpend bidding. Requires account_id, name, budget_resource_name.",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "google_create_search_campaign",
+      "risk_tier": "high",
+      "side_effect_class": "external_mutating",
+      "requires_approval_default": true
+    },
+    {
+      "tool_id": "google_create_typed_campaign",
+      "description": "Create campaign on existing budget — SEARCH, DISPLAY, VIDEO, SHOPPING, PERFORMANCE_MAX, SMART, LOCAL.",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "google_create_typed_campaign",
+      "risk_tier": "high",
+      "side_effect_class": "external_mutating",
+      "requires_approval_default": true
+    },
+    {
+      "tool_id": "google_create_campaign_with_budget",
+      "description": "Reference create_campaign — creates budget + typed campaign in one step.",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "google_create_campaign_with_budget",
+      "risk_tier": "high",
+      "side_effect_class": "external_mutating",
+      "requires_approval_default": true
+    },
+    {
+      "tool_id": "google_update_campaign",
+      "description": "Update Google Ads campaign status (ENABLED, PAUSED, REMOVED). Requires account_id, platform_campaign_id, status.",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "google_update_campaign",
+      "risk_tier": "high",
+      "side_effect_class": "external_mutating",
+      "requires_approval_default": true
+    },
+    {
+      "tool_id": "google_update_campaign_geo_target",
+      "description": "Update Google campaign geo targeting mode (presence vs interest). Requires campaign_resource_name or platform_campaign_id.",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "google_update_campaign_geo_target",
+      "risk_tier": "medium",
+      "side_effect_class": "external_mutating",
+      "requires_approval_default": true
+    },
+    {
+      "tool_id": "google_create_geo_targeting",
+      "description": "Add location targeting to a Google campaign. geo_target_constant_ids e.g. 2840 (US), 2124 (Canada).",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "google_create_geo_targeting",
+      "risk_tier": "high",
+      "side_effect_class": "external_mutating",
+      "requires_approval_default": true
+    },
+    {
+      "tool_id": "google_exclude_geo_targets",
+      "description": "Exclude locations from a Google campaign (negative geo). Requires geo_target_constant_ids.",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "google_exclude_geo_targets",
+      "risk_tier": "high",
+      "side_effect_class": "external_mutating",
+      "requires_approval_default": true
+    },
+    {
+      "tool_id": "google_add_negative_keywords",
+      "description": "Add broad negative keywords at Google campaign level.",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "google_add_negative_keywords",
+      "risk_tier": "medium",
+      "side_effect_class": "external_mutating",
+      "requires_approval_default": true
+    },
+    {
+      "tool_id": "google_remove_campaign_criterion",
+      "description": "Remove a Google campaign criterion (geo, keyword, etc.) by campaign_id and criterion_id.",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "google_remove_campaign_criterion",
+      "risk_tier": "high",
+      "side_effect_class": "external_mutating",
+      "requires_approval_default": true
+    },
+    {
+      "tool_id": "meta_list_ads",
+      "description": "List Meta ads for campaign_id, adset_id, or ad account. Same Graph call as reference get_ads. Used by agents and GET /ads/meta/ads.",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "meta_list_ads",
+      "risk_tier": "low",
+      "side_effect_class": "external_read",
+      "requires_approval_default": false
+    },
+    {
+      "tool_id": "meta_get_ad",
+      "description": "Get one Meta ad by Graph id (creative, status, preview link). Requires ad_id.",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "meta_get_ad",
+      "risk_tier": "low",
+      "side_effect_class": "external_read",
+      "requires_approval_default": false
+    },
+    {
+      "tool_id": "meta_get_creative",
+      "description": "Get one Meta ad creative by Graph id. Requires creative_id.",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "meta_get_creative",
+      "risk_tier": "low",
+      "side_effect_class": "external_read",
+      "requires_approval_default": false
+    },
+    {
+      "tool_id": "meta_get_ad_creatives",
+      "description": "List creatives attached to a Meta ad. Requires ad_id.",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "meta_get_ad_creatives",
+      "risk_tier": "low",
+      "side_effect_class": "external_read",
+      "requires_approval_default": false
+    },
+    {
+      "tool_id": "meta_update_ad",
+      "description": "Update a Meta ad (name, status, bid_amount, creative_id). Requires ad_id.",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "meta_update_ad",
+      "risk_tier": "high",
+      "side_effect_class": "external_mutating",
+      "requires_approval_default": true
+    },
+    {
+      "tool_id": "meta_update_creative",
+      "description": "Update a Meta creative (name, optimization / asset_feed_spec fields). Requires creative_id.",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "meta_update_creative",
+      "risk_tier": "high",
+      "side_effect_class": "external_mutating",
+      "requires_approval_default": true
+    },
+    {
+      "tool_id": "meta_upload_ad_image",
+      "description": "Upload an image to the ad account; returns image_hash for create_ad_creative. Requires ad_account_id and media_id (library), file, or public HTTPS image_url.",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "meta_upload_ad_image",
+      "risk_tier": "medium",
+      "side_effect_class": "external_mutating",
+      "requires_approval_default": true
+    },
+    {
+      "tool_id": "meta_upload_ad_video",
+      "description": "Upload a video to the ad account; returns video_id for create_ad_creative (ThruPlay / video ads). Requires ad_account_id and video_url or file.",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "meta_upload_ad_video",
+      "risk_tier": "medium",
+      "side_effect_class": "external_mutating",
+      "requires_approval_default": true
+    },
+    {
+      "tool_id": "meta_compute_image_crops",
+      "description": "Compute image_crops coordinates for a source image size (reference compute_image_crops). No Graph call. Pass result to meta_create_creative.",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "meta_compute_image_crops",
+      "risk_tier": "low",
+      "side_effect_class": "internal_read",
+      "requires_approval_default": false
+    },
+    {
+      "tool_id": "meta_get_account_pages",
+      "description": "List Facebook Pages usable with a Meta ad account. Requires account_id.",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "meta_get_account_pages",
+      "risk_tier": "low",
+      "side_effect_class": "external_read",
+      "requires_approval_default": false
+    },
+    {
+      "tool_id": "meta_list_ad_pixels",
+      "description": "List Meta pixels on an ad account (Graph GET /act_*/adspixels). Requires account_id + ad_account_id. Returns pixels picker rows, data, and default_pixel_id when exactly one available pixel exists (auto-select for Sales conversion ad sets).",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "meta_list_ad_pixels",
+      "risk_tier": "low",
+      "side_effect_class": "external_read",
+      "requires_approval_default": false
+    },
+    {
+      "tool_id": "meta_get_ad_pixel",
+      "description": "Get Meta pixel details (Graph GET /{pixel_id}). Requires pixel_id. Returns pixel row with name, matching settings, and availability. Use in campaign flows to verify pixel_id before ad sets.",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "meta_get_ad_pixel",
+      "risk_tier": "low",
+      "side_effect_class": "external_read",
+      "requires_approval_default": false
+    },
+    {
+      "tool_id": "meta_create_ad_pixel",
+      "description": "Admin/setup only: create a Meta pixel (Graph POST /act_*/adspixels). Not for agent campaign workflows — use Events Manager or this tool via POST /api/ads/tools/execute. Requires account_id, ad_account_id, name.",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "meta_create_ad_pixel",
+      "agent_flow": "admin_setup",
+      "risk_tier": "medium",
+      "side_effect_class": "external_mutating",
+      "requires_approval_default": true
+    },
+    {
+      "tool_id": "meta_update_ad_pixel",
+      "description": "Admin/setup only: update a Meta pixel (Graph POST /{pixel_id}). Not for agent campaign workflows. Requires pixel_id and at least one update field. Meta does not support deleting pixels via API.",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "meta_update_ad_pixel",
+      "agent_flow": "admin_setup",
+      "risk_tier": "medium",
+      "side_effect_class": "external_mutating",
+      "requires_approval_default": true
+    },
+    {
+      "tool_id": "meta_search_pages_by_name",
+      "description": "Search Facebook Pages by name for a Meta ad account. Requires account_id; optional search_term.",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "meta_search_pages_by_name",
+      "risk_tier": "low",
+      "side_effect_class": "external_read",
+      "requires_approval_default": false
+    },
+    {
+      "tool_id": "meta_get_ad_image",
+      "description": "Resolve viewable image URLs for a Meta ad creative. Requires ad_id.",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "meta_get_ad_image",
+      "risk_tier": "low",
+      "side_effect_class": "external_read",
+      "requires_approval_default": false
+    },
+    {
+      "tool_id": "meta_get_ad_video",
+      "description": "Get video source URL and metadata for a Meta ad or video_id. Requires ad_id or video_id.",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "meta_get_ad_video",
+      "risk_tier": "low",
+      "side_effect_class": "external_read",
+      "requires_approval_default": false
+    },
+    {
+      "tool_id": "meta_create_creative",
+      "description": "Create a Meta ad creative (full reference create_ad_creative: link/image/video/FLEX/placement/existing-post modes). Requires ad_account_id; page_id auto-discovered if omitted. link_url required unless object_story_id, lead_gen_form_id, or reminder_data.",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "meta_create_creative",
+      "risk_tier": "high",
+      "side_effect_class": "external_mutating",
+      "requires_approval_default": true
+    },
+    {
+      "tool_id": "meta_create_ad",
+      "description": "Create a Meta ad using an existing creative_id and adset_id (reference create_ad).",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "meta_create_ad",
+      "risk_tier": "high",
+      "side_effect_class": "external_mutating",
+      "requires_approval_default": true
+    },
+    {
+      "tool_id": "meta_search_interests",
+      "description": "Search Meta ad interest targeting by keyword (reference search_interests). Requires query.",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "meta_search_interests",
+      "risk_tier": "low",
+      "side_effect_class": "external_read",
+      "requires_approval_default": false
+    },
+    {
+      "tool_id": "meta_generate_ad_copy",
+      "description": "LLM-generated Meta ad primary text, headline, and link description from campaign context.",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "meta_generate_ad_copy",
+      "risk_tier": "low",
+      "side_effect_class": "internal_ai",
+      "requires_approval_default": false
+    },
+    {
+      "tool_id": "meta_generate_audience_queries",
+      "description": "LLM-generated geo + interest search queries for meta_search_geo_locations / meta_search_interests.",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "meta_generate_audience_queries",
+      "risk_tier": "low",
+      "side_effect_class": "internal_ai",
+      "requires_approval_default": false
+    },
+    {
+      "tool_id": "meta_get_interest_suggestions",
+      "description": "Get Meta interest suggestions from existing interest names (reference get_interest_suggestions).",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "meta_get_interest_suggestions",
+      "risk_tier": "low",
+      "side_effect_class": "external_read",
+      "requires_approval_default": false
+    },
+    {
+      "tool_id": "meta_estimate_audience_size",
+      "description": "Estimate audience size for targeting (reference estimate_audience_size). Requires ad_account_id + targeting, or interest_list for legacy validation.",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "meta_estimate_audience_size",
+      "risk_tier": "low",
+      "side_effect_class": "external_read",
+      "requires_approval_default": false
+    },
+    {
+      "tool_id": "meta_search_behaviors",
+      "description": "List Meta behavior targeting categories (reference search_behaviors).",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "meta_search_behaviors",
+      "risk_tier": "low",
+      "side_effect_class": "external_read",
+      "requires_approval_default": false
+    },
+    {
+      "tool_id": "meta_search_demographics",
+      "description": "List Meta demographic targeting categories (reference search_demographics). Optional demographic_class.",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "meta_search_demographics",
+      "risk_tier": "low",
+      "side_effect_class": "external_read",
+      "requires_approval_default": false
+    },
+    {
+      "tool_id": "meta_search_geo_locations",
+      "description": "Search Meta geographic targeting locations (reference search_geo_locations). Requires query.",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "meta_search_geo_locations",
+      "risk_tier": "low",
+      "side_effect_class": "external_read",
+      "requires_approval_default": false
+    },
+    {
+      "tool_id": "meta_resolve_geo_targeting",
+      "description": "Resolve natural-language include/exclude geo intent to Meta location keys.",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "meta_resolve_geo_targeting",
+      "risk_tier": "low",
+      "side_effect_class": "external_read",
+      "requires_approval_default": false
+    },
+    {
+      "tool_id": "meta_create_budget_schedule",
+      "description": "Create a high-demand budget schedule on a campaign (reference create_budget_schedule). Requires campaign_id, budget_value, budget_value_type, time_start, time_end.",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "meta_create_budget_schedule",
+      "risk_tier": "high",
+      "side_effect_class": "external_mutating",
+      "requires_approval_default": true
+    },
+    {
+      "tool_id": "meta_duplicate_campaign",
+      "description": "Duplicate a Meta campaign via Pipeboard API (reference duplicate_campaign). Requires META_ADS_ENABLE_DUPLICATION=1 and PIPEBOARD_API_TOKEN.",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "meta_duplicate_campaign",
+      "risk_tier": "high",
+      "side_effect_class": "external_mutating",
+      "requires_approval_default": true
+    },
+    {
+      "tool_id": "meta_duplicate_adset",
+      "description": "Duplicate a Meta ad set (reference duplicate_adset). Requires META_ADS_ENABLE_DUPLICATION=1.",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "meta_duplicate_adset",
+      "risk_tier": "high",
+      "side_effect_class": "external_mutating",
+      "requires_approval_default": true
+    },
+    {
+      "tool_id": "meta_duplicate_ad",
+      "description": "Duplicate a Meta ad (reference duplicate_ad). Requires META_ADS_ENABLE_DUPLICATION=1.",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "meta_duplicate_ad",
+      "risk_tier": "high",
+      "side_effect_class": "external_mutating",
+      "requires_approval_default": true
+    },
+    {
+      "tool_id": "meta_duplicate_creative",
+      "description": "Duplicate a Meta creative (reference duplicate_creative). Requires META_ADS_ENABLE_DUPLICATION=1.",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "meta_duplicate_creative",
+      "risk_tier": "high",
+      "side_effect_class": "external_mutating",
+      "requires_approval_default": true
+    },
+    {
+      "tool_id": "google_create_adgroup",
+      "description": "Create a paused Google ad group under an existing campaign. Requires customer_id, platform_campaign_id, name.",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "google_create_adgroup",
+      "risk_tier": "high",
+      "side_effect_class": "external_mutating",
+      "requires_approval_default": true
+    },
+    {
+      "tool_id": "google_update_adgroup",
+      "description": "Update Google ad group status (ENABLED or PAUSED). Requires ad_group_resource_name or platform_ad_set_id.",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "google_update_adgroup",
+      "risk_tier": "high",
+      "side_effect_class": "external_mutating",
+      "requires_approval_default": true
+    },
+    {
+      "tool_id": "google_add_keywords",
+      "description": "Add broad/phrase/exact keywords to a Google ad group.",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "google_add_keywords",
+      "risk_tier": "medium",
+      "side_effect_class": "external_mutating",
+      "requires_approval_default": true
+    },
+    {
+      "tool_id": "google_create_ad",
+      "description": "Create a paused Google responsive search ad in an existing ad group.",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "google_create_ad",
+      "risk_tier": "high",
+      "side_effect_class": "external_mutating",
+      "requires_approval_default": true
+    },
+    {
+      "tool_id": "meta_report_insights",
+      "description": "Meta Ads performance insights (reference get_insights). object_id or alias account_id/campaign_id/adset_id/ad_id; time_range preset or {since,until}; breakdown, level, action_attribution_windows, action_breakdowns, compact, pagination after.",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "meta_report_insights",
+      "risk_tier": "low",
+      "side_effect_class": "external_read",
+      "requires_approval_default": false
+    },
+    {
+      "tool_id": "google_report_performance",
+      "description": "Google Ads campaign performance for a date range. Requires account_id; optional campaign_id.",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "google_report_performance",
+      "risk_tier": "low",
+      "side_effect_class": "external_read",
+      "requires_approval_default": false
+    },
+    {
+      "tool_id": "google_report_ad_groups",
+      "description": "List Google ad groups with optional campaign filter. Requires account_id.",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "google_report_ad_groups",
+      "risk_tier": "low",
+      "side_effect_class": "external_read",
+      "requires_approval_default": false
+    },
+    {
+      "tool_id": "google_report_keywords",
+      "description": "Google keyword performance report. Requires account_id; optional campaign_id, ad_group_id.",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "google_report_keywords",
+      "risk_tier": "low",
+      "side_effect_class": "external_read",
+      "requires_approval_default": false
+    },
+    {
+      "tool_id": "google_report_ads",
+      "description": "Google ad-level performance report. Requires account_id.",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "google_report_ads",
+      "risk_tier": "low",
+      "side_effect_class": "external_read",
+      "requires_approval_default": false
+    },
+    {
+      "tool_id": "google_report_search_terms",
+      "description": "Google search terms report. Requires account_id.",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "google_report_search_terms",
+      "risk_tier": "low",
+      "side_effect_class": "external_read",
+      "requires_approval_default": false
+    },
+    {
+      "tool_id": "google_report_account_summary",
+      "description": "Google Ads account-level summary for a date range. Requires account_id.",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "google_report_account_summary",
+      "risk_tier": "low",
+      "side_effect_class": "external_read",
+      "requires_approval_default": false
+    },
+    {
+      "tool_id": "google_report_gaql",
+      "description": "Run a read-only GAQL query against Google Ads. Requires account_id and query string.",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "google_report_gaql",
+      "risk_tier": "low",
+      "side_effect_class": "external_read",
+      "requires_approval_default": false
+    },
+    {
+      "tool_id": "google_report_optimization_hints",
+      "description": "Read-only Google Ads optimization suggestions from campaign performance (no mutations). Requires account_id.",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "google_report_optimization_hints",
+      "risk_tier": "low",
+      "side_effect_class": "external_read",
+      "requires_approval_default": false
+    },
+    {
+      "tool_id": "google_docs_gaql",
+      "description": "Read GAQL guide markdown from reference context (agent helper, no API call).",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "google_docs_gaql",
+      "risk_tier": "low",
+      "side_effect_class": "read_only_local",
+      "requires_approval_default": false
+    },
+    {
+      "tool_id": "google_docs_reporting_views",
+      "description": "Read Google Ads reporting view docs (all views or one view name). Optional payload.view.",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "google_docs_reporting_views",
+      "risk_tier": "low",
+      "side_effect_class": "read_only_local",
+      "requires_approval_default": false
+    },
+    {
+      "tool_id": "google_docs_reporting_fields",
+      "description": "GAQL field metadata for a list of fields (reference get_reporting_fields_doc). Payload: fields array or comma-separated string.",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "google_docs_reporting_fields",
+      "risk_tier": "low",
+      "side_effect_class": "read_only_local",
+      "requires_approval_default": false
+    },
+    {
+      "tool_id": "google_get_account_hierarchy",
+      "description": "MCC / customer_client hierarchy (reference get_account_hierarchy).",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "google_get_account_hierarchy",
+      "risk_tier": "low",
+      "side_effect_class": "external_read",
+      "requires_approval_default": false
+    },
+    {
+      "tool_id": "google_get_ad_group",
+      "description": "Get one ad group by id (reference get_ad_group).",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "google_get_ad_group",
+      "risk_tier": "low",
+      "side_effect_class": "external_read",
+      "requires_approval_default": false
+    },
+    {
+      "tool_id": "google_update_adgroup_full",
+      "description": "Update ad group name, status, cpc_bid_micros (reference update_ad_group).",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "google_update_adgroup_full",
+      "risk_tier": "medium",
+      "side_effect_class": "external_mutating",
+      "requires_approval_default": true
+    },
+    {
+      "tool_id": "google_list_keywords",
+      "description": "List keyword criteria (reference list_keywords).",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "google_list_keywords",
+      "risk_tier": "low",
+      "side_effect_class": "external_read",
+      "requires_approval_default": false
+    },
+    {
+      "tool_id": "google_update_keyword_bid",
+      "description": "Update keyword CPC bid (reference update_keyword_bid).",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "google_update_keyword_bid",
+      "risk_tier": "medium",
+      "side_effect_class": "external_mutating",
+      "requires_approval_default": true
+    },
+    {
+      "tool_id": "google_pause_keyword",
+      "description": "Pause keyword criterion.",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "google_pause_keyword",
+      "risk_tier": "medium",
+      "side_effect_class": "external_mutating",
+      "requires_approval_default": true
+    },
+    {
+      "tool_id": "google_enable_keyword",
+      "description": "Enable keyword criterion.",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "google_enable_keyword",
+      "risk_tier": "medium",
+      "side_effect_class": "external_mutating",
+      "requires_approval_default": true
+    },
+    {
+      "tool_id": "google_delete_keyword",
+      "description": "Remove keyword criterion.",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "google_delete_keyword",
+      "risk_tier": "high",
+      "side_effect_class": "external_mutating",
+      "requires_approval_default": true
+    },
+    {
+      "tool_id": "google_list_ads_read",
+      "description": "List ads with filters (reference list_ads).",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "google_list_ads_read",
+      "risk_tier": "low",
+      "side_effect_class": "external_read",
+      "requires_approval_default": false
+    },
+    {
+      "tool_id": "google_pause_ad",
+      "description": "Pause ad (reference pause_ad).",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "google_pause_ad",
+      "risk_tier": "medium",
+      "side_effect_class": "external_mutating",
+      "requires_approval_default": true
+    },
+    {
+      "tool_id": "google_enable_ad",
+      "description": "Enable ad.",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "google_enable_ad",
+      "risk_tier": "medium",
+      "side_effect_class": "external_mutating",
+      "requires_approval_default": true
+    },
+    {
+      "tool_id": "google_delete_ad",
+      "description": "Remove ad.",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "google_delete_ad",
+      "risk_tier": "high",
+      "side_effect_class": "external_mutating",
+      "requires_approval_default": true
+    },
+    {
+      "tool_id": "google_create_structured_snippet_extensions",
+      "description": "Structured snippet assets on campaign.",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "google_create_structured_snippet_extensions",
+      "risk_tier": "medium",
+      "side_effect_class": "external_mutating",
+      "requires_approval_default": true
+    },
+    {
+      "tool_id": "google_create_call_extensions",
+      "description": "Call asset on campaign.",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "google_create_call_extensions",
+      "risk_tier": "medium",
+      "side_effect_class": "external_mutating",
+      "requires_approval_default": true
+    },
+    {
+      "tool_id": "google_list_extensions",
+      "description": "List campaign assets / extensions.",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "google_list_extensions",
+      "risk_tier": "low",
+      "side_effect_class": "external_read",
+      "requires_approval_default": false
+    },
+    {
+      "tool_id": "google_delete_extension",
+      "description": "Remove campaign asset by resource_name.",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "google_delete_extension",
+      "risk_tier": "high",
+      "side_effect_class": "external_mutating",
+      "requires_approval_default": true
+    },
+    {
+      "tool_id": "google_upload_image_asset",
+      "description": "Upload image asset (base64).",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "google_upload_image_asset",
+      "risk_tier": "medium",
+      "side_effect_class": "external_mutating",
+      "requires_approval_default": true
+    },
+    {
+      "tool_id": "google_upload_text_asset",
+      "description": "Create text asset.",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "google_upload_text_asset",
+      "risk_tier": "low",
+      "side_effect_class": "external_mutating",
+      "requires_approval_default": true
+    },
+    {
+      "tool_id": "google_list_assets",
+      "description": "List customer assets.",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "google_list_assets",
+      "risk_tier": "low",
+      "side_effect_class": "external_read",
+      "requires_approval_default": false
+    },
+    {
+      "tool_id": "run_landing_page_workflow",
+      "description": "Create a landing page, generate AI marketing copy, optionally publish for lead capture. Same as POST /api/ads/landing-pages/workflow.",
+      "task": "tasks.ads.run_landing_page_workflow",
+      "risk_tier": "medium",
+      "side_effect_class": "internal_mutating",
+      "requires_approval_default": true
+    },
+    {
+      "tool_id": "google_suggest_negative_keywords",
+      "description": "Suggest negatives from costly search terms.",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "google_suggest_negative_keywords",
+      "risk_tier": "low",
+      "side_effect_class": "external_read",
+      "requires_approval_default": false
+    },
+    {
+      "tool_id": "google_get_location_performance",
+      "description": "Geo performance report.",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "google_get_location_performance",
+      "risk_tier": "low",
+      "side_effect_class": "external_read",
+      "requires_approval_default": false
+    },
+    {
+      "tool_id": "google_get_device_performance",
+      "description": "Device segment performance.",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "google_get_device_performance",
+      "risk_tier": "low",
+      "side_effect_class": "external_read",
+      "requires_approval_default": false
+    },
+    {
+      "tool_id": "google_list_bidding_strategies",
+      "description": "List portfolio bidding strategies.",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "google_list_bidding_strategies",
+      "risk_tier": "low",
+      "side_effect_class": "external_read",
+      "requires_approval_default": false
+    },
+    {
+      "tool_id": "google_get_recommendations",
+      "description": "Google Ads recommendations feed.",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "google_get_recommendations",
+      "risk_tier": "low",
+      "side_effect_class": "external_read",
+      "requires_approval_default": false
+    },
+    {
+      "tool_id": "google_apply_recommendation",
+      "description": "Apply one recommendation by resource_name.",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "google_apply_recommendation",
+      "risk_tier": "high",
+      "side_effect_class": "external_mutating",
+      "requires_approval_default": true
+    },
+    {
+      "tool_id": "google_get_change_history",
+      "description": "Change status history (reference get_change_history).",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "google_get_change_history",
+      "risk_tier": "low",
+      "side_effect_class": "external_read",
+      "requires_approval_default": false
+    },
+    {
+      "tool_id": "google_create_ad_schedule",
+      "description": "Dayparting ad schedules on a campaign (reference create_ad_schedule).",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "google_create_ad_schedule",
+      "risk_tier": "high",
+      "side_effect_class": "external_write",
+      "requires_approval_default": true
+    },
+    {
+      "tool_id": "google_create_expanded_text_ad",
+      "description": "Legacy expanded text ad (deprecated; prefer RSA google_create_ad).",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "google_create_expanded_text_ad",
+      "risk_tier": "high",
+      "side_effect_class": "external_write",
+      "requires_approval_default": true
+    },
+    {
+      "tool_id": "google_create_custom_audience",
+      "description": "Create remarketing / customer match user list (reference create_custom_audience).",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "google_create_custom_audience",
+      "risk_tier": "high",
+      "side_effect_class": "external_write",
+      "requires_approval_default": true
+    },
+    {
+      "tool_id": "google_add_audience_targeting",
+      "description": "Attach audience to ad group (requires audience_id from create or list).",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "google_add_audience_targeting",
+      "risk_tier": "high",
+      "side_effect_class": "external_write",
+      "requires_approval_default": true
+    },
+    {
+      "tool_id": "google_list_audiences",
+      "description": "List user lists / audiences for targeting.",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "google_list_audiences",
+      "risk_tier": "low",
+      "side_effect_class": "external_read",
+      "requires_approval_default": false
+    },
+    {
+      "tool_id": "google_set_bid_adjustments",
+      "description": "Device and location bid modifiers on campaign.",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "google_set_bid_adjustments",
+      "risk_tier": "high",
+      "side_effect_class": "external_write",
+      "requires_approval_default": true
+    },
+    {
+      "tool_id": "google_optimize_geographic_targeting",
+      "description": "Geo performance analysis with bid/exclude recommendations.",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "google_optimize_geographic_targeting",
+      "risk_tier": "low",
+      "side_effect_class": "external_read",
+      "requires_approval_default": false
+    },
+    {
+      "tool_id": "analyze_competitive_landscape",
+      "description": "Scrape competitor pages + Meta Ads Library + AI brief. Same as POST /api/ads/competitive-analysis.",
+      "task": "tasks.ads.execute_ads_tool",
+      "opcode": "analyze_competitive_landscape",
+      "risk_tier": "low",
+      "side_effect_class": "internal_ai",
+      "requires_approval_default": false
+    },
+    {
+      "tool_id": "cluster_seo_keywords",
+      "description": "Cluster seed keywords by search intent using AI. Same as POST /api/seo/keywords/cluster.",
+      "task": "tasks.seo.cluster_keywords",
+      "risk_tier": "low",
+      "side_effect_class": "internal_ai",
+      "requires_approval_default": false
+    },
+    {
+      "tool_id": "check_seo_keyword_ranks",
+      "description": "Check SERP ranks for workspace keyword targets. Same as POST /api/seo/keywords/check-ranks.",
+      "task": "tasks.seo.check_workspace_ranks",
+      "risk_tier": "low",
+      "side_effect_class": "internal_read",
+      "requires_approval_default": false
+    },
+    {
+      "tool_id": "audit_seo_landing_pages",
+      "description": "Rules-based SEO audit on workspace landing pages. Same as GET /api/seo/landing-pages/audit.",
+      "task": "tasks.seo.audit_landing_pages",
+      "risk_tier": "low",
+      "side_effect_class": "internal_read",
+      "requires_approval_default": false
+    },
+    {
+      "tool_id": "generate_campaign_assets",
+      "description": "Generate RSA headlines and descriptions for a Mongo campaign draft. Same as POST /api/ads/campaigns/:id/generate-assets. Requires campaign_id and campaign_name.",
+      "task": "tasks.generate_campaign_assets",
+      "risk_tier": "low",
+      "side_effect_class": "internal_mutating",
+      "requires_approval_default": false
+    },
+    {
+      "tool_id": "optimize_campaign",
+      "description": "Analyze campaign KPIs and produce optimization suggestions (pacing + bids). Same as POST /api/ads/campaigns/:id/optimize. Requires campaign_id.",
+      "task": "tasks.optimize_campaign",
+      "risk_tier": "low",
+      "side_effect_class": "internal_mutating",
+      "requires_approval_default": false
+    },
+    {
+      "tool_id": "run_budget_pacing",
+      "description": "Workspace budget pacing analysis vs monthly targets. Same as POST /api/ads/budget/pacing.",
+      "task": "tasks.ads.run_budget_pacing",
+      "risk_tier": "low",
+      "side_effect_class": "internal_read",
+      "requires_approval_default": false
+    },
+    {
+      "tool_id": "run_budget_reallocation",
+      "description": "Recommend budget shifts between campaigns by performance. Same as POST /api/ads/budget/reallocation.",
+      "task": "tasks.ads.run_budget_reallocation",
+      "risk_tier": "low",
+      "side_effect_class": "internal_read",
+      "requires_approval_default": false
+    },
+    {
+      "tool_id": "run_bid_optimization",
+      "description": "CPA/ROAS bid recommendations at campaign and keyword level. Same as POST /api/ads/optimization/bid.",
+      "task": "tasks.ads.run_bid_optimization",
+      "risk_tier": "low",
+      "side_effect_class": "internal_read",
+      "requires_approval_default": false
+    },
+    {
+      "tool_id": "run_quality_score_monitor",
+      "description": "Quality Score monitoring and keyword recommendations. Same as GET /api/ads/optimization/quality-score.",
+      "task": "tasks.ads.run_quality_score_monitor",
+      "risk_tier": "low",
+      "side_effect_class": "internal_read",
+      "requires_approval_default": false
+    },
+    {
+      "tool_id": "run_asset_ab_analysis",
+      "description": "Compare ad variants within ad groups for A/B winners. Same as POST /api/ads/optimization/asset-ab.",
+      "task": "tasks.ads.run_asset_ab_analysis",
+      "risk_tier": "low",
+      "side_effect_class": "internal_read",
+      "requires_approval_default": false
+    }
+  ]
+}
+

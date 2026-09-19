@@ -1,0 +1,1797 @@
+
+================================================================================
+FILE: /home/sonofogre/Desktop/agent-market/docker-compose.yml
+================================================================================
+services:
+  mongo:
+    image: mongo:7
+    container_name: agentmarket_mongo
+    restart: unless-stopped
+    ports:
+      - '27017:27017'
+    volumes:
+      - mongo_data:/data/db
+
+  redis:
+    image: redis:7-alpine
+    container_name: agentmarket_redis
+    restart: unless-stopped
+    ports:
+      - '6379:6379'
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD}
+
+  api:
+    build:
+      context: ./apps/api
+      dockerfile: Dockerfile
+    container_name: agentmarket_api
+    restart: unless-stopped
+    ports:
+      - '4010:4010'
+    env_file:
+      - .env
+    environment:
+      PORT: 4010
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      MONGODB_URI: mongodb://mongo:27017/agentmarket
+      WORKER_API_SECRET: ${WORKER_API_SECRET}
+    volumes:
+      - ./apps/api/uploads:/app/uploads
+    depends_on:
+      - redis
+      - mongo
+
+  celery-worker:
+    build:
+      context: ./services/ai-worker
+      dockerfile: Dockerfile
+    container_name: agentmarket_celery_worker
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      MONGODB_URI: mongodb://mongo:27017/agentmarket
+      INTERNAL_API_URL: http://api:4010
+      WORKER_API_SECRET: ${WORKER_API_SECRET}
+      STORAGE_LOCAL_PATH: /data/uploads
+    volumes:
+      - ./apps/api/uploads:/data/uploads
+    depends_on:
+      - redis
+      - mongo
+    command: ["celery", "-A", "celery_app:celery_app", "worker", "-l", "info"]
+
+  celery-beat:
+    build:
+      context: ./services/ai-worker
+      dockerfile: Dockerfile
+    container_name: agentmarket_celery_beat
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      MONGODB_URI: mongodb://mongo:27017/agentmarket
+      INTERNAL_API_URL: http://api:4010
+      WORKER_API_SECRET: ${WORKER_API_SECRET}
+    depends_on:
+      - redis
+      - mongo
+    command: ["celery", "-A", "celery_app:celery_app", "beat", "-l", "info"]
+
+  realtime:
+    build:
+      context: ./services/realtime
+      dockerfile: Dockerfile
+    container_name: agentmarket_realtime
+    restart: unless-stopped
+    ports:
+      - '8000:8000'
+    env_file:
+      - .env
+    environment:
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+    depends_on:
+      - redis
+
+  web:
+    build:
+      context: ./apps/web
+      dockerfile: Dockerfile
+      args:
+        # Browser must reach API/realtime on the host (not service DNS names).
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:4010}
+        # Baked into next.config rewrites — must be reachable from the web container (service DNS).
+        NEXT_REWRITE_API_URL: ${NEXT_REWRITE_API_URL:-http://api:4010}
+        NEXT_PUBLIC_SC_HOST: ${NEXT_PUBLIC_SC_HOST:-localhost}
+        NEXT_PUBLIC_SC_PORT: ${NEXT_PUBLIC_SC_PORT:-8000}
+        NEXT_PUBLIC_SC_SECURE: ${NEXT_PUBLIC_SC_SECURE:-false}
+    container_name: agentmarket_web
+    restart: unless-stopped
+    ports:
+      - '3000:3000'
+    env_file:
+      - .env
+    environment:
+      PORT: 3000
+      HOSTNAME: '0.0.0.0'
+    depends_on:
+      - api
+      - realtime
+
+volumes:
+  redis_data:
+  mongo_data:
+
+
+================================================================================
+FILE: /home/sonofogre/Desktop/agent-market/docker-compose.prebuilt.yml
+================================================================================
+# Run the stack from images published to GHCR by CI instead of building locally:
+#   docker compose -f docker-compose.yml -f docker-compose.prebuilt.yml pull
+#   docker compose -f docker-compose.yml -f docker-compose.prebuilt.yml up -d
+# Override the tag with IMAGE_TAG (defaults to latest), e.g. IMAGE_TAG=1.2.0
+services:
+  api:
+    image: ghcr.io/sonofogre666/agent-market-api:${IMAGE_TAG:-latest}
+    build: !reset null
+    volumes:
+      - uploads_data:/app/uploads
+
+  celery-worker:
+    image: ghcr.io/sonofogre666/agent-market-ai-worker:${IMAGE_TAG:-latest}
+    build: !reset null
+    volumes:
+      - uploads_data:/data/uploads
+
+  celery-beat:
+    image: ghcr.io/sonofogre666/agent-market-ai-worker:${IMAGE_TAG:-latest}
+    build: !reset null
+
+  realtime:
+    image: ghcr.io/sonofogre666/agent-market-realtime:${IMAGE_TAG:-latest}
+    build: !reset null
+
+  web:
+    image: ghcr.io/sonofogre666/agent-market-web:${IMAGE_TAG:-latest}
+    build: !reset null
+
+volumes:
+  uploads_data:
+
+
+================================================================================
+FILE: /home/sonofogre/Desktop/agent-market/package.json
+================================================================================
+{
+  "name": "agent-market",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "services/*"
+  ],
+  "scripts": {
+    "check": "make check",
+    "dev": "npx concurrently \"npm run dev --workspace=apps/api\" \"npm run dev --workspace=apps/web\" \"npm run dev --workspace=services/realtime\"",
+    "dev:all": "npx concurrently -n api,web,rt \"npm run dev --workspace=apps/api\" \"npm run dev --workspace=apps/web\" \"npm run dev --workspace=services/realtime\"",
+    "build": "npm run build --workspace=apps/api && npm run build --workspace=apps/web",
+    "start": "npx concurrently \"npm run start --workspace=apps/api\" \"npm run start --workspace=apps/web\" \"npm run start --workspace=services/realtime\""
+  },
+  "devDependencies": {
+    "concurrently": "^9.0.0"
+  }
+}
+
+
+================================================================================
+FILE: /home/sonofogre/Desktop/agent-market/.env.example
+================================================================================
+# App
+NODE_ENV=development
+PORT=4010
+
+# AES key for encrypted `services.configuration` (first 32 chars used; must match ai-worker for Python decrypt)
+APP_KEY=agentmarket-default-key-32bytes!!
+
+# MongoDB (local via Docker or Atlas)
+MONGODB_URI=mongodb://localhost:27017/agentmarket
+
+# Redis
+REDIS_HOST=localhost
+REDIS_PORT=6379
+REDIS_PASSWORD=change-me-strong-password
+
+# Celery worker → API (post publish & scheduler must call API; no direct Mongo from worker for posts)
+# Generate: openssl rand -hex 24
+WORKER_API_SECRET=
+# Base URL the worker uses to reach the API (Docker: http://api:4010; local: http://127.0.0.1:4010)
+INTERNAL_API_URL=http://127.0.0.1:4010
+# Set the same WORKER_API_SECRET in services/ai-worker (or Docker) so publish tasks can call
+# GET /api/internal/worker/post-publish-bundle/:id. Missing either → publish fails at runtime.
+
+# Celery bridge: Redis list the API LPUSHes to; Beat runs tasks.bridge_api_celery_queue to forward into Celery (do not use the broker's native queue name here).
+CELERY_REDIS_LIST=agentmarket:api_task_bridge
+# Optional: Redis key prefix for /ai/* Celery round-trip results (default agentmarket:ai_sync:)
+# AI_CELERY_REPLY_PREFIX=agentmarket:ai_sync:
+
+# P2 ads: unset or 0 = Google/Meta reporting & tools via Celery worker (recommended). Set 1 for in-API Node google-ads-api only.
+LEGACY_API_EXECUTION_ADS=0
+# Set to 1/true to disable Meta Ads Library tool (meta_search_ads_library).
+# META_ADS_DISABLE_ADS_LIBRARY=0
+# Optional Redis key prefix for P2 synchronous worker replies (default agentmarket:p2_exec_reply:)
+# P2_CELERY_REPLY_PREFIX=agentmarket:p2_exec_reply:
+
+# Background jobs: always Celery (services/ai-worker). Run worker + beat locally (see Makefile) or use docker compose.
+
+# JWT (required — generate with: openssl rand -base64 48)
+JWT_SECRET=change-me-minimum-32-chars-random-secret
+JWT_EXPIRES_IN=7d
+
+# SocketCluster
+SC_PORT=8000
+
+# Realtime events channel (Redis Pub/Sub)
+EVENTS_CHANNEL=agent_market:events
+
+# Next.js Public (browser may use tunnels — see ONBOARDING / start.sh)
+NEXT_PUBLIC_API_URL=http://localhost:4010
+# Where the Next.js process proxies /__agentmarket_api → (server-side). Use direct API URL, not ngrok.
+# Local `next dev`: http://127.0.0.1:4010. Docker web image build: http://api:4010 (set via compose build arg).
+NEXT_REWRITE_API_URL=http://127.0.0.1:4010
+NEXT_PUBLIC_SC_HOST=localhost
+NEXT_PUBLIC_SC_PORT=8000
+# wss:// when true; omit or false for local SocketCluster (http://). Required for TLS-terminated realtime in prod.
+# NEXT_PUBLIC_SC_SECURE=false
+
+# Web URL (used by API for CORS)
+NEXT_PUBLIC_WEB_URL=http://localhost:3000
+
+# Media Storage
+STORAGE_DRIVER=local
+STORAGE_LOCAL_PATH=./uploads
+AWS_ACCESS_KEY_ID=
+AWS_SECRET_ACCESS_KEY=
+AWS_REGION=
+AWS_BUCKET=
+
+# Media Processing
+FFMPEG_PATH=/usr/bin/ffmpeg
+FFPROBE_PATH=/usr/bin/ffprobe
+
+# Social Providers — LinkedIn
+LINKEDIN_CLIENT_ID=
+LINKEDIN_CLIENT_SECRET=
+LINKEDIN_CALLBACK_URL=http://localhost:4010/api/integrations/linkedin/callback
+LINKEDIN_AUTHOR_URN=
+
+# Social Providers — Instagram (via Meta)
+INSTAGRAM_CLIENT_ID=
+INSTAGRAM_CLIENT_SECRET=
+INSTAGRAM_CALLBACK_URL=http://localhost:4010/api/integrations/instagram/callback
+
+# Social Providers — TikTok
+TIKTOK_CLIENT_KEY=
+TIKTOK_CLIENT_SECRET=
+TIKTOK_CALLBACK_URL=http://localhost:4010/api/integrations/tiktok/callback
+
+# Social Providers — Twitter/X
+TWITTER_CLIENT_ID=
+TWITTER_CLIENT_SECRET=
+TWITTER_CALLBACK_URL=http://localhost:4010/api/integrations/twitter/callback
+
+# Social Providers — Meta (Facebook/Instagram)
+META_APP_ID=
+META_APP_SECRET=
+META_CALLBACK_URL_FACEBOOK_PAGE=http://localhost:4010/api/integrations/facebook_page/callback
+# Instagram via Meta uses INSTAGRAM_CALLBACK_URL
+
+# Social Providers — Instagram Login (direct, no Facebook account required)
+INSTAGRAM_LOGIN_CALLBACK_URL=http://localhost:4010/api/integrations/instagram_login/callback
+
+# Google Ads
+GOOGLE_ADS_CLIENT_ID=
+GOOGLE_ADS_CLIENT_SECRET=
+GOOGLE_ADS_DEVELOPER_TOKEN=
+GOOGLE_ADS_CUSTOMER_ID=
+GOOGLE_ADS_CALLBACK_URL=http://localhost:4010/callback/google_ads
+
+# Ads automation (Celery Beat — services/ai-worker; requires WORKER_API_SECRET + INTERNAL_API_URL)
+# Hourly pacing (:15 UTC): pause overspending campaigns locally when KPI alerts fire
+ADS_PACING_AUTO_PAUSE=0
+# Hourly bid optimization (:45 UTC): auto-apply safe keyword bid decreases (high-priority only)
+ADS_BID_AUTO_APPLY=0
+
+# AI (Gemini, OpenAI, Anthropic) — API keys and models are configured per workspace in the web UI (Settings → AI).
+# Do not set GEMINI_API_KEY, OPENAI_API_KEY, ANTHROPIC_API_KEY, or GEMINI_*_MODEL here.
+
+# External Services
+UNSPLASH_ACCESS_KEY=
+TENOR_API_KEY=
+fedora.tail6742ef.ts.net
+
+================================================================================
+FILE: /home/sonofogre/Desktop/agent-market/Makefile
+================================================================================
+.PHONY: up down dev worker beat install check
+
+# Syntax-only: Python worker tree + apps/api JS (no Mongo/Redis). Run after refactors.
+check:
+	cd services/ai-worker && python3 -m compileall -q -f connectors tasks lib celery_app.py db.py
+	@set -e; for f in $$(find apps/api/src -name '*.js' 2>/dev/null); do node --check "$$f"; done
+
+up:
+	docker compose up -d
+
+down:
+	docker compose down
+
+install:
+	npm install
+
+dev:
+	npm run dev
+
+worker:
+	cd services/ai-worker && (test -d .venv || python3 -m venv .venv) && . .venv/bin/activate && pip install -q -r requirements.txt && celery -A celery_app:celery_app worker -l info
+
+beat:
+	cd services/ai-worker && (test -d .venv || python3 -m venv .venv) && . .venv/bin/activate && pip install -q -r requirements.txt && celery -A celery_app:celery_app beat -l info
+
+
+================================================================================
+FILE: /home/sonofogre/Desktop/agent-market/docs/ARCHITECTURE.md
+================================================================================
+# Agent-Market — Architecture
+
+> Vue d'ensemble runtime. Pour le guide développeur détaillé (setup, endpoints, collections), voir **[ONBOARDING.md](ONBOARDING.md)**.
+
+---
+
+## Product modules
+
+### 1. Social automation
+
+- Draft and schedule posts across LinkedIn, Instagram, Facebook, Twitter/X, TikTok
+- Multi-account publishing via `post_accounts`
+- Comment sync, LLM analysis, and reply suggestions
+- Imported post history and audience/metrics sync (Celery imports)
+
+### 2. Ads automation (Google Ads + Meta)
+
+- Campaign CRUD, native publish (Search, Display, PMax, Meta)
+- ~150 agent tools under `services/ai-worker/tools/ads/`
+- Reporting (GAQL, Meta insights), budget pacing, bid optimization
+- Landing page generation and lead capture with UTM attribution
+
+### 3. SEO
+
+- AI keyword clustering
+- SERP rank checks (DuckDuckGo scrape)
+- Landing page SEO audit (rule-based on Mongo data)
+
+### 4. AI agent (Marketing Assistant)
+
+- Conversational planner (`/api/agent/chat`)
+- Multi-step workflows with approval and execution (`plan_workflow`, `execute_workflow`)
+- Tool registry: ads mutations, content generation, SEO, competitive analysis
+
+### 5. Platform & tenancy
+
+- JWT auth, multi-workspace membership, invites
+- Per-workspace AI provider config (`integrations` + `ai_workspace_configs`)
+- Media library (local or S3), settings, audit `event_logs`
+
+---
+
+## Runtime components
+
+| Component | Path | Role |
+| --------- | ---- | ---- |
+| **Web** | `apps/web` | Next.js 15 App Router — dashboard, ads UI, agent chat, SEO, settings |
+| **API** | `apps/api` | Fastify 5 — REST, JWT, OAuth, enqueue Celery, publish Redis events |
+| **Realtime** | `services/realtime` | SocketCluster — Redis pub/sub → WebSocket channel `events` |
+| **AI worker** | `services/ai-worker` | Celery worker + Beat — publish, imports, LLM, ads tools, schedulers |
+| **MongoDB 7** | `docker-compose.yml` | Source of truth (posts, campaigns, accounts, workflows, metrics) |
+| **Redis 7** | `docker-compose.yml` | Celery broker, API→worker bridge list, cache, pub/sub |
+
+---
+
+## Request flow
+
+```
+Browser (Next.js)
+      │
+      ▼
+Fastify API ──────────────► MongoDB (persist state)
+      │
+      ├── LPUSH CELERY_REDIS_LIST ──► Beat: bridge_api_celery_queue ──► Celery task
+      │                                         │
+      │                                         ├── connectors/ (platform APIs)
+      │                                         ├── lib/llm/ (Gemini, OpenAI, Anthropic, Ollama)
+      │                                         └── worker_api → INTERNAL_API_URL (publish bundle)
+      │
+      ├── sync Celery round-trip (/api/ai/*, ads P2) ──► Redis reply key ──► poll job
+      │
+      └── PUBLISH EVENTS_CHANNEL ──► SocketCluster ──► RealtimeProvider (web)
+```
+
+### Celery bridge
+
+The API does **not** call Celery directly. It `LPUSH`es JSON task envelopes onto **`CELERY_REDIS_LIST`** (default `agentmarket:api_task_bridge`). Beat runs **`tasks.bridge_api_celery_queue`** every 5s to forward them into the Celery broker.
+
+### Worker → API boundary
+
+Post publish and schedulers call **`/api/internal/worker/*`** with **`WORKER_API_SECRET`**. The worker does not mutate posts directly in Mongo for publish flows — the API owns persistence.
+
+### Synchronous AI / ads execution
+
+- **`/api/ai/*`** — enqueue `tasks.ai.gemini_sync`, poll `/api/ai/jobs/:jobId` via Redis reply prefix
+- **Ads P2** (default) — Google/Meta reporting and tool execution in Celery when `LEGACY_API_EXECUTION_ADS=0`
+
+---
+
+## API layer (`apps/api`)
+
+| Area | Key paths |
+| ---- | --------- |
+| Boot | `src/index.js` → `server.js`, routes in `registerRoutes.js` |
+| Auth | `middleware/auth.js`, `routes/auth.js`, `routes/workspace.js` |
+| Models | `src/models/*.js` — one file per domain entity |
+| Providers | `src/providers/` — OAuth and platform adapters (Node) |
+| Enqueue | `lib/celeryEnqueue.js`, `lib/agentCeleryBridge.js`, `lib/aiCeleryBridge.js` |
+| Events | `lib/events.js` — Redis pub/sub + `event_logs` |
+| Media | `media/processor.js` — sharp, ffmpeg |
+
+---
+
+## Worker layer (`services/ai-worker`)
+
+| Area | Key paths |
+| ---- | --------- |
+| Celery app | `celery_app.py` — broker config + `beat_schedule` |
+| Tasks | `tasks/` — `social/`, `ads/`, `seo/`, `agent/`, `imports/`, `analytics/`, `bridge.py`, `scheduler_beat.py` |
+| Connectors | `connectors/` — `google_ads/`, `meta_ads/`, `linkedin.py`, `twitter.py`, `instagram.py`, `tiktok.py`, … |
+| LLM | `lib/llm/` — `router.py`, provider modules (`gemini`, `openai`, `anthropic`, `ollama`, `openrouter`) |
+| Planner | `lib/planner/` — agent workflow planning, ads session, campaign specs |
+| Tools | `tools/ads/google/`, `tools/ads/meta/` — agent-callable mutations and reporting |
+| Prompts | `prompts/` — markdown templates per feature |
+
+---
+
+## Realtime
+
+1. API or worker calls `publishEvent()` → `redis.publish(EVENTS_CHANNEL, payload)`
+2. `services/realtime/server.js` subscribes and broadcasts on SocketCluster channel **`events`**
+3. `apps/web/components/RealtimeProvider.js` + `lib/socket.js` update the UI
+
+---
+
+## Multi-tenancy
+
+- Every authenticated request carries **`workspace_id`** (JWT claim, switchable via `/api/switch-workspace`)
+- Collections are scoped by `workspace_id` where applicable
+- OAuth tokens and AI keys live in **`integrations`** (encrypted with `APP_KEY`) per workspace
+- Feature-to-provider mapping in **`ai_workspace_configs`** + catalog seed **`ai_catalog`**
+
+---
+
+## Deployment topology
+
+**Local dev (hybrid):** `docker compose up -d mongo redis` + `npm run dev` + `make worker beat`
+
+**Full Docker:** `docker compose up -d` — all services including celery-worker and celery-beat
+
+**Production images:** CI builds and pushes to GHCR; `docker-compose.prebuilt.yml` pulls prebuilt images. See root **README.md**.
+
+
+================================================================================
+FILE: /home/sonofogre/Desktop/agent-market/apps/api/package.json
+================================================================================
+{
+  "name": "@agent-market/api",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "node --watch src/index.js",
+    "start": "node src/index.js",
+    "worker": "node -e \"console.error('Use services/ai-worker Celery worker instead of npm run worker'); process.exit(1)\""
+  },
+  "dependencies": {
+    "@fastify/cookie": "^10.0.1",
+    "@fastify/cors": "^10.0.1",
+    "@fastify/helmet": "^13.0.0",
+    "@fastify/jwt": "^9.0.1",
+    "@fastify/multipart": "^9.0.1",
+    "@fastify/rate-limit": "^10.0.0",
+    "@fastify/static": "^8.0.1",
+    "axios": "^1.7.7",
+    "bcryptjs": "^2.4.3",
+    "dotenv": "16.4.5",
+    "facebook-nodejs-business-sdk": "^24.0.1",
+    "fastify": "5.1.0",
+    "fluent-ffmpeg": "^2.1.3",
+    "form-data": "^4.0.0",
+    "google-ads-api": "^23.0.0",
+    "ioredis": "5.4.1",
+    "mongodb": "6.12.0",
+    "nanoid": "^5.0.7",
+    "node-cron": "^3.0.3",
+    "nodemailer": "^8.0.5",
+    "oauth": "^0.10.0",
+    "sharp": "^0.33.5",
+    "twitter-api-v2": "^1.18.2"
+  }
+}
+
+
+================================================================================
+FILE: /home/sonofogre/Desktop/agent-market/apps/web/package.json
+================================================================================
+{
+  "name": "@agent-market/web",
+  "version": "1.0.0",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start"
+  },
+  "dependencies": {
+    "dotenv": "16.4.5",
+    "date-fns": "^4.1.0",
+    "lucide-react": "^0.469.0",
+    "nanoid": "^5.0.7",
+    "next": "^15.3.1",
+    "react": "19.0.0",
+    "react-dom": "19.0.0",
+    "socketcluster-client": "^20.0.0"
+  }
+}
+
+
+================================================================================
+FILE: /home/sonofogre/Desktop/agent-market/services/realtime/package.json
+================================================================================
+{
+  "name": "@agent-market/realtime",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "node --watch src/server.js",
+    "start": "node src/server.js"
+  },
+  "dependencies": {
+    "dotenv": "16.4.5",
+    "ioredis": "5.4.1",
+    "socketcluster-server": "^20.0.0"
+  }
+}
+
+
+================================================================================
+FILE: /home/sonofogre/Desktop/agent-market/services/ai-worker/requirements.txt
+================================================================================
+celery==5.3.6
+redis==5.0.1
+pymongo==4.6.1
+python-dotenv==1.0.1
+python-dateutil>=2.8.2
+openai==1.30.1
+anthropic==0.28.0
+httpx==0.27.0
+# Optional: pip install google-genai  (Veo SDK; HTTP fallback works without it)
+tweepy==4.16.0
+pycryptodome==3.20.0
+Pillow==12.2.0
+# google-ads 24–27 require Python <3.14; use 28.2+ on Python 3.14+
+google-ads>=28.2.0,<32
+
+
+================================================================================
+FILE: /home/sonofogre/Desktop/agent-market/services/ai-worker/Dockerfile
+================================================================================
+FROM python:3.11-slim
+
+WORKDIR /app
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY . .
+
+CMD ["celery", "-A", "celery_app:celery_app", "worker", "-l", "info"]
+
+
+================================================================================
+FILE: /home/sonofogre/Desktop/agent-market/services/ai-worker/celery_app.py
+================================================================================
+import os
+import sys
+from pathlib import Path
+
+from dotenv import load_dotenv
+from celery import Celery
+from celery.schedules import crontab
+from celery.signals import worker_process_init
+
+# Ensure worker root is on sys.path in prefork children (agents/, lib/, tasks/).
+_WORKER_ROOT = Path(__file__).resolve().parent
+_ROOT_STR = str(_WORKER_ROOT)
+if _ROOT_STR not in sys.path:
+    sys.path.insert(0, _ROOT_STR)
+
+
+@worker_process_init.connect
+def _celery_worker_process_init(**_kwargs):
+    if _ROOT_STR not in sys.path:
+        sys.path.insert(0, _ROOT_STR)
+
+
+load_dotenv()
+
+REDIS_HOST = os.getenv('REDIS_HOST', 'localhost')
+REDIS_PORT = os.getenv('REDIS_PORT', '6379')
+REDIS_PASSWORD = os.getenv('REDIS_PASSWORD', '')
+REDIS_URL = f"redis://:{REDIS_PASSWORD}@{REDIS_HOST}:{REDIS_PORT}/0" if REDIS_PASSWORD else f"redis://{REDIS_HOST}:{REDIS_PORT}/0"
+
+celery_app = Celery(
+    'agent_market',
+    broker=REDIS_URL,
+    backend=REDIS_URL,
+    include=['tasks'],
+)
+
+celery_app.conf.update(
+    task_serializer='json',
+    accept_content=['json'],
+    result_serializer='json',
+    timezone='UTC',
+    enable_utc=True,
+    task_track_started=True,
+    worker_prefetch_multiplier=1,
+    task_acks_late=True,
+)
+
+# Celery Beat — onboarding spec + extra maintenance beats
+celery_app.conf.beat_schedule = {
+    'optimize-active-campaigns': {
+        'task': 'tasks.optimize_active_campaigns',
+        'schedule': crontab(minute=30),
+    },
+    'bridge.api_celery_queue': {
+        'task': 'tasks.bridge_api_celery_queue',
+        'schedule': 5.0,
+    },
+    # Migrated from apps/api/src/queue/scheduler.js (Node cron)
+    'scheduler.tick_due_posts': {
+        'task': 'tasks.scheduler.tick_due_posts',
+        'schedule': 60.0,
+    },
+    'scheduler.tick_due_campaigns': {
+        'task': 'tasks.scheduler.tick_due_campaigns',
+        'schedule': 60.0,
+    },
+    'scheduler.hourly_import_followers': {
+        'task': 'tasks.scheduler.hourly_import_followers',
+        'schedule': crontab(minute=0),
+    },
+    'scheduler.six_hourly_twitter_posts': {
+        'task': 'tasks.scheduler.six_hourly_twitter_posts',
+        'schedule': crontab(minute=0, hour='*/6'),
+    },
+    'scheduler.daily_metrics_midnight_utc': {
+        'task': 'tasks.scheduler.daily_metrics_midnight_utc',
+        'schedule': crontab(minute=0, hour=0),
+    },
+    'scheduler.daily_delete_old_imports': {
+        'task': 'tasks.scheduler.daily_delete_old_imports',
+        'schedule': crontab(minute=0, hour=4),
+    },
+    'scheduler.hourly_budget_alerts': {
+        'task': 'tasks.scheduler.hourly_budget_alerts',
+        'schedule': crontab(minute=0),
+    },
+    'scheduler.hourly_budget_pacing': {
+        'task': 'tasks.scheduler.hourly_budget_pacing',
+        'schedule': crontab(minute=15),
+    },
+    'scheduler.hourly_bid_optimization': {
+        'task': 'tasks.scheduler.hourly_bid_optimization',
+        'schedule': crontab(minute=45),
+    },
+    'scheduler.daily_negative_keyword_review': {
+        'task': 'tasks.scheduler.daily_negative_keyword_review',
+        'schedule': crontab(minute=30, hour=7),
+    },
+    'scheduler.daily_prune_upload_tmp': {
+        'task': 'tasks.scheduler.daily_prune_upload_tmp',
+        'schedule': crontab(minute=0, hour=3),
+    },
+    'scheduler.weekly_report_monday_8utc': {
+        'task': 'tasks.scheduler.weekly_report_monday_8utc',
+        'schedule': crontab(minute=0, hour=8, day_of_week=1),
+    },
+    'scheduler.ads_platform_sync_daily': {
+        'task': 'tasks.scheduler.ads_platform_sync_daily',
+        'schedule': crontab(minute=0, hour=6),
+    },
+    'scheduler.tick_comment_sync': {
+        'task': 'tasks.scheduler.tick_comment_sync',
+        'schedule': crontab(minute='*/15'),
+    },
+}
+
+if __name__ == '__main__':
+    celery_app.start()
+
+
+================================================================================
+FILE: /home/sonofogre/Desktop/agent-market/services/ai-worker/db.py
+================================================================================
+import os
+import redis
+from pymongo import MongoClient
+from dotenv import load_dotenv
+
+load_dotenv()
+
+_mongo_client = None
+_redis_client = None
+
+
+def get_db():
+    global _mongo_client
+    if _mongo_client is None:
+        uri = os.getenv('MONGODB_URI', 'mongodb://localhost:27017/agentmarket')
+        _mongo_client = MongoClient(uri)
+    db_name = os.getenv('MONGODB_URI', 'agentmarket').split('/')[-1].split('?')[0]
+    return _mongo_client[db_name or 'agentmarket']
+
+
+def get_redis():
+    global _redis_client
+    if _redis_client is None:
+        host = os.getenv('REDIS_HOST', 'localhost')
+        port = int(os.getenv('REDIS_PORT', '6379'))
+        password = os.getenv('REDIS_PASSWORD') or None
+        _redis_client = redis.Redis(host=host, port=port, password=password, decode_responses=True)
+    return _redis_client
+
+
+================================================================================
+FILE: /home/sonofogre/Desktop/agent-market/services/ai-worker/lib/dispatch/dispatcher.py
+================================================================================
+"""Registry dispatcher — sole runtime path for tool execution (§12, §34.3)."""
+
+from __future__ import annotations
+
+import logging
+import re
+from typing import Any
+
+from celery_app import celery_app
+from lib.dispatch.registry import get_tool, resolve_dispatch
+
+logger = logging.getLogger(__name__)
+
+_OBJECT_ID_RE = re.compile(r'^[a-f0-9]{24}$', re.I)
+
+GEMINI_TASK = 'tasks.ai.gemini_sync'
+CREATE_DRAFT_TASK = 'tasks.social.create_draft_post'
+SCHEDULE_POST_TASK = 'tasks.social.schedule_post'
+ADS_EXECUTE_TASK = 'tasks.ads.execute_ads_tool'
+LANDING_PAGE_WORKFLOW_TASK = 'tasks.ads.run_landing_page_workflow'
+SEO_CLUSTER_TASK = 'tasks.seo.cluster_keywords'
+SEO_RANKS_TASK = 'tasks.seo.check_workspace_ranks'
+SEO_AUDIT_TASK = 'tasks.seo.audit_landing_pages'
+GENERATE_CAMPAIGN_ASSETS_TASK = 'tasks.generate_campaign_assets'
+OPTIMIZE_CAMPAIGN_TASK = 'tasks.optimize_campaign'
+BUDGET_PACING_TASK = 'tasks.ads.run_budget_pacing'
+BUDGET_REALLOCATION_TASK = 'tasks.ads.run_budget_reallocation'
+BID_OPTIMIZATION_TASK = 'tasks.ads.run_bid_optimization'
+QUALITY_SCORE_TASK = 'tasks.ads.run_quality_score_monitor'
+ASSET_AB_TASK = 'tasks.ads.run_asset_ab_analysis'
+
+
+def dispatch_tool(tool_id: str, payload: dict[str, Any] | None = None) -> Any:
+    """
+    Execute a registry tool synchronously (used by workflow runtime).
+    Async-only tools return a dispatch envelope without blocking.
+    """
+    spec = resolve_dispatch(tool_id)
+    tool = get_tool(tool_id) or {}
+    task_name = spec['task']
+    body = payload or {}
+
+    if task_name == GEMINI_TASK:
+        from tasks.ai.gemini_sync import run_gemini_sync
+
+        opcode = spec.get('opcode')
+        if not opcode:
+            raise ValueError(f'Tool {tool_id} missing opcode for {GEMINI_TASK}')
+        agent_body = {**body, 'execution_source': body.get('execution_source') or 'agent'}
+        return run_gemini_sync(opcode, agent_body)
+
+    if task_name == CREATE_DRAFT_TASK:
+        from tasks.social.create_draft_post import run_create_draft_post
+
+        return run_create_draft_post(body)
+
+    if task_name == SCHEDULE_POST_TASK:
+        from tasks.social.schedule_post import run_schedule_post
+
+        post_id = str(body.get('post_id') or '').strip()
+        if not post_id:
+            raise ValueError('schedule_post requires post_id in payload')
+        if post_id.startswith('step_') or not _OBJECT_ID_RE.match(post_id):
+            raise ValueError(
+                'schedule_post requires a real post_id from create_draft_post — '
+                f'got invalid value: {post_id!r}'
+            )
+        return run_schedule_post(body)
+
+    if tool_id == 'publish_post':
+        post_id = str(body.get('post_id') or '').strip()
+        if not post_id:
+            raise ValueError('publish_post requires post_id in payload')
+        if post_id.startswith('step_') or not _OBJECT_ID_RE.match(post_id):
+            raise ValueError(
+                'publish_post requires a real post_id from create_draft_post — '
+                f'got invalid value: {post_id!r}'
+            )
+        from lib import worker_api
+
+        if worker_api.configured():
+            worker_api.prepare_publish_post({
+                'workspace_id': body.get('workspace_id'),
+                'post_id': post_id,
+                'account_ids': body.get('account_ids'),
+                'platform': body.get('platform'),
+            })
+        celery_app.send_task(task_name, args=[post_id])
+        return {'dispatched': True, 'task': task_name, 'post_id': str(post_id)}
+
+    if tool_id == 'publish_campaign':
+        campaign_id = body.get('campaign_id')
+        if not campaign_id:
+            raise ValueError('publish_campaign requires campaign_id in payload')
+        celery_app.send_task(task_name, args=[str(campaign_id)])
+        return {'dispatched': True, 'task': task_name, 'campaign_id': str(campaign_id)}
+
+    if tool_id == 'import_account_metrics':
+        # Agent path: sync + return snapshot (scheduler still uses Celery import_account).
+        from tasks.imports.account_metrics_sync import run_import_account_metrics
+
+        return run_import_account_metrics(body)
+
+    if task_name == ADS_EXECUTE_TASK:
+        from tasks.ads.execute_ads_tool import run_execute_ads_tool
+
+        opcode = spec.get('opcode') or tool_id
+        return run_execute_ads_tool(str(opcode), body)
+
+    if task_name == LANDING_PAGE_WORKFLOW_TASK:
+        from lib import worker_api
+
+        if not worker_api.configured():
+            raise RuntimeError('WORKER_API_SECRET not set')
+        return worker_api.run_landing_page_workflow(body)
+
+    if task_name == SEO_CLUSTER_TASK:
+        from tasks.seo.cluster_keywords import run_cluster_seo_keywords
+
+        return run_cluster_seo_keywords(body)
+
+    if task_name == SEO_RANKS_TASK:
+        from tasks.seo.check_workspace_ranks import run_check_workspace_ranks
+
+        return run_check_workspace_ranks(body)
+
+    if task_name == SEO_AUDIT_TASK:
+        from tasks.seo.audit_landing_pages import run_audit_seo_landing_pages
+
+        return run_audit_seo_landing_pages(body)
+
+    if task_name == GENERATE_CAMPAIGN_ASSETS_TASK:
+        from tasks.ads.campaign_content import run_generate_campaign_assets
+
+        return run_generate_campaign_assets(body)
+
+    if task_name == OPTIMIZE_CAMPAIGN_TASK:
+        from tasks.ads.workspace_ops import run_optimize_campaign_tool
+
+        return run_optimize_campaign_tool(body)
+
+    if task_name == BUDGET_PACING_TASK:
+        from tasks.ads.workspace_ops import run_budget_pacing
+
+        return run_budget_pacing(body)
+
+    if task_name == BUDGET_REALLOCATION_TASK:
+        from tasks.ads.workspace_ops import run_budget_reallocation
+
+        return run_budget_reallocation(body)
+
+    if task_name == BID_OPTIMIZATION_TASK:
+        from tasks.ads.workspace_ops import run_bid_optimization
+
+        return run_bid_optimization(body)
+
+    if task_name == QUALITY_SCORE_TASK:
+        from tasks.ads.workspace_ops import run_quality_score_monitor
+
+        return run_quality_score_monitor(body)
+
+    if task_name == ASSET_AB_TASK:
+        from tasks.ads.workspace_ops import run_asset_ab_analysis
+
+        return run_asset_ab_analysis(body)
+
+    raise ValueError(f'No dispatcher handler for tool_id={tool_id} task={task_name}')
+
+
+================================================================================
+FILE: /home/sonofogre/Desktop/agent-market/services/ai-worker/lib/dispatch/registry.py
+================================================================================
+"""Tool registry — single source of truth for executable capabilities."""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+from typing import Any
+
+_REGISTRY: dict[str, Any] | None = None
+_ROOT = Path(__file__).resolve().parents[2]
+
+
+def load_registry() -> dict[str, Any]:
+    global _REGISTRY
+    if _REGISTRY is None:
+        path = _ROOT / 'registry' / 'tools.json'
+        with open(path, encoding='utf-8') as f:
+            _REGISTRY = json.load(f)
+    return _REGISTRY
+
+
+def list_tools() -> list[dict[str, Any]]:
+    return list(load_registry().get('tools') or [])
+
+
+def get_tool(tool_id: str) -> dict[str, Any] | None:
+    for t in list_tools():
+        if t.get('tool_id') == tool_id:
+            return t
+    return None
+
+
+AGENT_FLOW_CAMPAIGN = 'campaign'
+AGENT_FLOW_ADMIN_SETUP = 'admin_setup'
+
+
+def tool_agent_flow(tool: dict[str, Any] | None) -> str:
+    """``campaign`` (default) = planner + agent workflows; ``admin_setup`` = direct API only."""
+    if not tool:
+        return AGENT_FLOW_CAMPAIGN
+    return str(tool.get('agent_flow') or AGENT_FLOW_CAMPAIGN)
+
+
+def is_admin_setup_tool(tool_id: str) -> bool:
+    return tool_agent_flow(get_tool(tool_id)) == AGENT_FLOW_ADMIN_SETUP
+
+
+def tool_catalog_for_planner(route: str | None = None) -> list[dict[str, str]]:
+    """Minimal tool metadata injected into planner prompts (no task paths)."""
+    from lib.planner.intent_router import tool_id_allowed_for_route
+
+    out = []
+    for t in list_tools():
+        if tool_agent_flow(t) != AGENT_FLOW_CAMPAIGN:
+            continue
+        tool_id = str(t.get('tool_id') or '')
+        if route and route not in ('general', '') and not tool_id_allowed_for_route(tool_id, route):
+            continue
+        out.append({
+            'tool_id': tool_id,
+            'description': t.get('description') or '',
+            'risk_tier': t.get('risk_tier') or 'low',
+            'requires_approval': bool(t.get('requires_approval_default')),
+        })
+    return out
+
+
+def resolve_dispatch(tool_id: str) -> dict[str, Any]:
+    """Map tool_id → Celery task name + optional opcode."""
+    tool = get_tool(tool_id)
+    if not tool:
+        raise ValueError(f'Unknown tool_id: {tool_id}')
+    return {
+        'tool_id': tool_id,
+        'task': tool['task'],
+        'opcode': tool.get('opcode'),
+        'requires_approval': bool(tool.get('requires_approval_default')),
+        'side_effect_class': tool.get('side_effect_class') or 'internal',
+    }
+
+
+================================================================================
+FILE: /home/sonofogre/Desktop/agent-market/services/ai-worker/lib/worker_api.py
+================================================================================
+"""HTTP client for apps/api internal worker routes (DB truth stays in API)."""
+from __future__ import annotations
+
+import logging
+import os
+from typing import Any, Dict, List, Optional
+
+import httpx
+
+logger = logging.getLogger(__name__)
+
+
+def _base() -> str:
+    return (os.getenv('INTERNAL_API_URL') or 'http://127.0.0.1:4010').rstrip('/')
+
+
+def _secret() -> str:
+    return (os.getenv('WORKER_API_SECRET') or '').strip()
+
+
+def _headers() -> Dict[str, str]:
+    return {'X-Worker-Secret': _secret(), 'Content-Type': 'application/json'}
+
+
+def configured() -> bool:
+    return len(_secret()) >= 8
+
+
+def get_publish_bundle(post_id: str) -> Dict[str, Any]:
+    url = f'{_base()}/api/internal/worker/post-publish-bundle/{post_id}'
+    r = httpx.get(url, headers=_headers(), timeout=120.0)
+    r.raise_for_status()
+    return r.json()
+
+
+def patch_post(post_id: str, fields: Dict[str, Any]) -> None:
+    url = f'{_base()}/api/internal/worker/posts/{post_id}'
+    r = httpx.patch(url, headers=_headers(), json=fields, timeout=60.0)
+    r.raise_for_status()
+
+
+def upsert_post_account(
+    post_id: str,
+    account_id: str,
+    *,
+    provider_post_id: Optional[str] = None,
+    data: Optional[Dict[str, Any]] = None,
+    errors: Optional[List[Any]] = None,
+) -> None:
+    url = f'{_base()}/api/internal/worker/post-accounts'
+    body = {
+        'post_id': str(post_id),
+        'account_id': str(account_id),
+        'provider_post_id': provider_post_id,
+        'data': data or {},
+        'errors': errors or [],
+    }
+    r = httpx.put(url, headers=_headers(), json=body, timeout=60.0)
+    r.raise_for_status()
+
+
+def patch_account_deauthorized(account_id: str) -> None:
+    url = f'{_base()}/api/internal/worker/accounts/{account_id}/deauthorize'
+    # Fastify rejects Content-Type: application/json with an empty body.
+    r = httpx.patch(url, headers=_headers(), json={}, timeout=30.0)
+    r.raise_for_status()
+
+
+def emit_event(event: str, payload: Optional[Dict[str, Any]] = None) -> None:
+    url = f'{_base()}/api/internal/worker/events'
+    body = {'event': event, **(payload or {})}
+    r = httpx.post(url, headers=_headers(), json=body, timeout=15.0)
+    r.raise_for_status()
+
+
+def claim_due_posts() -> List[str]:
+    url = f'{_base()}/api/internal/worker/scheduler/claim-due-posts'
+    r = httpx.post(url, headers=_headers(), json={}, timeout=120.0)
+    r.raise_for_status()
+    data = r.json()
+    return list(data.get('ids') or [])
+
+
+def claim_due_campaigns() -> List[str]:
+    url = f'{_base()}/api/internal/worker/scheduler/claim-due-campaigns'
+    r = httpx.post(url, headers=_headers(), json={}, timeout=120.0)
+    r.raise_for_status()
+    data = r.json()
+    return list(data.get('ids') or [])
+
+
+def get_account_worker_context(account_id: str) -> Dict[str, Any]:
+    url = f'{_base()}/api/internal/worker/accounts/{account_id}/worker-context'
+    r = httpx.get(url, headers=_headers(), timeout=60.0)
+    r.raise_for_status()
+    return r.json()
+
+
+def list_accounts_authorized(
+    provider: Optional[str] = None,
+    *,
+    workspace_id: Optional[str] = None,
+    kind: Optional[str] = None,
+) -> List[Dict[str, str]]:
+    url = f'{_base()}/api/internal/worker/accounts/list'
+    params: Dict[str, str] = {}
+    if provider:
+        params['provider'] = provider
+    if workspace_id:
+        params['workspace_id'] = str(workspace_id)
+    if kind:
+        params['kind'] = kind
+    r = httpx.get(url, headers=_headers(), params=params, timeout=120.0)
+    r.raise_for_status()
+    data = r.json()
+    return list(data.get('items') or [])
+
+
+def get_workspace_settings(workspace_id: str) -> Dict[str, Any]:
+    """Preference defaults (e.g. default_accounts) for planner + publish targeting."""
+    wid = str(workspace_id or '').strip()
+    if not wid:
+        return {}
+    url = f'{_base()}/api/internal/worker/workspaces/{wid}/settings'
+    r = httpx.get(url, headers=_headers(), timeout=30.0)
+    r.raise_for_status()
+    data = r.json()
+    return data if isinstance(data, dict) else {}
+
+
+def get_integration_config_decrypted(name: str, workspace_id: Optional[str] = None) -> Dict[str, Any]:
+    url = f'{_base()}/api/internal/worker/integration-config/{name}'
+    params = {'workspace_id': workspace_id} if workspace_id else None
+    r = httpx.get(url, headers=_headers(), params=params, timeout=60.0)
+    r.raise_for_status()
+    data = r.json()
+    return data if isinstance(data, dict) else {}
+
+
+def get_ai_catalog() -> Dict[str, Any]:
+    url = f'{_base()}/api/internal/worker/ai-catalog'
+    r = httpx.get(url, headers=_headers(), timeout=30.0)
+    r.raise_for_status()
+    data = r.json()
+    return data if isinstance(data, dict) else {}
+
+
+def get_ai_workspace_config(workspace_id: str) -> Dict[str, Any]:
+    url = f'{_base()}/api/internal/worker/ai-workspace-config'
+    r = httpx.get(
+        url,
+        headers=_headers(),
+        params={'workspace_id': str(workspace_id)},
+        timeout=30.0,
+    )
+    r.raise_for_status()
+    data = r.json()
+    return data if isinstance(data, dict) else {}
+
+
+def record_ai_execution(body: Dict[str, Any]) -> None:
+    """Append one row to ai_executions (fire-and-forget safe for callers)."""
+    url = f'{_base()}/api/internal/worker/ai-executions'
+    r = httpx.post(url, headers=_headers(), json=body, timeout=10.0)
+    r.raise_for_status()
+
+
+def get_service_decrypted(name: str, workspace_id: Optional[str] = None) -> Dict[str, Any]:
+    """Alias for ``get_integration_config_decrypted`` (legacy name)."""
+    return get_integration_config_decrypted(name, workspace_id)
+
+
+def upsert_audience(account_id: str, date: str, total: int) -> None:
+    url = f'{_base()}/api/internal/worker/audience'
+    r = httpx.put(
+        url,
+        headers=_headers(),
+        json={'account_id': str(account_id), 'date': str(date), 'total': int(total)},
+        timeout=60.0,
+    )
+    r.raise_for_status()
+
+
+def get_account_metrics_snapshot(account_id: str, *, days: int = 30) -> Dict[str, Any]:
+    """Compact social metrics for agent Q&A (followers + recent totals)."""
+    url = f'{_base()}/api/internal/worker/accounts/{account_id}/metrics-snapshot'
+    r = httpx.get(
+        url,
+        headers=_headers(),
+        params={'days': str(int(days))},
+        timeout=60.0,
+    )
+    r.raise_for_status()
+    data = r.json()
+    return data if isinstance(data, dict) else {}
+
+
+def bulk_upsert_metrics(items: List[Dict[str, Any]]) -> None:
+    url = f'{_base()}/api/internal/worker/metrics/bulk-upsert'
+    r = httpx.put(url, headers=_headers(), json={'items': items}, timeout=120.0)
+    r.raise_for_status()
+
+
+def get_imported_posts_twitter_aggregate(account_id: str) -> List[Dict[str, Any]]:
+    url = f'{_base()}/api/internal/worker/aggregates/imported-posts-twitter-metrics/{account_id}'
+    r = httpx.get(url, headers=_headers(), timeout=120.0)
+    r.raise_for_status()
+    data = r.json()
+    return list(data.get('items') or [])
+
+
+def get_imported_posts_instagram_aggregate(account_id: str) -> List[Dict[str, Any]]:
+    url = f'{_base()}/api/internal/worker/aggregates/imported-posts-instagram-metrics/{account_id}'
+    r = httpx.get(url, headers=_headers(), timeout=120.0)
+    r.raise_for_status()
+    data = r.json()
+    return list(data.get('items') or [])
+
+
+def prune_old_imports() -> Dict[str, int]:
+    url = f'{_base()}/api/internal/worker/maintenance/prune-old-imports'
+    r = httpx.post(url, headers=_headers(), timeout=300.0)
+    r.raise_for_status()
+    return r.json()
+
+
+def upsert_imported_post(
+    account_id: str,
+    provider_post_id: str,
+    content: Dict[str, Any],
+    metrics: Dict[str, Any],
+) -> None:
+    url = f'{_base()}/api/internal/worker/imported-posts/upsert'
+    r = httpx.put(
+        url,
+        headers=_headers(),
+        json={
+            'account_id': str(account_id),
+            'provider_post_id': str(provider_post_id),
+            'content': content,
+            'metrics': metrics,
+        },
+        timeout=60.0,
+    )
+    r.raise_for_status()
+
+
+def upsert_facebook_insight(account_id: str, insight_type: int, value: Any, date: str) -> None:
+    url = f'{_base()}/api/internal/worker/facebook-insights/upsert'
+    r = httpx.put(
+        url,
+        headers=_headers(),
+        json={
+            'account_id': str(account_id),
+            'type': int(insight_type),
+            'value': value,
+            'date': str(date),
+        },
+        timeout=60.0,
+    )
+    r.raise_for_status()
+
+
+def get_ads_sync_job_plan() -> Dict[str, Any]:
+    url = f'{_base()}/api/internal/worker/ads/sync-job-plan'
+    r = httpx.get(url, headers=_headers(), timeout=120.0)
+    r.raise_for_status()
+    return r.json()
+
+
+def get_ads_sync_workspace_context(workspace_id: str) -> Dict[str, Any]:
+    url = f'{_base()}/api/internal/worker/ads/sync-workspace-context/{workspace_id}'
+    r = httpx.get(url, headers=_headers(), timeout=120.0)
+    r.raise_for_status()
+    return r.json()
+
+
+def apply_ads_workspace_sync(
+    workspace_id: str,
+    google_campaigns: List[Dict[str, Any]],
+    meta_campaigns: List[Dict[str, Any]],
+) -> Dict[str, Any]:
+    url = f'{_base()}/api/internal/worker/ads/sync-workspace-apply'
+    body = {
+        'workspace_id': str(workspace_id),
+        'google_campaigns': google_campaigns,
+        'meta_campaigns': meta_campaigns,
+    }
+    r = httpx.post(url, headers=_headers(), json=body, timeout=600.0)
+    r.raise_for_status()
+    return r.json()
+
+
+def get_campaign_publish_bundle(campaign_id: str) -> Dict[str, Any]:
+    url = f'{_base()}/api/internal/worker/ads/campaigns/{campaign_id}/publish-bundle'
+    r = httpx.get(url, headers=_headers(), timeout=120.0)
+    r.raise_for_status()
+    return r.json()
+
+
+def append_campaign_publish_error(campaign_id: str, message: str) -> None:
+    url = f'{_base()}/api/internal/worker/ads/campaigns/{campaign_id}/publish-errors'
+    r = httpx.post(url, headers=_headers(), json={'message': message}, timeout=60.0)
+    r.raise_for_status()
+
+
+def patch_campaign_google_publish_result(
+    campaign_id: str,
+    platform_campaign_id: str,
+    platform_ad_set_id: Optional[str] = None,
+    platform_ad_id: Optional[str] = None,
+) -> None:
+    url = f'{_base()}/api/internal/worker/ads/campaigns/{campaign_id}/google-publish-result'
+    body: Dict[str, Any] = {'platform_campaign_id': str(platform_campaign_id)}
+    if platform_ad_set_id is not None:
+        body['platform_ad_set_id'] = platform_ad_set_id
+    if platform_ad_id is not None:
+        body['platform_ad_id'] = platform_ad_id
+    r = httpx.patch(url, headers=_headers(), json=body, timeout=60.0)
+    r.raise_for_status()
+
+
+def persist_agent_published_campaign(body: Dict[str, Any]) -> Dict[str, Any]:
+    """Upsert ads_campaigns after agent workflow publishes to Google/Meta."""
+    url = f'{_base()}/api/internal/worker/ads/campaigns/agent-publish'
+    r = httpx.post(url, headers=_headers(), json=body, timeout=60.0)
+    r.raise_for_status()
+    return r.json()
+
+
+def get_budget_alert_campaigns() -> Dict[str, Any]:
+    url = f'{_base()}/api/internal/worker/scheduler/budget-alert-campaigns'
+    r = httpx.get(url, headers=_headers(), timeout=120.0)
+    r.raise_for_status()
+    return r.json()
+
+
+def get_weekly_report_snapshot() -> Dict[str, Any]:
+    url = f'{_base()}/api/internal/worker/scheduler/weekly-report-snapshot'
+    r = httpx.get(url, headers=_headers(), timeout=300.0)
+    r.raise_for_status()
+    return r.json()
+
+
+def send_weekly_report_mail(
+    *,
+    emails: List[str],
+    workspace_name: str,
+    week_label: str,
+    stats: Dict[str, Any],
+) -> Dict[str, Any]:
+    url = f'{_base()}/api/internal/worker/mailer/weekly-report'
+    body = {
+        'emails': emails,
+        'workspaceName': workspace_name,
+        'weekLabel': week_label,
+        'stats': stats,
+    }
+    r = httpx.post(url, headers=_headers(), json=body, timeout=120.0)
+    r.raise_for_status()
+    return r.json()
+
+
+def list_active_ads_campaign_ids() -> List[str]:
+    url = f'{_base()}/api/internal/worker/ads/campaigns/active-ids'
+    r = httpx.get(url, headers=_headers(), timeout=120.0)
+    r.raise_for_status()
+    data = r.json()
+    return list(data.get('ids') or [])
+
+
+def get_ads_campaign_worker_snapshot(campaign_id: str) -> Dict[str, Any]:
+    url = f'{_base()}/api/internal/worker/ads/campaigns/{campaign_id}/snapshot'
+    r = httpx.get(url, headers=_headers(), timeout=60.0)
+    r.raise_for_status()
+    data = r.json()
+    c = data.get('campaign')
+    return c if isinstance(c, dict) else {}
+
+
+def patch_campaign_assets(campaign_id: str, assets: Dict[str, Any]) -> None:
+    url = f'{_base()}/api/internal/worker/ads/campaigns/{campaign_id}/campaign-assets'
+    r = httpx.patch(url, headers=_headers(), json={'assets': assets}, timeout=60.0)
+    r.raise_for_status()
+
+
+def patch_campaign_optimization(campaign_id: str, optimization: Dict[str, Any]) -> None:
+    url = f'{_base()}/api/internal/worker/ads/campaigns/{campaign_id}/campaign-optimization'
+    r = httpx.patch(url, headers=_headers(), json={'optimization': optimization}, timeout=60.0)
+    r.raise_for_status()
+
+
+def run_campaign_optimization(campaign_id: str, body: Dict[str, Any] | None = None) -> Dict[str, Any]:
+    """Same logic as POST /api/ads/campaigns/:id/optimize (via shared adsOptimization service)."""
+    url = f'{_base()}/api/internal/worker/ads/campaigns/{campaign_id}/optimize'
+    r = httpx.post(url, headers=_headers(), json=body or {}, timeout=300.0)
+    r.raise_for_status()
+    data = r.json()
+    return data if isinstance(data, dict) else {}
+
+
+def patch_campaign_worker_legacy_assets(campaign_id: str, assets: Dict[str, Any]) -> None:
+    """Deprecated alias — use patch_campaign_assets."""
+    patch_campaign_assets(campaign_id, assets)
+
+
+def patch_campaign_worker_legacy_optimization(campaign_id: str, optimization: Dict[str, Any]) -> None:
+    """Deprecated alias — use patch_campaign_optimization."""
+    patch_campaign_optimization(campaign_id, optimization)
+
+
+def get_agent_workflow(workflow_id: str) -> Dict[str, Any]:
+    url = f'{_base()}/api/internal/worker/agent/workflows/{workflow_id}'
+    r = httpx.get(url, headers=_headers(), timeout=60.0)
+    r.raise_for_status()
+    data = r.json()
+    wf = data.get('workflow')
+    return wf if isinstance(wf, dict) else {}
+
+
+def patch_agent_workflow(workflow_id: str, fields: Dict[str, Any]) -> None:
+    url = f'{_base()}/api/internal/worker/agent/workflows/{workflow_id}'
+    r = httpx.patch(url, headers=_headers(), json=fields, timeout=60.0)
+    r.raise_for_status()
+
+
+def create_post(body: Dict[str, Any]) -> Dict[str, Any]:
+    """Persist post via API (DB truth in apps/api — tasks.social.create_draft_post)."""
+    url = f'{_base()}/api/internal/worker/posts/create'
+    r = httpx.post(url, headers=_headers(), json=body, timeout=120.0)
+    r.raise_for_status()
+    data = r.json()
+    return data if isinstance(data, dict) else {}
+
+
+def fetch_media_file(media_id: str, *, workspace_id: str | None = None) -> Dict[str, Any]:
+    """Load workspace media library file as data URL (worker → API, not localhost uploads URL)."""
+    mid = str(media_id or '').strip()
+    if not mid:
+        raise ValueError('media_id is required')
+    url = f'{_base()}/api/internal/worker/media/{mid}/file'
+    params: Dict[str, str] = {}
+    if workspace_id:
+        params['workspace_id'] = str(workspace_id)
+    r = httpx.get(url, headers=_headers(), params=params or None, timeout=120.0)
+    r.raise_for_status()
+    data = r.json()
+    return data if isinstance(data, dict) else {}
+
+
+def schedule_post(body: Dict[str, Any]) -> Dict[str, Any]:
+    """Schedule draft post via API (tasks.social.schedule_post)."""
+    post_id = str(body.get('post_id') or '').strip()
+    if not post_id:
+        raise ValueError('post_id is required')
+    url = f'{_base()}/api/internal/worker/posts/{post_id}/schedule'
+    r = httpx.post(url, headers=_headers(), json=body, timeout=120.0)
+    r.raise_for_status()
+    data = r.json()
+    return data if isinstance(data, dict) else {}
+
+
+def prepare_publish_post(body: Dict[str, Any]) -> Dict[str, Any]:
+    """Attach target pages before tasks.social.publish_post runs."""
+    post_id = str(body.get('post_id') or '').strip()
+    if not post_id:
+        raise ValueError('post_id is required')
+    url = f'{_base()}/api/internal/worker/posts/{post_id}/publish-prepare'
+    r = httpx.post(url, headers=_headers(), json=body, timeout=120.0)
+    r.raise_for_status()
+    data = r.json()
+    return data if isinstance(data, dict) else {}
+
+
+def run_landing_page_workflow(body: Dict[str, Any]) -> Dict[str, Any]:
+    """Create LP → generate copy → optional publish (agent tool / Beat)."""
+    url = f'{_base()}/api/internal/worker/ads/landing-pages/run-workflow'
+    r = httpx.post(url, headers=_headers(), json=body, timeout=180.0)
+    r.raise_for_status()
+    data = r.json()
+    return data if isinstance(data, dict) else {}
+
+
+def cluster_seo_keywords(body: Dict[str, Any]) -> Dict[str, Any]:
+    """Cluster seed keywords by intent — same as POST /api/seo/keywords/cluster."""
+    url = f'{_base()}/api/internal/worker/seo/keywords/cluster'
+    r = httpx.post(url, headers=_headers(), json=body, timeout=180.0)
+    r.raise_for_status()
+    data = r.json()
+    return data if isinstance(data, dict) else {}
+
+
+def check_seo_keyword_ranks(body: Dict[str, Any]) -> Dict[str, Any]:
+    """Check SERP ranks for workspace keyword targets."""
+    url = f'{_base()}/api/internal/worker/seo/keywords/check-ranks'
+    r = httpx.post(url, headers=_headers(), json=body, timeout=240.0)
+    r.raise_for_status()
+    data = r.json()
+    return data if isinstance(data, dict) else {}
+
+
+def audit_seo_landing_pages(body: Dict[str, Any]) -> Dict[str, Any]:
+    """Rules-based SEO audit on workspace landing pages."""
+    url = f'{_base()}/api/internal/worker/seo/landing-pages/audit'
+    params = {}
+    ws = body.get('workspace_id')
+    if ws:
+        params['workspace_id'] = str(ws)
+    r = httpx.get(url, headers=_headers(), params=params or None, timeout=120.0)
+    r.raise_for_status()
+    data = r.json()
+    return data if isinstance(data, dict) else {}
+
+
+def run_hourly_budget_pacing(*, auto_pause_overspend: bool = False) -> Dict[str, Any]:
+    url = f'{_base()}/api/internal/worker/ads/pacing/run-hourly'
+    r = httpx.post(
+        url,
+        headers=_headers(),
+        json={'auto_pause_overspend': auto_pause_overspend},
+        timeout=300.0,
+    )
+    r.raise_for_status()
+    data = r.json()
+    return data if isinstance(data, dict) else {}
+
+
+def run_hourly_bid_optimization(*, auto_apply: bool = False) -> Dict[str, Any]:
+    url = f'{_base()}/api/internal/worker/ads/bid-optimization/run-hourly'
+    r = httpx.post(
+        url,
+        headers=_headers(),
+        json={'auto_apply': auto_apply},
+        timeout=600.0,
+    )
+    r.raise_for_status()
+    data = r.json()
+    return data if isinstance(data, dict) else {}
+
+
+def run_daily_negative_keyword_review() -> Dict[str, Any]:
+    url = f'{_base()}/api/internal/worker/ads/negative-keywords/run-daily'
+    r = httpx.post(url, headers=_headers(), json={}, timeout=600.0)
+    r.raise_for_status()
+    data = r.json()
+    return data if isinstance(data, dict) else {}
+
+
+def run_workspace_budget_pacing(body: Dict[str, Any]) -> Dict[str, Any]:
+    url = f'{_base()}/api/internal/worker/ads/budget/pacing'
+    r = httpx.post(url, headers=_headers(), json=body, timeout=300.0)
+    r.raise_for_status()
+    data = r.json()
+    return data if isinstance(data, dict) else {}
+
+
+def run_workspace_budget_reallocation(body: Dict[str, Any]) -> Dict[str, Any]:
+    url = f'{_base()}/api/internal/worker/ads/budget/reallocation'
+    r = httpx.post(url, headers=_headers(), json=body, timeout=180.0)
+    r.raise_for_status()
+    data = r.json()
+    return data if isinstance(data, dict) else {}
+
+
+def run_workspace_bid_optimization(body: Dict[str, Any]) -> Dict[str, Any]:
+    url = f'{_base()}/api/internal/worker/ads/optimization/bid'
+    r = httpx.post(url, headers=_headers(), json=body, timeout=300.0)
+    r.raise_for_status()
+    data = r.json()
+    return data if isinstance(data, dict) else {}
+
+
+def run_workspace_quality_score_monitor(body: Dict[str, Any]) -> Dict[str, Any]:
+    url = f'{_base()}/api/internal/worker/ads/optimization/quality-score'
+    params = {k: str(v) for k, v in body.items() if v is not None}
+    r = httpx.get(url, headers=_headers(), params=params, timeout=240.0)
+    r.raise_for_status()
+    data = r.json()
+    return data if isinstance(data, dict) else {}
+
+
+def run_workspace_asset_ab_analysis(body: Dict[str, Any]) -> Dict[str, Any]:
+    url = f'{_base()}/api/internal/worker/ads/optimization/asset-ab'
+    r = httpx.post(url, headers=_headers(), json=body, timeout=240.0)
+    r.raise_for_status()
+    data = r.json()
+    return data if isinstance(data, dict) else {}
+
+
+def patch_landing_page_content(
+    landing_page_id: str,
+    *,
+    headline: str,
+    subheadline: str,
+    body: str,
+    cta_text: str,
+) -> None:
+    url = f'{_base()}/api/internal/worker/ads/landing-pages/{landing_page_id}/landing-page-content'
+    r = httpx.patch(
+        url,
+        headers=_headers(),
+        json={
+            'headline': headline,
+            'subheadline': subheadline,
+            'body': body,
+            'cta_text': cta_text,
+        },
+        timeout=60.0,
+    )
+    r.raise_for_status()
+
+
+def patch_landing_page_worker_legacy_content(
+    landing_page_id: str,
+    *,
+    headline: str,
+    subheadline: str,
+    body: str,
+    cta_text: str,
+) -> None:
+    """Deprecated alias — use patch_landing_page_content."""
+    patch_landing_page_content(
+        landing_page_id,
+        headline=headline,
+        subheadline=subheadline,
+        body=body,
+        cta_text=cta_text,
+    )
+
+
+def list_comment_sync_post_ids() -> List[str]:
+    url = f'{_base()}/api/internal/worker/comment-sync/post-ids'
+    r = httpx.get(url, headers=_headers(), timeout=120.0)
+    r.raise_for_status()
+    data = r.json()
+    return list(data.get('ids') or [])
+
+
+def get_comment_sync_bundle(post_id: str) -> Dict[str, Any]:
+    url = f'{_base()}/api/internal/worker/posts/{post_id}/comment-sync-bundle'
+    r = httpx.get(url, headers=_headers(), timeout=120.0)
+    r.raise_for_status()
+    data = r.json()
+    return data if isinstance(data, dict) else {}
+
+
+def upsert_post_comment(body: Dict[str, Any]) -> Dict[str, Any]:
+    url = f'{_base()}/api/internal/worker/post-comments/upsert'
+    r = httpx.post(url, headers=_headers(), json=body, timeout=60.0)
+    r.raise_for_status()
+    data = r.json()
+    return data if isinstance(data, dict) else {}
+
+
+def get_post_comment_worker_context(comment_uuid: str) -> Dict[str, Any]:
+    url = f'{_base()}/api/internal/worker/post-comments/{comment_uuid}/worker-context'
+    r = httpx.get(url, headers=_headers(), timeout=60.0)
+    r.raise_for_status()
+    data = r.json()
+    return data if isinstance(data, dict) else {}
+
+
+def analyze_post_comment(comment_uuid: str) -> Dict[str, Any]:
+    url = f'{_base()}/api/internal/worker/post-comments/{comment_uuid}/analyze'
+    r = httpx.post(url, headers=_headers(), json={}, timeout=180.0)
+    r.raise_for_status()
+    data = r.json()
+    return data if isinstance(data, dict) else {}
+
+
+def apply_post_comment_reply_result(comment_uuid: str, body: Dict[str, Any]) -> None:
+    url = f'{_base()}/api/internal/worker/post-comments/{comment_uuid}/reply-result'
+    r = httpx.patch(url, headers=_headers(), json=body, timeout=60.0)
+    r.raise_for_status()
+
+
+================================================================================
+FILE: /home/sonofogre/Desktop/agent-market/apps/api/src/lib/celeryEnqueue.js
+================================================================================
+import { nanoid } from 'nanoid'
+import { getRedis } from './redis.js'
+
+/**
+ * Enqueue a Celery task using the same JSON payload shape as /api/ads AI routes.
+ * The Python worker must consume the broker (see services/ai-worker).
+ */
+export async function enqueueCeleryTask(task, args = [], kwargs = {}) {
+  const redis = getRedis()
+  const queue = process.env.CELERY_REDIS_LIST || 'agentmarket:api_task_bridge'
+  const id = nanoid()
+  const body = JSON.stringify({
+    id,
+    task,
+    args,
+    kwargs,
+    retries: 0,
+    eta: null,
+    expires: null,
+    utc: true,
+    callbacks: null,
+    errbacks: null,
+    timelimit: [null, null],
+    taskset: null,
+    chord: null,
+  })
+  await redis.lpush(queue, body)
+  return id
+}
+
+
+================================================================================
+FILE: /home/sonofogre/Desktop/agent-market/apps/api/src/queue/dispatcher.js
+================================================================================
+/**
+ * Enqueue-only dispatcher: all background work goes to Celery via the API task bridge.
+ * Node ``agentmarket:queue:*`` BLPOP workers are removed — see ``services/ai-worker``.
+ */
+import { enqueueCeleryTask } from '../lib/celeryEnqueue.js'
+
+/** @returns {Promise<{ via: 'celery', task_id: string }>} */
+export async function dispatchPublishPost(postId) {
+  // Same task as registry tool publish_post (agent runtime).
+  const task_id = await enqueueCeleryTask('tasks.social.publish_post', [postId])
+  return { via: 'celery', task_id }
+}
+
+/** @returns {Promise<{ via: 'celery', task_id: string }>} */
+export async function dispatchPublishCampaign(campaignId) {
+  const task_id = await enqueueCeleryTask('tasks.ads.publish_campaign', [campaignId])
+  return { via: 'celery', task_id }
+}
+
+/** @returns {Promise<{ via: 'celery', task_id: string }>} */
+export async function dispatchImportAccount(accountId) {
+  const task_id = await enqueueCeleryTask('tasks.imports.import_account', [accountId])
+  return { via: 'celery', task_id }
+}
+
+export async function dispatchImportTwitterFollowers(accountId) {
+  await enqueueCeleryTask('tasks.imports.import_twitter_followers', [accountId])
+}
+
+export async function dispatchImportTwitterPosts(accountId, paginationToken = '') {
+  await enqueueCeleryTask(
+    'tasks.imports.import_twitter_posts',
+    paginationToken ? [accountId, paginationToken] : [accountId],
+  )
+}
+
+export async function dispatchProcessTwitterMetrics(accountId) {
+  await enqueueCeleryTask('tasks.analytics.process_twitter_metrics', [accountId])
+}
+
+export async function dispatchImportFacebookFollowers(accountId) {
+  await enqueueCeleryTask('tasks.imports.import_facebook_followers', [accountId])
+}
+
+export async function dispatchImportFacebookInsights(accountId) {
+  await enqueueCeleryTask('tasks.imports.import_facebook_insights', [accountId])
+}
+
+export async function dispatchImportInstagramFollowers(accountId) {
+  await enqueueCeleryTask('tasks.imports.import_instagram_followers', [accountId])
+}
+

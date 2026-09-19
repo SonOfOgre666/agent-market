@@ -1,0 +1,31 @@
+# Run the stack from images published to GHCR by CI instead of building locally:
+#   docker compose -f docker-compose.yml -f docker-compose.prebuilt.yml pull
+#   docker compose -f docker-compose.yml -f docker-compose.prebuilt.yml up -d
+# Override the tag with IMAGE_TAG (defaults to latest), e.g. IMAGE_TAG=1.2.0
+services:
+  api:
+    image: ghcr.io/sonofogre666/agent-market-api:${IMAGE_TAG:-latest}
+    build: !reset null
+    volumes:
+      - uploads_data:/app/uploads
+
+  celery-worker:
+    image: ghcr.io/sonofogre666/agent-market-ai-worker:${IMAGE_TAG:-latest}
+    build: !reset null
+    volumes:
+      - uploads_data:/data/uploads
+
+  celery-beat:
+    image: ghcr.io/sonofogre666/agent-market-ai-worker:${IMAGE_TAG:-latest}
+    build: !reset null
+
+  realtime:
+    image: ghcr.io/sonofogre666/agent-market-realtime:${IMAGE_TAG:-latest}
+    build: !reset null
+
+  web:
+    image: ghcr.io/sonofogre666/agent-market-web:${IMAGE_TAG:-latest}
+    build: !reset null
+
+volumes:
+  uploads_data:

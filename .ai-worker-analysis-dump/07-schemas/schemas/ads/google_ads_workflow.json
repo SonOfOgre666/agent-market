@@ -1,0 +1,106 @@
+{
+  "platform": "google_ads",
+  "label": "Google Ads",
+  "modes": ["guided", "granular", "tools"],
+  "steps": [
+    {
+      "id": "goal",
+      "title": "Campaign type",
+      "description": "Full end-to-end publish for each channel type (budget → campaign → creatives). No campaign-shell handoff.",
+      "fields": [
+        {
+          "name": "type",
+          "label": "Advertising channel",
+          "type": "select",
+          "required": true,
+          "options": [
+            { "value": "search", "label": "Search — RSA + keywords" },
+            { "value": "display", "label": "Display — responsive display ad" },
+            { "value": "video", "label": "Video — VIDEO_ACTION + VideoResponsiveAd" },
+            { "value": "shopping", "label": "Shopping — Merchant Center + listing group tree" },
+            { "value": "performance_max", "label": "Performance Max — atomic asset group + assets" },
+            { "value": "app", "label": "App — APP_CAMPAIGN + target CPA" },
+            { "value": "local", "label": "Local (deprecated) — routes to Performance Max" }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "campaign",
+      "title": "Campaign & budget",
+      "description": "Core campaign fields; type-specific IDs (merchant_id, app_id) included in publish payload.",
+      "fields": [
+        { "name": "account_id", "label": "account_id", "type": "ad_account", "required": true, "providers": ["google_ads"] },
+        { "name": "name", "label": "name", "type": "text", "required": true },
+        { "name": "budget_amount", "label": "budget.amount (daily)", "type": "number", "required": true, "min": 1 },
+        { "name": "budget_currency", "label": "budget.currency", "type": "select", "required": true, "options": [
+          { "value": "USD", "label": "USD" },
+          { "value": "EUR", "label": "EUR" },
+          { "value": "GBP", "label": "GBP" }
+        ]},
+        { "name": "merchant_id", "label": "merchant_id (Shopping / retail PMax)", "type": "text", "required": false },
+        { "name": "feed_label", "label": "feed_label (Shopping — replaces sales_country)", "type": "text", "required": false },
+        { "name": "sales_country", "label": "sales_country (legacy → mapped to feed_label)", "type": "text", "required": false },
+        { "name": "app_id", "label": "app_id (App campaigns)", "type": "text", "required": false },
+        { "name": "app_store", "label": "app_store", "type": "select", "required": false, "options": [
+          { "value": "GOOGLE_APP_STORE", "label": "Google Play" },
+          { "value": "APPLE_APP_STORE", "label": "Apple App Store" }
+        ]},
+        { "name": "youtube_video_id", "label": "youtube_video_id (Video / optional PMax)", "type": "text", "required": false },
+        {
+          "name": "schedule_timezone",
+          "label": "Schedule timezone",
+          "type": "select",
+          "required": false,
+          "options": [
+            { "value": "", "label": "Account timezone (default)" },
+            { "value": "America/New_York", "label": "Eastern — America/New_York" },
+            { "value": "Europe/London", "label": "UK — Europe/London" },
+            { "value": "UTC", "label": "UTC" }
+          ]
+        },
+        { "name": "start_date", "label": "start_date", "type": "date", "required": false },
+        { "name": "end_date", "label": "end_date", "type": "date", "required": false }
+      ]
+    },
+    {
+      "id": "targeting",
+      "title": "Geo & negatives",
+      "description": "Geo applied during publish; extensions and negatives run post-publish.",
+      "fields": []
+    },
+    {
+      "id": "adgroup",
+      "title": "Ad group & keywords",
+      "description": "Search: keywords + ad group bid. Other types: ad group created in publish chain.",
+      "fields": []
+    },
+    {
+      "id": "ads",
+      "title": "Creatives",
+      "description": "Search RSA, Display RDA, Video, PMax assets, App ad, or Local ad — all included in typed publish.",
+      "fields": [
+        { "name": "final_url", "label": "final_url", "type": "url", "required": true },
+        { "name": "headlines", "label": "headlines", "type": "textarea", "required": true },
+        { "name": "descriptions", "label": "descriptions", "type": "textarea", "required": true }
+      ]
+    },
+    {
+      "id": "extensions",
+      "title": "Extensions",
+      "description": "google_create_sitelink_extensions, google_create_callout_extensions (applied after publish).",
+      "fields": []
+    },
+    {
+      "id": "advanced",
+      "title": "Schedules, bids & audiences",
+      "description": "Optional: google_create_ad_schedule, google_set_bid_adjustments, audiences (post-publish).",
+      "fields": []
+    },
+    {
+      "id": "review",
+      "title": "Review & launch",
+      "fields": []
+    }
+  ]
+}

@@ -1,0 +1,280 @@
+
+================================================================================
+FILE: /home/sonofogre/Desktop/agent-market/services/ai-worker/schemas/ads/google_ads_workflow.json
+================================================================================
+{
+  "platform": "google_ads",
+  "label": "Google Ads",
+  "modes": ["guided", "granular", "tools"],
+  "steps": [
+    {
+      "id": "goal",
+      "title": "Campaign type",
+      "description": "Full end-to-end publish for each channel type (budget → campaign → creatives). No campaign-shell handoff.",
+      "fields": [
+        {
+          "name": "type",
+          "label": "Advertising channel",
+          "type": "select",
+          "required": true,
+          "options": [
+            { "value": "search", "label": "Search — RSA + keywords" },
+            { "value": "display", "label": "Display — responsive display ad" },
+            { "value": "video", "label": "Video — VIDEO_ACTION + VideoResponsiveAd" },
+            { "value": "shopping", "label": "Shopping — Merchant Center + listing group tree" },
+            { "value": "performance_max", "label": "Performance Max — atomic asset group + assets" },
+            { "value": "app", "label": "App — APP_CAMPAIGN + target CPA" },
+            { "value": "local", "label": "Local (deprecated) — routes to Performance Max" }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "campaign",
+      "title": "Campaign & budget",
+      "description": "Core campaign fields; type-specific IDs (merchant_id, app_id) included in publish payload.",
+      "fields": [
+        { "name": "account_id", "label": "account_id", "type": "ad_account", "required": true, "providers": ["google_ads"] },
+        { "name": "name", "label": "name", "type": "text", "required": true },
+        { "name": "budget_amount", "label": "budget.amount (daily)", "type": "number", "required": true, "min": 1 },
+        { "name": "budget_currency", "label": "budget.currency", "type": "select", "required": true, "options": [
+          { "value": "USD", "label": "USD" },
+          { "value": "EUR", "label": "EUR" },
+          { "value": "GBP", "label": "GBP" }
+        ]},
+        { "name": "merchant_id", "label": "merchant_id (Shopping / retail PMax)", "type": "text", "required": false },
+        { "name": "feed_label", "label": "feed_label (Shopping — replaces sales_country)", "type": "text", "required": false },
+        { "name": "sales_country", "label": "sales_country (legacy → mapped to feed_label)", "type": "text", "required": false },
+        { "name": "app_id", "label": "app_id (App campaigns)", "type": "text", "required": false },
+        { "name": "app_store", "label": "app_store", "type": "select", "required": false, "options": [
+          { "value": "GOOGLE_APP_STORE", "label": "Google Play" },
+          { "value": "APPLE_APP_STORE", "label": "Apple App Store" }
+        ]},
+        { "name": "youtube_video_id", "label": "youtube_video_id (Video / optional PMax)", "type": "text", "required": false },
+        {
+          "name": "schedule_timezone",
+          "label": "Schedule timezone",
+          "type": "select",
+          "required": false,
+          "options": [
+            { "value": "", "label": "Account timezone (default)" },
+            { "value": "America/New_York", "label": "Eastern — America/New_York" },
+            { "value": "Europe/London", "label": "UK — Europe/London" },
+            { "value": "UTC", "label": "UTC" }
+          ]
+        },
+        { "name": "start_date", "label": "start_date", "type": "date", "required": false },
+        { "name": "end_date", "label": "end_date", "type": "date", "required": false }
+      ]
+    },
+    {
+      "id": "targeting",
+      "title": "Geo & negatives",
+      "description": "Geo applied during publish; extensions and negatives run post-publish.",
+      "fields": []
+    },
+    {
+      "id": "adgroup",
+      "title": "Ad group & keywords",
+      "description": "Search: keywords + ad group bid. Other types: ad group created in publish chain.",
+      "fields": []
+    },
+    {
+      "id": "ads",
+      "title": "Creatives",
+      "description": "Search RSA, Display RDA, Video, PMax assets, App ad, or Local ad — all included in typed publish.",
+      "fields": [
+        { "name": "final_url", "label": "final_url", "type": "url", "required": true },
+        { "name": "headlines", "label": "headlines", "type": "textarea", "required": true },
+        { "name": "descriptions", "label": "descriptions", "type": "textarea", "required": true }
+      ]
+    },
+    {
+      "id": "extensions",
+      "title": "Extensions",
+      "description": "google_create_sitelink_extensions, google_create_callout_extensions (applied after publish).",
+      "fields": []
+    },
+    {
+      "id": "advanced",
+      "title": "Schedules, bids & audiences",
+      "description": "Optional: google_create_ad_schedule, google_set_bid_adjustments, audiences (post-publish).",
+      "fields": []
+    },
+    {
+      "id": "review",
+      "title": "Review & launch",
+      "fields": []
+    }
+  ]
+}
+
+
+================================================================================
+FILE: /home/sonofogre/Desktop/agent-market/services/ai-worker/schemas/ads/google_branches.json
+================================================================================
+{
+  "branches": {
+    "search": {
+      "label": "Search",
+      "publish_tool": "google_publish_search_campaign",
+      "required_from_user": ["budget", "end_date", "final_url", "geo"],
+      "derivable": ["keywords", "headlines", "descriptions", "keyword_match_type"],
+      "conditional": ["business_context"]
+    },
+    "display": {
+      "label": "Display",
+      "publish_tool": "google_publish_display_campaign",
+      "required": ["budget", "end_date", "final_url", "geo", "marketing_images"]
+    },
+    "video": {
+      "label": "Video",
+      "publish_tool": "google_publish_video_campaign",
+      "required": ["budget", "end_date", "final_url", "geo", "youtube_video", "logo"]
+    },
+    "shopping": {
+      "label": "Shopping",
+      "publish_tool": "google_publish_shopping_campaign",
+      "required": ["budget", "end_date", "geo"]
+    },
+    "performance_max": {
+      "label": "Performance Max",
+      "publish_tool": "google_publish_performance_max_campaign",
+      "required": ["budget", "end_date", "final_url", "geo", "logo", "marketing_images"]
+    },
+    "app": {
+      "label": "App",
+      "publish_tool": "google_publish_app_campaign",
+      "required": ["budget", "end_date", "geo", "app_id"]
+    },
+    "local": {
+      "label": "Local (→ PMax)",
+      "publish_tool": "google_publish_local_campaign",
+      "routes_to": "performance_max",
+      "required": ["budget", "end_date", "final_url", "geo", "logo", "marketing_images"]
+    }
+  }
+}
+
+
+================================================================================
+FILE: /home/sonofogre/Desktop/agent-market/services/ai-worker/schemas/ads/meta_ads_workflow.json
+================================================================================
+{
+  "platform": "meta_ads",
+  "label": "Meta Ads",
+  "steps": [
+    {
+      "id": "objective",
+      "title": "Campaign Objective",
+      "description": "Choose what you want this campaign to achieve.",
+      "fields": [
+        {
+          "name": "objective",
+          "label": "Objective",
+          "type": "select",
+          "required": true,
+          "options": [
+            { "value": "OUTCOME_TRAFFIC", "label": "Traffic" },
+            { "value": "OUTCOME_AWARENESS", "label": "Awareness" },
+            { "value": "OUTCOME_ENGAGEMENT", "label": "Engagement" },
+            { "value": "OUTCOME_LEADS", "label": "Leads" },
+            { "value": "OUTCOME_SALES", "label": "Sales" },
+            { "value": "OUTCOME_APP_PROMOTION", "label": "App promotion" }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "campaign",
+      "title": "Campaign",
+      "fields": [
+        { "name": "name", "label": "Campaign name", "type": "text", "required": true },
+        { "name": "account_id", "label": "Connected account", "type": "ad_account", "required": true, "providers": ["meta_ads"] },
+        { "name": "ad_account_id", "label": "Ad account", "type": "meta_ad_account", "required": true }
+      ]
+    },
+    {
+      "id": "targeting",
+      "title": "Targeting",
+      "description": "Geo and interests use meta_search_geo_locations, meta_search_interests, meta_estimate_audience_size.",
+      "fields": [
+        { "name": "target_countries", "label": "Countries (ISO)", "type": "text", "required": false }
+      ]
+    },
+    {
+      "id": "adset",
+      "title": "Ad Set",
+      "description": "Optimization goals are filtered by objective in the wizard (publish_defaults enforces valid pairings). Sales conversion goals require a Meta Pixel (meta_list_ad_pixels).",
+      "fields": [
+        { "name": "adset_name", "label": "Ad set name", "type": "text", "required": true },
+        {
+          "name": "optimization_goal",
+          "label": "Optimization goal",
+          "type": "select",
+          "required": true,
+          "description": "Options depend on campaign objective. OUTCOME_SALES: OFFSITE_CONVERSIONS or VALUE only (not LINK_CLICKS).",
+          "options": [
+            { "value": "LINK_CLICKS", "label": "Link clicks" },
+            { "value": "LANDING_PAGE_VIEWS", "label": "Landing page views" },
+            { "value": "IMPRESSIONS", "label": "Impressions" },
+            { "value": "REACH", "label": "Reach" },
+            { "value": "THRUPLAY", "label": "ThruPlay (video required)" },
+            { "value": "POST_ENGAGEMENT", "label": "Post engagement" },
+            { "value": "LEAD_GENERATION", "label": "Lead generation (instant form)" },
+            { "value": "QUALITY_LEAD", "label": "Quality lead (instant form)" },
+            { "value": "OFFSITE_CONVERSIONS", "label": "Conversions (requires Pixel)" },
+            { "value": "VALUE", "label": "Conversion value (requires Pixel)" },
+            { "value": "APP_INSTALLS", "label": "App installs" }
+          ]
+        },
+        {
+          "name": "billing_event",
+          "label": "Billing event (auto)",
+          "type": "select",
+          "required": true,
+          "description": "LINK_CLICKS goal: IMPRESSIONS or LINK_CLICKS billing. Other goals: IMPRESSIONS only.",
+          "options": [
+            { "value": "IMPRESSIONS", "label": "Impressions" },
+            { "value": "LINK_CLICKS", "label": "Link clicks" }
+          ]
+        },
+        { "name": "daily_budget", "label": "Daily budget (USD)", "type": "number", "required": true, "min": 1 },
+        {
+          "name": "pixel_id",
+          "label": "Meta Pixel",
+          "type": "text",
+          "required": false,
+          "description": "Required for OUTCOME_SALES + OFFSITE_CONVERSIONS/VALUE. Listed via meta_list_ad_pixels; auto-selected when one pixel exists."
+        },
+        {
+          "name": "custom_event_type",
+          "label": "Conversion event",
+          "type": "text",
+          "required": false,
+          "description": "e.g. PURCHASE — used with Sales conversion goals."
+        }
+      ]
+    },
+    {
+      "id": "ads",
+      "title": "Ad creative",
+      "description": "Publish chain (reference_ads): meta_upload_ad_image → meta_create_creative(image_hash, page_id, link_url) → meta_create_ad. One-shot: meta_publish_campaign runs all steps.",
+      "fields": [
+        { "name": "page_id", "label": "Facebook Page", "type": "facebook_page", "required": true },
+        { "name": "link_url", "label": "Destination URL", "type": "url", "required": true },
+        { "name": "image_url", "label": "Ad image URL (public HTTPS)", "type": "url", "required": true },
+        { "name": "primary_text", "label": "Primary text", "type": "textarea", "required": false },
+        { "name": "headlines", "label": "Headline", "type": "text", "required": false },
+        { "name": "descriptions", "label": "Description", "type": "text", "required": false }
+      ]
+    },
+    {
+      "id": "review",
+      "title": "Review & save",
+      "description": "Save draft → Mongo only. Create & publish runs meta_publish_campaign (campaign → ad set → upload image if needed → creative → ad).",
+      "fields": []
+    }
+  ]
+}
+

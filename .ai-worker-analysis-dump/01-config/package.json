@@ -1,0 +1,19 @@
+{
+  "name": "agent-market",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "services/*"
+  ],
+  "scripts": {
+    "check": "make check",
+    "dev": "npx concurrently \"npm run dev --workspace=apps/api\" \"npm run dev --workspace=apps/web\" \"npm run dev --workspace=services/realtime\"",
+    "dev:all": "npx concurrently -n api,web,rt \"npm run dev --workspace=apps/api\" \"npm run dev --workspace=apps/web\" \"npm run dev --workspace=services/realtime\"",
+    "build": "npm run build --workspace=apps/api && npm run build --workspace=apps/web",
+    "start": "npx concurrently \"npm run start --workspace=apps/api\" \"npm run start --workspace=apps/web\" \"npm run start --workspace=services/realtime\""
+  },
+  "devDependencies": {
+    "concurrently": "^9.0.0"
+  }
+}
